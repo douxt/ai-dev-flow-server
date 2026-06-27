@@ -59,6 +59,25 @@ while IFS= read -r f; do
     fi
 done < <(grep -rl "^status: in_progress$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
+# 4. backlog 依赖全部 done → 自动标 ready
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    # 提取 blocked_by 列表
+    BLOCKED_BY=$(grep "^blocked_by:" "$f" | sed 's/.*\[\(.*\)\].*/\1/' | tr ',' '\n' | sed 's/^ *"//;s/" *$//;s/^ *//;s/ *$//' | grep -v "^$\|^\[\]$" || true)
+    [ -z "$BLOCKED_BY" ] && continue
+    ALL_DONE=true
+    for dep in $BLOCKED_BY; do
+        DEP_FILE=$(find "$ISSUES_DIR" -name "${dep}-*.md" -exec grep -l "^status: done$" {} \; 2>/dev/null | head -1)
+        [ -z "$DEP_FILE" ] && ALL_DONE=false && break
+    done
+    if [ "$ALL_DONE" = true ]; then
+        ISSUE_NUM=$(basename "$f" | cut -d- -f1)
+        log "AUTO_READY: #${ISSUE_NUM} 依赖全部 done，backlog → ready"
+        sed -i "s/^status: backlog$/status: ready/" "$f"
+        CHANGED=true
+    fi
+done < <(grep -rl "^status: backlog$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
+
 if [ "$CHANGED" = true ]; then
     git add "$ISSUES_DIR" 2>/dev/null || true
     git commit -m "reconcile: 状态修复 ($(date +%Y-%m-%d))" 2>/dev/null || true
