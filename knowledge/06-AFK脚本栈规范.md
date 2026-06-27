@@ -158,6 +158,8 @@ implement → validate → auto-review → cross-review → merge-reviews → cr
 | 7 | 多 dispatch 并发 | 两个 dispatch 抢同一 issue | timer + 手动 dispatch 同时跑 | 原子抢占通过 git push 竞态实现；避免手动与 timer 同时触发 |
 | 8 | Telegram 不可达 | notify.py 报发送失败 | 服务器无 Telegram API 网络通路（预期内） | notify.py 已写本地 `logs/notify-fallback.log` 兜底；审批走 GitHub PR review |
 | 9 | issue 自检标签与 frontmatter 不一致 | 评审发现 #005 自检写 AFK 但 frontmatter 是 HITL | 修改 type 时只改了 frontmatter 未同步自检文本 | 改 type 时全局搜索替换；Gate 4 评审会捕获 |
+| 10 | **dispatch.sh blocked_by 解析缺引号剥离** | #002/#003 ready 但 dispatch 报 NO_MORE_TASKS，认为依赖未满足 | `blocked_by: ["001"]` 解析后仍是 `"001"`（带引号），`find -name '"001"-*.md'` 找不到文件。reconcile.sh 有 `sed 's/"//g'` 但 dispatch.sh 没有 | dispatch.sh 对齐 reconcile.sh 的解析：`sed 's/^ *"//;s/" *$//'` |
+| 11 | **git pull 因本地未提交改动静默失败** | dispatch/reconcile 持续报 `WARN: git pull 失败`，无法同步远程状态 | `git pull --rebase` 要求 clean working tree。手动跑 dispatch 修改文件后未提交，后续 timer 触发 dispatch 拉不到远程更新 | 禁止手动跑 dispatch；dispatch.sh 启动前 `git stash && git pull --rebase && git stash pop`；或定时 `cron` 自动 commit + push 残留改动 |
 
 ### 首次部署检查清单
 
@@ -167,6 +169,10 @@ implement → validate → auto-review → cross-review → merge-reviews → cr
 □ git push --set-upstream 已执行
 □ issues/ 仅含 issue 文件，无 PRD
 □ 所有 issue 的 effort 字段与 estimate 对齐
+□ dispatch.sh blocked_by 解析与 reconcile.sh 一致（都含引号剥离）
+□ 禁止手动 bash dispatch.sh，仅用 systemd timer
+□ git stash guard 已加入 dispatch.sh（防本地脏工作树阻塞 pull）
+```
 □ dispatch.timer 已激活（systemctl is-active）
 □ 手动 dispatch 仅用 systemctl start，禁止直接 bash dispatch.sh
 ```
