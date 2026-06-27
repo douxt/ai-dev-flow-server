@@ -52,8 +52,8 @@ done < <(grep -rl "^status: failed$" "$ISSUES_DIR" --include="*.md" 2>/dev/null 
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
-    if ! git branch -a | grep -q "ai/.*${ISSUE_NUM}"; then
-        log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/ 分支，回收为 ready"
+    if ! git branch -a | grep -qE "(ai|archon)/.*${ISSUE_NUM}"; then
+        log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/archon 分支，回收为 ready"
         sed -i "s/^status: in_progress$/status: ready/" "$f"
         CHANGED=true
     fi
