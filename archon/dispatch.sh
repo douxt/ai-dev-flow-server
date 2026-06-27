@@ -29,6 +29,7 @@ cd "$WORKSPACE"
 # 从 config.yaml 读取配置（简单 grep 解析，无 yq 依赖）
 PROJECT_NAME=$(grep -E '^\s+name:' "$CONFIG" | head -1 | awk '{print $2}' | tr -d '"'"'" || echo "unknown")
 BRANCH_PREFIX=$(grep -E '^\s+branch_prefix:' "$CONFIG" | head -1 | awk '{print $2}' | tr -d '"'"'" || echo "ai/")
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
 log "--- dispatch 扫描: $PROJECT_NAME ---"
 
@@ -103,7 +104,7 @@ while [ $ATTEMPT -le $MAX_RETRIES ]; do
     # 用临时文件捕获 Archon 输出，提取结构化标记
     ARCHON_OUT=$(mktemp)
     trap "rm -f $ARCHON_OUT" EXIT
-    if archon workflow run "$ARCHON_WORKFLOW" "$ISSUE_PATH" > "$ARCHON_OUT" 2>&1; then
+    if archon workflow run "$ARCHON_WORKFLOW" "$ISSUE_PATH" --from "$CURRENT_BRANCH" > "$ARCHON_OUT" 2>&1; then
         # 追加完整输出到主日志
         cat "$ARCHON_OUT" >> "$LOG_FILE"
         # 提取关键节点标记
