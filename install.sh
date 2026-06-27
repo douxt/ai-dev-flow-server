@@ -9,13 +9,19 @@ TECH_STACK=""
 TEST_CMD=""
 LINT_CMD=""
 PKG_MGR=""
+UPDATE_MODE=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --tech-stack) TECH_STACK="$2"; shift 2 ;;
         --test-cmd)   TEST_CMD="$2"; shift 2 ;;
         --lint-cmd)   LINT_CMD="$2"; shift 2 ;;
         --pkg-mgr)    PKG_MGR="$2"; shift 2 ;;
-        --help)       echo "用法: bash install.sh <项目路径> [--tech-stack node|python|go] [--test-cmd ...] [--lint-cmd ...] [--pkg-mgr ...]"; exit 0 ;;
+        --update)     UPDATE_MODE=true; shift ;;
+        --help)
+            echo "用法:"
+            echo "  bash install.sh <项目路径> [--tech-stack node|python|go] [--test-cmd ...]"
+            echo "  bash install.sh <项目路径> --update   # 仅更新 .devflow/ + workflows，保留 config 和 gate-state"
+            exit 0 ;;
         *)            TARGET="$1"; shift ;;
     esac
 done
@@ -26,6 +32,31 @@ fi
 
 TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
 SOURCE=$(cd "$(dirname "$0")" && pwd)
+
+# ── update 模式 ──
+if [ "$UPDATE_MODE" = true ]; then
+    echo "── ai-dev-flow-server 更新模式 ──"
+    echo "  源: $SOURCE"
+    echo "  目标: $TARGET"
+    if [ -d "$SOURCE/.git" ]; then
+        echo "  git pull ..."
+        cd "$SOURCE" && git pull --rebase --quiet 2>/dev/null || echo "  ⚠️  git pull 失败，继续用当前版本"
+    fi
+    echo "  更新 archon/ ..."
+    cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/"
+    cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/"
+    cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/"
+    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"
+    echo "  更新 scripts/ ..."
+    cp "$SOURCE/scripts/"*.py "$TARGET/.devflow/scripts/"
+    chmod +x "$TARGET/.devflow/scripts/"*.py
+    echo "  更新 knowledge/ ..."
+    cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
+    echo "  更新 workflows/ ..."
+    cp "$SOURCE/workflows/"*.js "$HOME/.claude/workflows/"
+    echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
+    exit 0
+fi
 
 echo "╔══════════════════════════════════════╗"
 echo "║  ai-dev-flow-server 安装器          ║"
