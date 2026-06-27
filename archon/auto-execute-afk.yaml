@@ -1,9 +1,27 @@
 name: auto-execute-afk
 description: AFK 自动执行 — TDD 实现→测试→双模型审查→PR→待审批（无人值守）
 nodes:
+  - id: setup
+    bash: |
+      # 从主项目同步 issue 文件到 worktree（worktree 从 main 创建，无 issue）
+      ISSUE_PATH="$ARGUMENTS"
+      MAIN="/home/www/openlobby"
+      ISSUE_NAME=$(basename "$ISSUE_PATH")
+      mkdir -p issues
+      if [ -f "$MAIN/$ISSUE_PATH" ]; then
+        cp "$MAIN/$ISSUE_PATH" "issues/$ISSUE_NAME"
+        echo "SETUP: issue $ISSUE_NAME synced from main project"
+      elif [ -f "$MAIN/.archon/shared/$ISSUE_NAME" ]; then
+        cp "$MAIN/.archon/shared/$ISSUE_NAME" "issues/$ISSUE_NAME"
+        echo "SETUP: issue $ISSUE_NAME synced from shared cache"
+      else
+        echo "SETUP: WARN — cannot find issue file at $MAIN/$ISSUE_PATH"
+      fi
+
   - id: implement
+    depends_on: [setup]
     prompt: |
-      阅读 $ARGUMENTS（issue 文件路径）。
+      阅读 issues/$(basename $ARGUMENTS)（已从主项目同步到 worktree）。
 
       ## 第1步：盘点状态
       1. 提取 issue 中所有 Acceptance Criteria（AC 清单）
