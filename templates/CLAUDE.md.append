@@ -1,0 +1,37 @@
+
+<!-- ⚠️ 以下由 ai-dev-flow-server install.sh 自动追加 -->
+## AI Dev Flow（服务器版）
+
+本项目已安装 ai-dev-flow-server 开发流程约束。
+
+### Gate 流程
+
+| Gate | 命令 | 说明 |
+|------|------|------|
+| 1 | `/gate-1-grill` | 需求对齐 — grill 全方位拷问 |
+| 2 | `/gate-2-prd` | 产出 PRD — 附带宪法自检 |
+| 3 | `/gate-3-issues` | 拆解 Issue — 垂直切片 + 宪法对照 |
+| 4 | `/gate-4-review` | Issue 评审 — CC 子进程独立评审 |
+| 5 | `/gate-5-prep` | 环境检查 — .devflow/ 完整性 |
+| 6 | `/gate-6-afk` | AFK 就绪 — 确认 dispatch 管线 |
+
+### Issue 状态机
+
+```
+backlog → ready → in_progress → done
+```
+
+- 人将 issue 拖到 `ready` → dispatch.timer 自动消化
+- dispatch.sh: 宪法检查 → 原子抢占 → Archon 7 节点工作流 → PR
+- PR 创建后 Telegram 通知审批
+
+### 关键路径
+
+| 内容 | 路径 |
+|------|------|
+| 项目配置 | `.devflow/config.yaml` |
+| 知识库 | `.devflow/knowledge/` |
+| Gate 状态 | `.gate-state` |
+| Issue 目录 | `issues/` |
+| 调度日志 | `logs/dispatch.log` |
+<!-- ai-dev-flow-server end -->

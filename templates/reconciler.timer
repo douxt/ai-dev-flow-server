@@ -1,0 +1,11 @@
+[Unit]
+Description=DevFlow AFK Reconcile — {{PROJECT_NAME}}
+After=network.target
+
+[Service]
+Type=oneshot
+User=www
+WorkingDirectory={{PROJECT_WORKSPACE}}
+ExecStart=/bin/bash {{PROJECT_WORKSPACE}}/.devflow/archon/reconciler.sh {{PROJECT_WORKSPACE}}
+StandardOutput=append:{{PROJECT_WORKSPACE}}/logs/reconcile.log
+StandardError=append:{{PROJECT_WORKSPACE}}/logs/reconcile.log

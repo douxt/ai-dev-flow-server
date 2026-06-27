@@ -1,0 +1,15 @@
+# AI Dev Flow — Gate 状态追踪（服务器版）
+# workflow 脚本自动写入 passed；人手动设定 blocked 触发回退
+# gate-7 为人工审查，不走 workflow 脚本
+
+project: ""
+version: "1.0"
+mode: "server"
+gates:
+  gate-1: { status: pending, desc: "/grill-me 需求对齐" }
+  gate-2: { status: pending, desc: "/to-prd 产出 PRD" }
+  gate-3: { status: pending, desc: "/to-issues 拆 Issue" }
+  gate-4: { status: pending, desc: "/review-cc-cli Issue 评审" }
+  gate-5: { status: pending, desc: "检查 .devflow/ 完整性" }
+  gate-6: { status: pending, desc: "AFK 管线就绪确认" }
+# gate-7: 人工代码审查 + PR 合并，无 workflow 脚本

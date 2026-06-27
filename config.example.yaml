@@ -1,0 +1,24 @@
+# .devflow/config.yaml — install.sh 生成，dispatch/Archon 读取
+project:
+  name: my-project
+  repo_url: git@github.com:user/my-project.git
+  workspace: /opt/my-project
+
+tech_stack:
+  language: node                # --tech-stack 设置
+  package_manager: npm          # --pkg-mgr 覆盖
+  test_command: npm test        # --test-cmd 覆盖
+  lint_command: npm run lint    # --lint-cmd 覆盖
+
+dispatch:
+  branch_prefix: ai/
+  max_retries: 3
+  poll_interval_min: 5
+
+review:
+  cross_review: false           # 是否启用 Qwen 交叉审查（需 mini-router 在线）
+  constitution_check: true
+
+notify:
+  telegram_chat_id: "<从 MAF-Hub config/telegram.json 复制>"
+  telegram_bot_token: "<同上>"
