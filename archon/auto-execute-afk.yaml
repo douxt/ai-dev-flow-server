@@ -4,13 +4,44 @@ nodes:
   - id: implement
     prompt: |
       阅读 $ARGUMENTS（issue 文件路径）。
-      按照 issue 的 Acceptance Criteria 逐条实现。
-      TDD 流程：先写失败测试 → 最小实现 → 跑通。
-      每个 AC 独立提交。失败最多重试 3 次。
+
+      ## 第1步：盘点状态
+      1. 提取 issue 中所有 Acceptance Criteria（AC 清单）
+      2. 运行 `git log --oneline -10` 查看已有提交
+      3. 运行 `git diff main..HEAD --stat` 查看已改文件
+      4. 逐条判断 AC：已实现则标记 ✅，未实现则标记 ❌
+      5. 输出盘点结果表
+
+      ## 第2步：实现未完成的 AC
+      仅实现标记 ❌ 的 AC。TDD 流程：先写失败测试 → 最小实现 → 跑通。
+      每个 AC 独立提交，commit message 引用 AC 编号。
+
       严格只实现 AC 列出的内容，禁止修改无关文件、禁止顺手重构、禁止加额外功能。
+      每个 AC 独立验证：实现后必须运行相关测试确认通过。
+
+      ## 如果所有 AC 均已实现
+      输出 "ALL_AC_DONE" 并跳过实现。
+
+  - id: ac-verify
+    depends_on: [implement]
+    prompt: |
+      验证 issue（$ARGUMENTS）的所有 Acceptance Criteria 是否已实现。
+
+      逐条 AC 对照代码：
+      1. 读取 issue 文件，提取全部 AC
+      2. 对每条 AC，在代码库中找到对应实现证据（具体文件:行号）
+      3. 运行 `git diff main..HEAD --stat` 确认改动文件覆盖所有 AC 所需路径
+
+      输出格式：
+      | AC | 状态 | 证据 |
+      |----|:----:|------|
+      | AC1: xxx | ✅/❌ | file:line 或 "缺失" |
+
+      如果有任何 AC 标记 ❌：输出 "AC_GAP" + 缺失清单，要求 implement 节点重跑。
+      如果全部 ✅：输出 "AC_VERIFIED"。
 
   - id: validate
-    depends_on: [implement]
+    depends_on: [ac-verify]
     bash: |
       cd $ARCHON_WORKSPACE
       TEST_CMD=$(grep -E '^\s+test_command:' .devflow/config.yaml 2>/dev/null | awk '{print $2}' | tr -d '"'"'" || echo "npm test")

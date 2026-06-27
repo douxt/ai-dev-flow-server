@@ -1,14 +1,14 @@
 ---
-type: AFK
-estimate: 0.5d
-effort: small
-status: backlog
-blocked_by: []
+type: AFK               # AFK(无人步骤) | HITL(含人工步骤)
+estimate: 0.5d           # ≤1d 宪法要求
+effort: small            # small(<1d) | medium(1-2d) | large(>2d, 禁止ready)
+status: backlog          # backlog → ready(人) → in_progress(自动) → done
+blocked_by: []           # 依赖的 issue ID 列表
 needs_llm: true
 needs_vision: false
 needs_pdf: false
 needs_docker: false
-test_files: []
+test_files: []           # 精确测试文件路径，禁止留空跑全量
 ---
 
 # <Issue 标题>
@@ -48,15 +48,19 @@ test_files: []
 - 单元测试: <路径>
 - E2E 验证: <方法>
 
+## 风险
+
+- 风险1: <描述> — 缓解: <措施>
+- 回退: `git revert` 对应 commit
+
 ## 依赖表格
 
 | SDK/工具 | 版本 | 参考 |
 |----------|------|------|
 | - | - | - |
 
----
-<!--
 ## Issue 质量自检（对照宪法 14 项）
+
 - [ ] 1. estimate ≤1d
 - [ ] 2. type 正确（AFK/HITL）
 - [ ] 3. AC 可测量
@@ -71,4 +75,3 @@ test_files: []
 - [ ] 12. Scope 边界清晰
 - [ ] 13. needs_* 已声明
 - [ ] 14. test_files 已指定
--->

@@ -145,13 +145,28 @@ implement → validate → auto-review → cross-review → merge-reviews → cr
 
 输出 JSON：`{"pass": true/false, "checks": {...}, "errors": [...]}`。fail 时 dispatch 阻断派发。
 
-## 七、已知陷阱与防护
+## 七、已知陷阱与防护（实战验证 2026-06-27）
 
-| 陷阱 | 现象 | 防护 |
-|------|------|------|
-| dispatch.sh 找不到 issue | `NO_MORE_TASKS` 但明明有 ready | 用 `issues/ --include="*.md"` 递归搜索 |
-| blocked_by 未满足 | 抢了依赖未完成的 issue | check_constitution 检查 blocked_by |
-| git push 冲突 | dispatch 推失败 | push 前先 pull --rebase |
-| Archon 超时 | implement 节点卡死 | dispatch.sh 设 timeout，超时标记 failed |
-| Telegram token 过期 | 通知发不出 | notify.py 失败时写本地 log 兜底 |
-| 多 dispatch 并发 | 两个 dispatch 抢同一 issue | 原子抢占通过 git push 竞态实现（先 push 者胜） |
+| # | 陷阱 | 现象 | 根因 | 防护 |
+|:--:|------|------|------|------|
+| 1 | **手动跑 dispatch 被会话杀** | Archon 执行中途进程消失，issue 卡 in_progress | `bash dispatch.sh` 绑在 Claude 会话进程树，会话断则子进程死 | **只用 systemd timer 触发 dispatch**，禁止手动跑。手动测试用 `systemctl start dispatch-*.service` |
+| 2 | **Archon workflow 路径错误** | `archon workflow run auto-execute-afk` 找不到 workflow | archon 只扫描 `.archon/workflows/`，不扫 `.devflow/archon/` | install.sh 部署时复制到 `.archon/workflows/`；dispatch.sh 的 `ARCHON_WORKFLOW` 常量对齐 |
+| 3 | **dispatch.log 属主错误** | `tee: Permission denied`，dispatch 因 `set -euo pipefail` 提前退出 | systemd 首次跑用 root 创建日志，后续 www 用户不可写 | install.sh 或 dispatch.sh 启动前 `chown` 日志目录；或 logger 函数 fallback 到 stderr |
+| 4 | **effort=medium 阻塞 dispatch** | 宪法检查 6 passed + 1 warning → failed>0 → 阻断 | `check_constitution.py` 把 warning 也算入 failed 计数 | effort 字段规则：estimate<1d→small，1-2d→medium，>2d→large(block)。issue 创建时对齐；或改脚本区分 warning/fail |
+| 5 | **git push 无 upstream** | 首次 push 新分支失败，dispatch 回退 | `git push` 需 `--set-upstream`；分支首次推送无 tracking ref | install.sh 确保分支已 push 且设 upstream；dispatch.sh push 前检查 tracking |
+| 6 | **PRD 落入 issues/ 目录** | dispatch.sh 扫描时误识别 PRD 为 issue | `/to-prd` 产到 `issues/` 而非 `docs/` | Gate 2 出口检查确认产物路径 `docs/<name>-prd.md`；dispatch 扫描跳过 `*prd*.md` |
+| 7 | 多 dispatch 并发 | 两个 dispatch 抢同一 issue | timer + 手动 dispatch 同时跑 | 原子抢占通过 git push 竞态实现；避免手动与 timer 同时触发 |
+| 8 | Telegram 不可达 | notify.py 报发送失败 | 服务器无 Telegram API 网络通路（预期内） | notify.py 已写本地 `logs/notify-fallback.log` 兜底；审批走 GitHub PR review |
+| 9 | issue 自检标签与 frontmatter 不一致 | 评审发现 #005 自检写 AFK 但 frontmatter 是 HITL | 修改 type 时只改了 frontmatter 未同步自检文本 | 改 type 时全局搜索替换；Gate 4 评审会捕获 |
+
+### 首次部署检查清单
+
+```
+□ .archon/workflows/auto-execute-afk.yaml 存在（非 .devflow/archon/）
+□ logs/ 目录属主与 dispatch 运行用户一致
+□ git push --set-upstream 已执行
+□ issues/ 仅含 issue 文件，无 PRD
+□ 所有 issue 的 effort 字段与 estimate 对齐
+□ dispatch.timer 已激活（systemctl is-active）
+□ 手动 dispatch 仅用 systemctl start，禁止直接 bash dispatch.sh
+```

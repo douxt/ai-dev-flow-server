@@ -46,6 +46,8 @@ if [ "$UPDATE_MODE" = true ]; then
     cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/"
     cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/"
     cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/"
+    mkdir -p "$TARGET/.archon/workflows"
+    cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/"
     chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"
     echo "  更新 scripts/ ..."
     cp "$SOURCE/scripts/"*.py "$TARGET/.devflow/scripts/"
@@ -54,6 +56,10 @@ if [ "$UPDATE_MODE" = true ]; then
     cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
     echo "  更新 workflows/ ..."
     cp "$SOURCE/workflows/"*.js "$HOME/.claude/workflows/"
+    echo "  确保 logs/ ..."
+    mkdir -p "$TARGET/logs"
+    echo "  更新 issue 模板 ..."
+    cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
     exit 0
 fi
@@ -236,6 +242,38 @@ cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
 echo "  ✅ .devflow/ 文件已复制"
 echo ""
 
+# ── 5b. 复制 Archon workflow 到 .archon/workflows/ ──
+echo "── 步骤 5b: 注册 Archon workflow ──"
+mkdir -p "$TARGET/.archon/workflows"
+cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/"
+echo "  ✅ auto-execute-afk.yaml → .archon/workflows/"
+echo ""
+
+# ── 5c. 创建日志目录并设权限 ──
+echo "── 步骤 5c: 创建日志目录 ──"
+mkdir -p "$TARGET/logs"
+if command -v chown >/dev/null 2>&1; then
+    chown -R www:www "$TARGET/logs" 2>/dev/null || \
+        echo "  ⚠️  无法 chown logs/，请手动: chown www:www $TARGET/logs"
+fi
+echo "  ✅ logs/ 已创建"
+echo ""
+
+# ── 5d. 确保 git upstream 已设置 ──
+echo "── 步骤 5d: 检查 git upstream ──"
+CURRENT_BRANCH=$(cd "$TARGET" && git branch --show-current 2>/dev/null || echo "")
+if [ -n "$CURRENT_BRANCH" ]; then
+    if cd "$TARGET" && git rev-parse --abbrev-ref "${CURRENT_BRANCH}@{upstream}" >/dev/null 2>&1; then
+        echo "  ✅ upstream 已设置"
+    else
+        cd "$TARGET" && git push --set-upstream origin "$CURRENT_BRANCH" 2>/dev/null || \
+            echo "  ⚠️  无法自动设置 upstream，请手动: git push --set-upstream origin $CURRENT_BRANCH"
+    fi
+else
+    echo "  ⚠️  无法检测当前分支"
+fi
+echo ""
+
 # ── 6. 复制 issue 模板 ──
 echo "── 步骤 6: 复制 issue 模板 ──"
 if [ -f "$TARGET/issues/TEMPLATE.md" ]; then
@@ -254,10 +292,12 @@ echo ""
 echo "📋 检查清单："
 echo "  [ ] .devflow/config.yaml — 填写 telegram_chat_id 和 telegram_bot_token"
 echo "  [ ] .devflow/archon/ — dispatch.sh + reconciler.sh + auto-execute-afk.yaml"
+echo "  [ ] .archon/workflows/ — auto-execute-afk.yaml（archon 可发现）"
 echo "  [ ] .devflow/scripts/ — check_constitution.py + cost_tracker.py + notify.py"
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
 echo "  [ ] .gate-state — Gate 状态追踪"
 echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
+echo "  [ ] logs/ — 确保属主 www（sudo chown www:www logs/）"
 echo ""
 
 # ── 8. 输出 root 段 ──
