@@ -41,11 +41,14 @@ def run(issue_path, json_out=False):
     results = []
     passed = 0
     failed = 0
+    warned = 0
 
     def add(rule, severity, desc):
-        nonlocal passed, failed
+        nonlocal passed, failed, warned
         if severity == "pass":
             passed += 1
+        elif severity == "warning":
+            warned += 1
         else:
             failed += 1
         results.append({"rule": rule, "severity": severity, "desc": desc})
@@ -121,10 +124,11 @@ def run(issue_path, json_out=False):
         add("7.status", "fail", "status 字段缺失")
 
     if json_out:
-        print(json.dumps({"file": issue_path, "passed": passed, "failed": failed,
+        print(json.dumps({"file": issue_path, "passed": passed, "warned": warned, "failed": failed,
             "checks": results}, indent=2, ensure_ascii=False))
     else:
-        print(f"📋 {issue_path} — 通过 {passed}/{passed+failed}")
+        total = passed + warned + failed
+        print(f"📋 {issue_path} — 通过 {passed}/{total}（警告 {warned}，失败 {failed}）")
         for r in results:
             icon = "✅" if r["severity"] == "pass" else "⚠️" if r["severity"] == "warning" else "❌"
             print(f"  {icon} [{r['rule']}] {r['desc']}")

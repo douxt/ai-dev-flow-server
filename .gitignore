@@ -1,3 +1,4 @@
 # ai-dev-flow-server — 不提交安装目标项目的配置
 *.bak
 .DS_Store
+__pycache__/

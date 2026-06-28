@@ -354,7 +354,7 @@ echo "  [ ] .archon/workflows/ — auto-execute-afk.yaml（archon 可发现）"
 echo "  [ ] .devflow/scripts/ — check_constitution.py + cost_tracker.py + notify.py"
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
 echo "  [ ] .gate-state — Gate 状态追踪"
-echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
+echo "  [ ] ~/.claude/skills/ — 7 个 gate skill"
 echo "  [ ] logs/ — 确保属主 www（sudo chown www:www logs/）"
 echo "  [ ] _handoff/ — Agent 协作收件箱（outbox/agent-b + inbox/agent-b + archive）"
 echo "  [ ] AGENTS.md — Agent 身份 + 壁垒声明"
@@ -374,6 +374,32 @@ echo ""
 DISPATCH_SERVICE="/etc/systemd/system/dispatch-${PROJECT}.service"
 RECONCILE_SERVICE="/etc/systemd/system/reconcile-${PROJECT}.service"
 
+echo "# 0. 创建 /etc/devflow/${PROJECT}.env（API 密钥文件）"
+cat << 'ENVFILE_STEP'
+mkdir -p /etc/devflow
+API_KEY=$(python3 -c "
+import json, os
+p = '/home/www/.claude/settings.local.json'
+if os.path.exists(p):
+    with open(p) as f:
+        d = json.load(f)
+    print(d.get('env',{}).get('ANTHROPIC_API_KEY','MISSING'))
+else:
+    print('MISSING')
+")
+if [ "$API_KEY" != "MISSING" ]; then
+  cat > /etc/devflow/${PROJECT}.env << INNER
+ANTHROPIC_API_KEY=$API_KEY
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+INNER
+  chmod 640 /etc/devflow/${PROJECT}.env
+  chown root:www /etc/devflow/${PROJECT}.env
+  echo "  ✓ /etc/devflow/${PROJECT}.env (chmod 640)"
+else
+  echo "  ⚠ /home/www/.claude/settings.local.json 未找到，跳过 .env 创建"
+fi
+ENVFILE_STEP
+
 echo "# 1. 创建 dispatch-${PROJECT}.service"
 cat << DISPATCH_SVC
 cat > $DISPATCH_SERVICE << 'EOF'
@@ -385,6 +411,7 @@ After=network.target
 Type=oneshot
 User=www
 WorkingDirectory=${TARGET}
+EnvironmentFile=/etc/devflow/${PROJECT}.env
 ExecStart=/bin/bash ${TARGET}/.devflow/archon/dispatch.sh ${TARGET}
 StandardOutput=append:${TARGET}/logs/dispatch.log
 StandardError=append:${TARGET}/logs/dispatch.log
@@ -419,6 +446,7 @@ After=network.target
 Type=oneshot
 User=www
 WorkingDirectory=${TARGET}
+EnvironmentFile=/etc/devflow/${PROJECT}.env
 ExecStart=/bin/bash ${TARGET}/.devflow/archon/reconciler.sh ${TARGET}
 StandardOutput=append:${TARGET}/logs/reconcile.log
 StandardError=append:${TARGET}/logs/reconcile.log
