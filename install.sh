@@ -45,10 +45,11 @@ if [ "$UPDATE_MODE" = true ]; then
     echo "  更新 archon/ ..."
     cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/"
     cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/"
+    cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/"
     cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/"
     mkdir -p "$TARGET/.archon/workflows"
     cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/"
-    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"
+    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" "$TARGET/.devflow/scripts/status.sh"
     echo "  更新 scripts/ ..."
     cp "$SOURCE/scripts/"*.py "$TARGET/.devflow/scripts/"
     chmod +x "$TARGET/.devflow/scripts/"*.py
@@ -234,7 +235,8 @@ chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconcil
 cp "$SOURCE/scripts/check_constitution.py" "$TARGET/.devflow/scripts/"
 cp "$SOURCE/scripts/cost_tracker.py" "$TARGET/.devflow/scripts/"
 cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/"
-chmod +x "$TARGET/.devflow/scripts/"*.py
+cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/"
+chmod +x "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh"
 
 # knowledge/
 cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
