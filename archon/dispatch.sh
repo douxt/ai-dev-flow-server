@@ -150,12 +150,16 @@ while [ $ATTEMPT -le $MAX_RETRIES ]; do
         END_TIME=$(date +%s)
         DURATION=$((END_TIME - START_TIME))
 
-        # 标记 in_review
+        # 标记完成：检查 archon 是否已 auto-merge 标 done
         git pull --rebase --quiet 2>/dev/null || true
-        sed -i "s/^status: in_progress$/status: in_review/" "$BEST_ISSUE"
-        git add "$BEST_ISSUE"
-        git commit -m "dispatch: review #${ISSUE_NUM} — ${ISSUE_SLUG} (待审批)" 2>/dev/null || true
-        git push 2>/dev/null || log "WARN: push 失败"
+        if grep -q '^status: done$' "$BEST_ISSUE" 2>/dev/null; then
+            log "AUTO_MERGED: #${ISSUE_NUM} archon 已自动合并为 done"
+        else
+            sed -i "s/^status: in_progress$/status: in_review/" "$BEST_ISSUE"
+            git add "$BEST_ISSUE"
+            git commit -m "dispatch: review #${ISSUE_NUM} — ${ISSUE_SLUG} (待审批)" 2>/dev/null || true
+            git push 2>/dev/null || log "WARN: push 失败"
+        fi
 
         # 成本追踪
         python3 "$SCRIPTS_DIR/cost_tracker.py" log --issue "${ISSUE_SLUG}" --status "in_review" --duration "$DURATION" --workflow "$ARCHON_WORKFLOW" --workspace "$WORKSPACE" 2>/dev/null || true
