@@ -53,9 +53,29 @@ backlog → ready → in_progress → done
 #### Git 操作约束
 - 禁止 `git push` 到 `master` 或 `main` 分支（会被 pre-push hook 拦截）
 - 禁止创建不以 `ai/` 开头的分支
-- 禁止 `git merge`、`git rebase` master/main 到自己的分支（只能 A 做）
+- 禁止 `git merge`、`git rebase` master/main 到自己的分支
 - 禁止 `git push --force`、`git commit --amend` 在已推送分支
-- 所有代码变更走 `ai/<###>-<desc>` 分支 → push → 写 handoff 委托 A 审阅合并
+- 所有代码变更走 `ai/<###>-<desc>` 分支 → push → PR
+
+#### 合并权限（你的地盘 vs 不是你的地盘）
+
+你是 Agent B，开发第三方应用。权限由**改了什么文件**决定：
+
+| 你改了什么 | 你能做什么 | 你不能做什么 |
+|-----------|-----------|-------------|
+| 仅业务代码（src/ lib/ app/ 等） | 开发、PR、`gh pr merge --merge` 自行合并 | — |
+| 发现管线 bug（.devflow/ .archon/ .github/ workflows/ Dockerfile systemd） | 写 `_handoff/outbox/agent-b/` 报告 A | 直接修改管线文件 |
+
+不确定时跑：
+```
+bash .devflow/scripts/check-layer.sh main..HEAD
+```
+
+| 输出 | 含义 | 动作 |
+|------|------|------|
+| `APP` | 仅业务代码 | review 通过后 `gh pr merge --merge` 自行合并 |
+| `PIPELINE` | 仅管线文件 | 写 handoff 委托 A 审阅合并 |
+| `MIXED` | 混合改动 | 拆成两个 PR，或全部 handoff 给 A |
 
 #### 基础设施操作
 - 禁止执行：systemctl、docker、kubectl、nginx -s、pm2、supervisorctl
