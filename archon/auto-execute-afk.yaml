@@ -119,7 +119,6 @@ nodes:
       fi
       git push -u origin "$BRANCH" 2>/dev/null || { echo "PUSH_FAILED"; exit 1; }
       TITLE=$(grep -m1 '^# ' "$ARGUMENTS" 2>/dev/null | sed 's/^# //' || basename "$ARGUMENTS" .md)
-      TITLE=$(printf '%q' "$TITLE")
       BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||' || echo main)
       PR_URL=$(gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "审查完成，详见 workflow log" 2>&1)
       if [ $? -ne 0 ]; then

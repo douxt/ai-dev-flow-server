@@ -112,7 +112,7 @@ fi
 log "CONSTITUTION_PASS: #${ISSUE_NUM}"
 
 # worktree 去重：同一 issue 已有活跃 worktree 则跳过
-if git worktree list 2>/dev/null | grep -q "${ISSUE_NUM}"; then
+if git worktree list 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then
     log "SKIP: #${ISSUE_NUM} 已有活跃 worktree"
     exit 0
 fi

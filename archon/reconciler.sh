@@ -65,7 +65,7 @@ while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
     if ! git branch -a | grep -qE "(ai|archon)/[^/]*${ISSUE_NUM}($|[^0-9])"; then
-        if ! git worktree list --porcelain 2>/dev/null | grep -q "${ISSUE_NUM}"; then
+        if ! git worktree list --porcelain 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then
             log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/archon 分支且无活跃 worktree，回收为 ready"
             sed -i "s/^status: in_progress$/status: ready/" "$f"
             CHANGED=true
