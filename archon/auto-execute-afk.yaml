@@ -5,7 +5,7 @@ nodes:
     bash: |
       # 从主项目同步 issue 文件到 worktree（worktree 从 main 创建，无 issue）
       ISSUE_PATH="$ARGUMENTS"
-      MAIN="/home/www/openlobby"
+      MAIN=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d" " -f2)
       ISSUE_NAME=$(basename "$ISSUE_PATH")
       mkdir -p issues
       if [ -f "$MAIN/$ISSUE_PATH" ]; then
