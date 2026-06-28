@@ -44,6 +44,12 @@ backlog → ready → in_progress → done
 - 禁止修改：.devflow/、.github/workflows/、Makefile、Dockerfile、docker-compose*.yml、systemd unit 文件、nginx/Apache/Caddy 配置、部署脚本、CI/CD 配置、密钥文件
 - 禁止修改 CLAUDE.md 中 `## Agent B 行为边界` 及 `## 项目壁垒` 两个章节
 
+#### 工作区规则（替代 worktree 隔离）
+- 无 shell 无法创建 worktree → **分支即隔离**
+- 必须在 `ai/` 分支上工作，禁止直接在 master/main 上修改文件
+- 开始工作前：`git checkout -b ai/<###>-<desc>`（从 master 最新切出）
+- 多任务并发时，不同 issue 用不同 `ai/` 分支，不可混在一个分支
+
 #### Git 操作约束
 - 禁止 `git push` 到 `master` 或 `main` 分支（会被 pre-push hook 拦截）
 - 禁止创建不以 `ai/` 开头的分支
