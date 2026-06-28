@@ -149,3 +149,37 @@ nodes:
         sleep $((i * 5))
       done
       exit 1
+
+  - id: auto-merge
+    depends_on: [mark-in-review]
+    bash: |
+      set -euo pipefail
+      PR_URL=$(grep -oP 'PR_URL:\s*\Khttps://[^\s]+' "$ARCHON_WORKSPACE/archon_output.log" 2>/dev/null || echo "")
+      if [ -z "$PR_URL" ]; then
+        echo "AUTO_MERGE_SKIP: no PR URL"
+        exit 0
+      fi
+      MAIN=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d" " -f2)
+      LAYER=$(bash "$MAIN/.devflow/scripts/check-layer.sh" main..HEAD 2>/dev/null || echo "APP")
+      if [ "$LAYER" != "APP" ]; then
+        echo "AUTO_MERGE_SKIP: $LAYER layer — 写 handoff 委托 A 合并"
+        exit 0
+      fi
+      for i in $(seq 1 30); do
+        CI_STATE=$(gh pr view "$PR_URL" --json state,statusCheckRollup --jq '.statusCheckRollup[0].state // "EXPECTED"' 2>/dev/null || echo "PENDING")
+        case "$CI_STATE" in
+          SUCCESS|EXPECTED) break ;;
+          FAILURE|ERROR)
+            echo "AUTO_MERGE_FAIL: CI $CI_STATE"
+            exit 1 ;;
+        esac
+        sleep 10
+      done
+      gh pr merge "$PR_URL" --merge --delete-branch 2>&1 || { echo "AUTO_MERGE_FAIL: merge rejected"; exit 1; }
+      ISSUE_FILE="$ARGUMENTS"
+      sed -i 's/^status: in_review$/status: done/' "$ISSUE_FILE"
+      git add "$ISSUE_FILE" 2>/dev/null
+      git commit -m "done: $(basename "$ISSUE_FILE" .md) — auto-merged" 2>/dev/null || true
+      git pull --rebase --quiet 2>/dev/null || true
+      git push 2>/dev/null || true
+      echo "AUTO_MERGE_DONE: $PR_URL"
