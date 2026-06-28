@@ -35,6 +35,24 @@ log "--- dispatch 扫描: $PROJECT_NAME ---"
 # 同步远端
 git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
 
+# handoff 检测：outbox/agent-b/ 有新消息 → 通知人（30min 去重）
+HANDOFF_DIR="$WORKSPACE/_handoff/outbox/agent-b"
+HANDOFF_STAMP="$WORKSPACE/logs/.handoff_last_notify"
+if [ -d "$HANDOFF_DIR" ]; then
+    LATEST_MSG=$(ls -t "$HANDOFF_DIR"/*.md 2>/dev/null | head -1)
+    if [ -n "$LATEST_MSG" ]; then
+        MSG_MTIME=$(stat -c %Y "$LATEST_MSG" 2>/dev/null || echo 0)
+        LAST_NOTIFY=$(cat "$HANDOFF_STAMP" 2>/dev/null || echo 0)
+        # 同一文件 30min 内不重复通知
+        if [ "$(( $(date +%s) - LAST_NOTIFY ))" -gt 1800 ] || [ "$MSG_MTIME" -gt "$LAST_NOTIFY" ]; then
+            MSG_ID=$(basename "$LATEST_MSG" .md)
+            echo "📨 ${PROJECT_NAME}: B 有新委托 — ${MSG_ID}" | python3 "$SCRIPTS_DIR/notify.py" status 2>/dev/null || true
+            date +%s > "$HANDOFF_STAMP"
+            log "HANDOFF: 检测到新委托 ${MSG_ID}"
+        fi
+    fi
+fi
+
 # 扫描第一个无依赖阻塞的 ready AFK issue
 BEST_ISSUE=""
 while IFS= read -r f; do

@@ -1,0 +1,20 @@
+#!/bin/bash
+# .git/hooks/pre-push — 拦截 Agent B 越权 push
+# 由 ai-dev-flow-server install.sh 部署
+
+REMOTE="$1"
+URL="$2"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 硬阻断：master/main 分支
+if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
+    echo "⛔ BLOCKED: Agent B 禁止直推 $BRANCH。请推 ai/ 分支并委托 A 合并。"
+    exit 1
+fi
+
+# 软阻断：非 ai/ 分支警告
+if ! echo "$BRANCH" | grep -q '^ai/'; then
+    echo "⚠️  WARNING: 分支 '$BRANCH' 不以 ai/ 开头，继续推送但请确认合规。"
+fi
+
+exit 0

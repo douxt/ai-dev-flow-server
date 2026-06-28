@@ -6,6 +6,7 @@ export const meta = {
     { title: '环境检查', detail: '检查 .devflow/ 目录完整' },
     { title: '配置验证', detail: '验证 config.yaml 有效' },
     { title: 'Timer 确认', detail: '确认 dispatch.timer 已激活' },
+    { title: 'Inbox 检查', detail: '检查 _handoff/inbox/agent-b/ 有无 A 回复' },
   ],
 }
 
@@ -72,6 +73,22 @@ const timerResult = await agent(`检查 AFK 调度 timer 状态。
 输出 JSON: {"dispatch_active": true/false, "dispatch_enabled": true/false, "reconcile_active": true/false}`, { label: 'Timer状态检查' })
 
 const timerParsed = JSON.parse(timerResult.match(/\{[\s\S]*\}/)?.[0] || '{}')
+
+phase('Inbox 检查')
+log('检查 _handoff/inbox/agent-b/ 有无 A 的回复...')
+
+const inboxCheck = await agent(`执行 git pull --rebase 同步远端，然后检查 _handoff/inbox/agent-b/ 目录。
+列出所有 .md 文件（如果有），输出每个文件的 status（done/rejected）。
+如果目录为空或无文件，输出 "EMPTY"。
+
+对于 status: done 的消息：
+- 验证 A 的操作结果是否满足原委托要求
+- 满足 → 将原委托消息和此回复一起 mv 到 _handoff/archive/
+- 不满足 → 写新消息到 outbox/agent-b/ 说明哪里不满足
+
+输出处理结果: "EMPTY" | "PROCESSED: <N> 条回复已验证并归档"`, { label: 'Inbox检查' })
+
+log(inboxCheck)
 
 const allPassed = envCheck.includes('COMPLETE') && configParsed.valid && timerParsed.dispatch_active
 

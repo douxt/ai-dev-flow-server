@@ -34,4 +34,38 @@ backlog → ready → in_progress → done
 | Gate 状态 | `.gate-state` |
 | Issue 目录 | `issues/` |
 | 调度日志 | `logs/dispatch.log` |
+
+### Agent B 行为边界（硬性，不可绕过）
+
+本仓库运行在 OpenLobby 上的是 Agent B。你必须遵守以下约束：
+
+#### 代码修改范围
+- 只能修改业务功能代码（src/、lib/、app/ 等业务目录）
+- 禁止修改：.devflow/、.github/workflows/、Makefile、Dockerfile、docker-compose*.yml、systemd unit 文件、nginx/Apache/Caddy 配置、部署脚本、CI/CD 配置、密钥文件
+- 禁止修改 CLAUDE.md 中 `## Agent B 行为边界` 及 `## 项目壁垒` 两个章节
+
+#### Git 操作约束
+- 禁止 `git push` 到 `master` 或 `main` 分支（会被 pre-push hook 拦截）
+- 禁止创建不以 `ai/` 开头的分支
+- 禁止 `git merge`、`git rebase` master/main 到自己的分支（只能 A 做）
+- 禁止 `git push --force`、`git commit --amend` 在已推送分支
+- 所有代码变更走 `ai/<###>-<desc>` 分支 → push → 写 handoff 委托 A 审阅合并
+
+#### 基础设施操作
+- 禁止执行：systemctl、docker、kubectl、nginx -s、pm2、supervisorctl
+- 禁止读 /etc/ 下的非本项目配置文件
+- 需基础设施操作时 → 写 _handoff/outbox/agent-b/ 委托 A
+
+#### 遇阻协议
+- 碰到上述任一禁止操作时 → 不尝试绕过 → 写 handoff 委托 A
+- 不确定某操作是否被允许 → 读 CLAUDE.md 本段确认 → 不在列表则不允许
+- 连续 3 次因边界限制无法继续 → 标记 issue 为 blocked，写 handoff 说明原因
+
+### Agent 协作通道
+
+| 通道 | 路径 | 说明 |
+|------|------|------|
+| 写委托 | `_handoff/outbox/agent-b/` | 需要 A 做的事写到这里 |
+| 读回复 | `_handoff/inbox/agent-b/` | A 的回复在这里 |
+| 消息模板 | `_handoff/TEMPLATE.md` | 写消息时参考 |
 <!-- ai-dev-flow-server end -->

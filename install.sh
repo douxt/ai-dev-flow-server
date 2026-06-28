@@ -246,7 +246,63 @@ else
 fi
 echo ""
 
-# ── 7. 输出检查清单 ──
+# ── 7. 创建 _handoff/ 协作目录 ──
+echo "── 步骤 7: 创建 _handoff/ Agent 协作目录 ──"
+HANDOFF_DIR="$TARGET/_handoff"
+if [ -d "$HANDOFF_DIR" ]; then
+    echo "  ⚠️  _handoff/ 已存在，跳过"
+else
+    mkdir -p "$HANDOFF_DIR/outbox/agent-b"
+    mkdir -p "$HANDOFF_DIR/inbox/agent-b"
+    mkdir -p "$HANDOFF_DIR/archive"
+    cp "$SOURCE/templates/_handoff/README.md" "$HANDOFF_DIR/"
+    cp "$SOURCE/templates/_handoff/TEMPLATE.md" "$HANDOFF_DIR/"
+    echo "  ✅ _handoff/{outbox/agent-b,inbox/agent-b,archive}/ 已创建"
+fi
+echo ""
+
+# ── 8. 生成 AGENTS.md ──
+echo "── 步骤 8: 生成 AGENTS.md ──"
+AGENTS_MD="$TARGET/AGENTS.md"
+if [ -f "$AGENTS_MD" ]; then
+    echo "  ⚠️  AGENTS.md 已存在，跳过"
+else
+    cat > "$AGENTS_MD" << 'AGENTSEOF'
+# AGENTS.md — PROJECT_NAME_PLACEHOLDER
+
+## 本 Agent 身份
+- 角色: Agent B
+- 项目: PROJECT_NAME_PLACEHOLDER
+- 全限定名: PROJECT_NAME_PLACEHOLDER/agent-b
+- 能力: gate 流程、功能代码（src/ 内）、需求→PRD→Issue、问题发现
+- 壁垒: 无 shell、无部署权限、无合并权限 → 遇阻写 _handoff/outbox/agent-b/
+
+## 项目壁垒（不可修改，见 CLAUDE.md 完整列表）
+- 禁止修改：.devflow/、CI/CD 配置、Dockerfile、系统配置
+- 禁止操作：systemctl、docker、合并 master
+- 代码只能写在 ai/ 分支，合并由 dev-machine/agent-a 完成
+
+## 协作通道
+- 写委托: _handoff/outbox/agent-b/
+- 读回复: _handoff/inbox/agent-b/
+- 消息模板: _handoff/TEMPLATE.md
+AGENTSEOF
+    sed -i "s/PROJECT_NAME_PLACEHOLDER/${PROJECT_NAME}/g" "$AGENTS_MD"
+    echo "  ✅ AGENTS.md 已生成"
+fi
+echo ""
+
+# ── 9. 部署 git hooks ──
+echo "── 步骤 9: 部署 git hooks ──"
+HOOKS_DIR="$TARGET/.git/hooks"
+mkdir -p "$HOOKS_DIR"
+cp "$SOURCE/templates/pre-commit" "$HOOKS_DIR/pre-commit"
+cp "$SOURCE/templates/pre-push" "$HOOKS_DIR/pre-push"
+chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push"
+echo "  ✅ pre-commit + pre-push hook 已部署"
+echo ""
+
+# ── 10. 输出检查清单 ──
 echo "╔══════════════════════════════════════╗"
 echo "║  用户段安装完成                      ║"
 echo "╚══════════════════════════════════════╝"
@@ -258,9 +314,13 @@ echo "  [ ] .devflow/scripts/ — check_constitution.py + cost_tracker.py + noti
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
 echo "  [ ] .gate-state — Gate 状态追踪"
 echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
+echo "  [ ] _handoff/ — Agent 协作收件箱（outbox/agent-b + inbox/agent-b + archive）"
+echo "  [ ] AGENTS.md — Agent 身份 + 壁垒声明"
+echo "  [ ] .git/hooks/pre-commit — 拦截修改受保护文件"
+echo "  [ ] .git/hooks/pre-push — 拦截直推 master"
 echo ""
 
-# ── 8. 输出 root 段 ──
+# ── 11. 输出 root 段 ──
 PROJECT=$(basename "$TARGET")
 
 echo "╔══════════════════════════════════════╗"

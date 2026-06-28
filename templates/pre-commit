@@ -1,0 +1,17 @@
+#!/bin/bash
+# .git/hooks/pre-commit — 拦截 Agent B 修改受保护文件
+# 由 ai-dev-flow-server install.sh 部署
+
+PROTECTED_PATTERNS=".devflow/|.github/workflows/|Dockerfile|docker-compose|systemd|nginx|Makefile|CLAUDE.md|_handoff/|_agentlocks/"
+
+STAGED=$(git diff --cached --name-only)
+PROTECTED_FILES=$(echo "$STAGED" | grep -E "$PROTECTED_PATTERNS" || true)
+
+if [ -n "$PROTECTED_FILES" ]; then
+    echo "⛔ BLOCKED: Agent B 禁止修改以下受保护文件："
+    echo "$PROTECTED_FILES"
+    echo "如需修改 → 写 _handoff/outbox/agent-b/ 委托 A"
+    exit 1
+fi
+
+exit 0
