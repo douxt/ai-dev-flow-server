@@ -84,6 +84,16 @@ else
     echo "  ✅ git 仓库"
 fi
 
+if command -v gh >/dev/null 2>&1; then
+    if gh auth status >/dev/null 2>&1; then
+        echo "  ✅ gh CLI 已认证"
+    else
+        echo "  ⚠️  gh CLI 未认证，请运行: gh auth login"
+    fi
+else
+    echo "  ⚠️  gh CLI 未安装，PR 创建功能需要 gh"
+fi
+
 if [ ! -f "$TARGET/.claude/CLAUDE.md" ] && [ ! -f "$TARGET/CLAUDE.md" ]; then
     echo "  ⚠️  缺少 CLAUDE.md（建议创建，说明技术栈和项目结构）"
 else
