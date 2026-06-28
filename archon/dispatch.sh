@@ -26,6 +26,9 @@ fi
 
 cd "$WORKSPACE"
 
+# 确保在 main 分支上（防 B 切分支后忘切回导致 dispatch 跑偏）
+git checkout main 2>/dev/null || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] FATAL: 无法切回 main" | tee -a logs/dispatch.log; exit 1; }
+
 # index.lock 时效检测（防僵尸 lock 阻塞所有 git 操作）
 LOCK=".git/index.lock"
 if [ -f "$LOCK" ]; then
