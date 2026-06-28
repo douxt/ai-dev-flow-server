@@ -183,3 +183,60 @@ nodes:
       git pull --rebase --quiet 2>/dev/null || true
       git push 2>/dev/null || true
       echo "AUTO_MERGE_DONE: $PR_URL"
+
+  - id: write-summary
+    depends_on: [auto-merge]
+    bash: |
+      set -euo pipefail
+      ISSUE_FILE="$ARGUMENTS"
+      ISSUE_SLUG=$(basename "$ISSUE_FILE" .md)
+      MAIN=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d" " -f2)
+      SUMMARY="$MAIN/issues/${ISSUE_SLUG}-summary.md"
+      LOG="$ARCHON_WORKSPACE/archon_output.log"
+
+      PR_URL=$(grep -oP 'PR_URL:\s*\Khttps://[^\s]+' "$LOG" 2>/dev/null || echo "N/A")
+      MERGE_ACTION=$(grep -oP 'AUTO_MERGE_\K(SKIP|DONE|FAIL).*' "$LOG" 2>/dev/null | tail -1 || echo "UNKNOWN")
+
+      CROSS_STATUS="skipped (config)"
+      if grep -q 'CROSS_REVIEW_SKIPPED.*offline' "$LOG" 2>/dev/null; then
+        CROSS_STATUS="skipped (mini-router offline)"
+      elif grep -q '\[cross-review\].*Completed' "$LOG" 2>/dev/null; then
+        CROSS_DURATION=$(grep -oP '\[cross-review\].*Completed \(\K[0-9]+' "$LOG" 2>/dev/null || echo "?")
+        [ "$CROSS_DURATION" -gt 100 ] && CROSS_STATUS="ran (${CROSS_DURATION}ms)" || CROSS_STATUS="skipped (fast exit, ${CROSS_DURATION}ms)"
+      fi
+
+      SCORE=$(grep -oP '"score"\s*:\s*\K[0-9]+' "$LOG" 2>/dev/null | tail -1 || echo "N/A")
+
+      LAYER=$(bash "$MAIN/.devflow/scripts/check-layer.sh" main..HEAD 2>/dev/null || echo "?")
+
+      cat > "$SUMMARY" << EOF
+# Summary: ${ISSUE_SLUG}
+@created: $(date -Iseconds)
+@workflow: auto-execute-afk
+
+## Review Results
+
+| Reviewer | Status |
+|----------|--------|
+| DeepSeek (auto-review) | ran |
+| Qwen (cross-review) | ${CROSS_STATUS} |
+
+**Merge Score:** ${SCORE}/10
+
+## Merge Decision
+
+| Field | Value |
+|-------|-------|
+| Layer | ${LAYER} |
+| Action | ${MERGE_ACTION} |
+| PR | ${PR_URL} |
+
+> Full output: logs/dispatch.log
+EOF
+
+      cd "$MAIN"
+      git add "issues/${ISSUE_SLUG}-summary.md" 2>/dev/null || true
+      git commit -m "summary: ${ISSUE_SLUG} — review + merge report" 2>/dev/null || true
+      git pull --rebase --quiet 2>/dev/null || true
+      git push 2>/dev/null || true
+      echo "SUMMARY_WRITTEN: issues/${ISSUE_SLUG}-summary.md"
