@@ -5,7 +5,7 @@ nodes:
     bash: |
       # 从主项目同步 issue 文件到 worktree（worktree 从 main 创建，无 issue）
       ISSUE_PATH="$ARGUMENTS"
-      MAIN="/home/www/openlobby"
+      MAIN=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d" " -f2)
       ISSUE_NAME=$(basename "$ISSUE_PATH")
       mkdir -p issues
       if [ -f "$MAIN/$ISSUE_PATH" ]; then
@@ -108,15 +108,31 @@ nodes:
 
   - id: create-pr
     depends_on: [merge-reviews]
-    prompt: |
-      推送当前分支到 origin 并创建 Pull Request。
-      gh pr create --title 从 issue title 提取，body 包含改动摘要和双模型审查结果。
-      输出 PR URL（一行，格式：PR_URL: https://...）
+    bash: |
+      set -euo pipefail
+      BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      EXISTING=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url' 2>/dev/null || echo "")
+      if [ -n "$EXISTING" ]; then
+        echo "PR_EXISTS: $EXISTING"
+        echo "PR_URL: $EXISTING"
+        exit 0
+      fi
+      git push -u origin "$BRANCH" 2>/dev/null || { echo "PUSH_FAILED"; exit 1; }
+      TITLE=$(grep -m1 '^# ' "$ARGUMENTS" 2>/dev/null | sed 's/^# //' || basename "$ARGUMENTS" .md)
+      TITLE=$(printf '%q' "$TITLE")
+      BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||' || echo main)
+      PR_URL=$(gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "审查完成，详见 workflow log" 2>&1)
+      if [ $? -ne 0 ]; then
+        echo "PR_CREATE_FAILED: $PR_URL"
+        exit 1
+      fi
+      echo "PR_URL: $PR_URL"
 
   - id: mark-in-review
     depends_on: [create-pr]
     bash: |
       ISSUE_FILE="$ARGUMENTS"
+      BRANCH=$(git rev-parse --abbrev-ref HEAD)
       PR_URL=$(grep -oP 'PR_URL:\s*\Khttps://[^\s]+' "$ARCHON_WORKSPACE/archon_output.log" 2>/dev/null || echo "")
       if [ -n "$PR_URL" ]; then
         if grep -q '^pr:' "$ISSUE_FILE"; then
@@ -128,8 +144,9 @@ nodes:
       sed -i 's/^status: in_progress$/status: in_review/' "$ISSUE_FILE"
       git add "$ISSUE_FILE" 2>/dev/null
       git commit -m "review: $(basename "$ISSUE_FILE" .md) — 待审批" 2>/dev/null || true
+      git push -u origin "$BRANCH" 2>/dev/null || true
       for i in 1 2 3; do
         if git pull --rebase --quiet && git push --quiet; then exit 0; fi
         sleep $((i * 5))
       done
-      exit 0
+      exit 1

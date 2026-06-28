@@ -26,6 +26,17 @@ fi
 
 cd "$WORKSPACE"
 
+# index.lock 时效检测（防僵尸 lock 阻塞所有 git 操作）
+LOCK=".git/index.lock"
+if [ -f "$LOCK" ]; then
+  AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+  if [ "$AGE" -gt 300 ]; then
+    rm -f "$LOCK" && log "CLEANED stale index.lock (${AGE}s)"
+  else
+    log "WARN: index.lock active (${AGE}s) — git locked"; exit 1
+  fi
+fi
+
 # 从 config.yaml 读取配置（简单 grep 解析，无 yq 依赖）
 PROJECT_NAME=$(grep -E '^\s+name:' "$CONFIG" | head -1 | awk '{print $2}' | tr -d '"'"'" || echo "unknown")
 BRANCH_PREFIX=$(grep -E '^\s+branch_prefix:' "$CONFIG" | head -1 | awk '{print $2}' | tr -d '"'"'" || echo "ai/")
@@ -33,8 +44,9 @@ CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
 log "--- dispatch 扫描: $PROJECT_NAME ---"
 
-# 同步远端（先 stash 本地改动，避免 rebase 拒绝）
-git stash --quiet 2>/dev/null || true
+# 同步远端（先 stash 本地改动，清理 rebase 残留）
+git stash push -m "dispatch-$(date +%s)" --quiet 2>/dev/null || true
+git rebase --abort 2>/dev/null || true
 git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
 git stash pop --quiet 2>/dev/null || true
 
@@ -98,6 +110,12 @@ for c in d.get('checks',[]):
     exit 1
 fi
 log "CONSTITUTION_PASS: #${ISSUE_NUM}"
+
+# worktree 去重：同一 issue 已有活跃 worktree 则跳过
+if git worktree list 2>/dev/null | grep -q "${ISSUE_NUM}"; then
+    log "SKIP: #${ISSUE_NUM} 已有活跃 worktree"
+    exit 0
+fi
 
 # 原子抢占（git push 竞态，先 push 者胜）
 sed -i "s/^status: ready$/status: in_progress/" "$BEST_ISSUE"

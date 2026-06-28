@@ -13,6 +13,18 @@ mkdir -p "$(dirname "$LOG_FILE")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
 cd "$WORKSPACE"
+
+# index.lock 时效检测（防僵尸 lock 阻塞所有 git 操作）
+LOCK=".git/index.lock"
+if [ -f "$LOCK" ]; then
+  AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+  if [ "$AGE" -gt 300 ]; then
+    rm -f "$LOCK" && log "CLEANED stale index.lock (${AGE}s)"
+  else
+    log "WARN: index.lock active (${AGE}s) — git locked"; exit 1
+  fi
+fi
+
 git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
 
 CHANGED=false
@@ -52,10 +64,12 @@ done < <(grep -rl "^status: failed$" "$ISSUES_DIR" --include="*.md" 2>/dev/null 
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
-    if ! git branch -a | grep -qE "(ai|archon)/.*${ISSUE_NUM}"; then
-        log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/archon 分支，回收为 ready"
-        sed -i "s/^status: in_progress$/status: ready/" "$f"
-        CHANGED=true
+    if ! git branch -a | grep -qE "(ai|archon)/[^/]*${ISSUE_NUM}($|[^0-9])"; then
+        if ! git worktree list --porcelain 2>/dev/null | grep -q "${ISSUE_NUM}"; then
+            log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/archon 分支且无活跃 worktree，回收为 ready"
+            sed -i "s/^status: in_progress$/status: ready/" "$f"
+            CHANGED=true
+        fi
     fi
 done < <(grep -rl "^status: in_progress$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
