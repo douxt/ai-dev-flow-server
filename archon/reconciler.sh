@@ -60,6 +60,17 @@ while IFS= read -r f; do
     fi
 done < <(grep -rl "^status: failed$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
+# 0. 清理已合并的 ai/ 分支 + 超过 7 天的 archon/ 废弃分支
+# ai/ 分支用 -d（安全删除，仅合并后删除）；archon/task- 分支用 -D（强制删除，因 Archon worktree
+# 分支通常未 merge 到 main 但已废弃。7 天门禁 + git 拒绝活动 worktree 的分支删除提供保护）
+AGE_7DAYS=604800
+git branch --merged main 2>/dev/null | grep '  ai/' | xargs -r git branch -d 2>/dev/null || true
+git branch 2>/dev/null | grep 'archon/task-' | while read br; do
+  br=$(echo "$br" | xargs)
+  COMMIT_DATE=$(git log -1 --format="%ct" "$br" 2>/dev/null || echo 0)
+  [ $(($(date +%s) - COMMIT_DATE)) -gt $AGE_7DAYS ] && git branch -D "$br" 2>/dev/null || true
+done
+
 # 3. 孤儿检测：in_progress >5min + 无活跃进程 + 无匹配分支/worktree
 while IFS= read -r f; do
     [ -z "$f" ] && continue
