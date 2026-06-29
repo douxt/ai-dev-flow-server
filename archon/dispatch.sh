@@ -86,7 +86,7 @@ while IFS= read -r f; do
         [ -z "$DEP_FILE" ] && DEPS_OK=false && break
     done
     [ "$DEPS_OK" = true ] && BEST_ISSUE="$f" && break
-done < <(grep -rl "^status: ready$" "$ISSUES_DIR" --include="*.md" 2>/dev/null | sort)
+done < <(grep -rl "^status: ready$" "$ISSUES_DIR" --include="*.md" 2>/dev/null | grep -vE '(PRD|TEMPLATE)' | sort)
 
 if [ -z "$BEST_ISSUE" ]; then
     log "NO_MORE_TASKS: 无可用 ready issue"
