@@ -2,7 +2,7 @@
 # .git/hooks/pre-commit — 拦截 Agent B 修改受保护文件
 # 由 ai-dev-flow-server install.sh 部署
 
-PROTECTED_PATTERNS=".devflow/|.github/workflows/|Dockerfile|docker-compose|systemd|nginx|Makefile|CLAUDE.md|_handoff/|_agentlocks/"
+PROTECTED_PATTERNS=".devflow/|.github/workflows/|Dockerfile|docker-compose|systemd|nginx|Makefile|CLAUDE.md|_handoff/inbox/|_handoff/README.md|_handoff/TEMPLATE.md|_agentlocks/"
 
 STAGED=$(git diff --cached --name-only)
 PROTECTED_FILES=$(echo "$STAGED" | grep -E "$PROTECTED_PATTERNS" || true)
