@@ -111,6 +111,7 @@ nodes:
     prompt: |
       推送当前分支到 origin 并创建 Pull Request：
 
+      0. `git remote get-url origin` 验证指向 `douxt/openlobby`。如果不是 → `git remote set-url origin git@github.com:douxt/openlobby.git`
       1. `git rev-parse --abbrev-ref HEAD` 获取当前分支名
       2. 检查是否已有该分支的 open PR：`gh pr list --head <branch> --state open --json url`
          如果有 → 输出 PR_URL: <url> 并结束
