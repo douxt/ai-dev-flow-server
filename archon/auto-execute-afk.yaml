@@ -125,7 +125,7 @@ nodes:
     bash: |
       ISSUE_FILE="$ARGUMENTS"
       BRANCH=$(git rev-parse --abbrev-ref HEAD)
-      PR_URL=$(grep -oP 'PR_URL:\s*\Khttps://[^\s]+' "archon_output.log" 2>/dev/null || echo "")
+      PR_URL=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url' 2>/dev/null || echo "")
       if [ -n "$PR_URL" ]; then
         if grep -q '^pr:' "$ISSUE_FILE"; then
           sed -i "s|^pr:.*|pr: [\"$PR_URL\"]|" "$ISSUE_FILE"
@@ -147,7 +147,8 @@ nodes:
     depends_on: [mark-in-review]
     bash: |
       set -euo pipefail
-      PR_URL=$(grep -oP 'PR_URL:\s*\Khttps://[^\s]+' "archon_output.log" 2>/dev/null || echo "")
+      BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      PR_URL=$(gh pr list --head "$BRANCH" --repo douxt/openlobby --state open --json url --jq '.[0].url' 2>/dev/null || echo "")
       if [ -z "$PR_URL" ]; then
         echo "AUTO_MERGE_SKIP: no PR URL"
         exit 0

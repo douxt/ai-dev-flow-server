@@ -87,7 +87,7 @@ while IFS= read -r f; do
     pgrep -f "archon workflow run" >/dev/null 2>&1 && continue
 
     # 有匹配分支/worktree → 跳过（git -C 锚定工作目录）
-    if git -C "$WORKSPACE" branch -a | grep -qE "(ai|archon)/[^/]*${ISSUE_NUM}($|[^0-9])"; then continue; fi
+    if git -C "$WORKSPACE" branch -a | grep -qE "(ai|archon)/[^/]*(${ISSUE_NUM}|task-auto-execute)($|[^0-9])"; then continue; fi
     if git -C "$WORKSPACE" worktree list --porcelain 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then continue; fi
 
     log "ORPHAN: #${ISSUE_NUM} in_progress >5min 无进程无分支/worktree，回收为 ready"
@@ -113,6 +113,32 @@ while IFS= read -r f; do
         CHANGED=true
     fi
 done < <(grep -rl "^status: backlog$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
+
+# 5. in_review → 检查 PR 是否已合并 → done
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    ISSUE_NUM=$(basename "$f" | cut -d- -f1)
+    PR_URL=$(grep -oP 'pr:\s*\["?\Khttps://[^"\] ]+' "$f" 2>/dev/null | head -1 || echo "")
+    if [ -n "$PR_URL" ]; then
+        MERGED=$(gh pr view "$PR_URL" --json merged --jq '.merged' 2>/dev/null || echo "false")
+        if [ "$MERGED" = "true" ]; then
+            log "AUTO_DONE: #${ISSUE_NUM} PR 已合并，in_review → done"
+            sed -i "s/^status: in_review$/status: done/" "$f"
+            CHANGED=true
+        fi
+    else
+        BRANCH=$(git branch -a | grep "ai/.*${ISSUE_NUM}" | head -1 | xargs || true)
+        if [ -n "$BRANCH" ]; then
+            MERGED_PR=$(gh pr list --head "$BRANCH" --state merged --json url --jq '.[0].url' 2>/dev/null || echo "")
+            if [ -n "$MERGED_PR" ]; then
+                log "AUTO_DONE: #${ISSUE_NUM} PR 已合并（via branch），in_review → done"
+                sed -i "s/^status: in_review$/status: done/" "$f"
+                sed -i "/^---$/a pr: [\"$MERGED_PR\"]" "$f"
+                CHANGED=true
+            fi
+        fi
+    fi
+done < <(grep -rl "^status: in_review$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
 if [ "$CHANGED" = true ]; then
     git add "$ISSUES_DIR" 2>/dev/null || true
