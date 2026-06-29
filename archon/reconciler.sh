@@ -60,17 +60,28 @@ while IFS= read -r f; do
     fi
 done < <(grep -rl "^status: failed$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
-# 3. 孤儿检测：in_progress 但 ai/ 分支不存在
+# 3. 孤儿检测：in_progress >5min + 无活跃进程 + 无匹配分支/worktree
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
-    if ! git branch -a | grep -qE "(ai|archon)/[^/]*${ISSUE_NUM}($|[^0-9])"; then
-        if ! git worktree list --porcelain 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then
-            log "ORPHAN: #${ISSUE_NUM} in_progress 但无对应 ai/archon 分支且无活跃 worktree，回收为 ready"
-            sed -i "s/^status: in_progress$/status: ready/" "$f"
-            CHANGED=true
-        fi
-    fi
+
+    # grace period: issue 被标记 in_progress <5min → 跳过
+    ISSUE_MTIME=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    AGE_SEC=$((NOW - ISSUE_MTIME))
+    [ "$AGE_SEC" -lt 300 ] && continue
+
+    # 有活跃进程 → 跳过
+    pgrep -f "dispatch.sh.*$(basename "$WORKSPACE")" >/dev/null 2>&1 && continue
+    pgrep -f "archon workflow run" >/dev/null 2>&1 && continue
+
+    # 有匹配分支/worktree → 跳过（git -C 锚定工作目录）
+    if git -C "$WORKSPACE" branch -a | grep -qE "(ai|archon)/[^/]*${ISSUE_NUM}($|[^0-9])"; then continue; fi
+    if git -C "$WORKSPACE" worktree list --porcelain 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then continue; fi
+
+    log "ORPHAN: #${ISSUE_NUM} in_progress >5min 无进程无分支/worktree，回收为 ready"
+    sed -i "s/^status: in_progress$/status: ready/" "$f"
+    CHANGED=true
 done < <(grep -rl "^status: in_progress$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
 # 4. backlog 依赖全部 done → 自动标 ready
