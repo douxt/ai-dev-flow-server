@@ -42,27 +42,52 @@ if [ "$UPDATE_MODE" = true ]; then
         echo "  git pull ..."
         cd "$SOURCE" && git pull --rebase --quiet 2>/dev/null || echo "  ⚠️  git pull 失败，继续用当前版本"
     fi
+
+    deploy_file() {
+        local src="$1" dst="$2"
+        [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
+        mkdir -p "$(dirname "$dst")"
+        cp -f "$src" "$dst" || { echo "  ❌ cp 失败: $dst"; return 1; }
+        diff "$src" "$dst" >/dev/null || { echo "  ⚠️ diff 校验失败: $dst"; return 1; }
+        return 0
+    }
+
     echo "  更新 archon/ ..."
-    cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/"
-    cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/"
-    cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/"
-    cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/"
+    deploy_file "$SOURCE/archon/dispatch.sh"           "$TARGET/.devflow/archon/dispatch.sh"
+    deploy_file "$SOURCE/archon/reconciler.sh"         "$TARGET/.devflow/archon/reconciler.sh"
+    deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
     mkdir -p "$TARGET/.archon/workflows"
-    cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/"
-    cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/"
-    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+    deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/auto-execute-afk.yaml"
+
     echo "  更新 scripts/ ..."
-    cp "$SOURCE/scripts/"*.py "$TARGET/.devflow/scripts/"
-    cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/"
-    chmod +x "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/check-layer.sh"
+    deploy_file "$SOURCE/archon/status.sh"             "$TARGET/.devflow/scripts/status.sh"
+    deploy_file "$SOURCE/scripts/check-layer.sh"       "$TARGET/.devflow/scripts/check-layer.sh"
+    for py in "$SOURCE/scripts/"*.py; do
+        [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
+    done
+
     echo "  更新 knowledge/ ..."
-    cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
+    for md in "$SOURCE/knowledge/"*.md; do
+        [ -f "$md" ] && deploy_file "$md" "$TARGET/.devflow/knowledge/$(basename "$md")"
+    done
+
     echo "  更新 workflows/ ..."
-    cp "$SOURCE/workflows/"*.js "$HOME/.claude/workflows/"
+    mkdir -p "$HOME/.claude/workflows"
+    for js in "$SOURCE/workflows/"*.js; do
+        [ -f "$js" ] && deploy_file "$js" "$HOME/.claude/workflows/$(basename "$js")"
+    done
+
+    echo "  更新 issue 模板 ..."
+    mkdir -p "$TARGET/issues"
+    deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
+
+    echo "  设置可执行权限 ..."
+    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" 2>/dev/null || true
+    chmod +x "$TARGET/.devflow/scripts/"*.sh 2>/dev/null || true
+
     echo "  确保 logs/ ..."
     mkdir -p "$TARGET/logs"
-    echo "  更新 issue 模板 ..."
-    cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
+
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
     exit 0
 fi
