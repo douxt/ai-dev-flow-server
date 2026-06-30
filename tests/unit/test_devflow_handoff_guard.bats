@@ -65,8 +65,7 @@ teardown() {
 @test "switch to agent-b creates handoff and AGENTS.md" {
     # start as owner
     sed -i 's/role: agent-b/role: owner/' "$PROJECT/.devflow/config.yaml"
-    echo "owner content
-<!-- ai-dev-flow-server end -->" > "$PROJECT/.claude/CLAUDE.md.append"
+    sed -i 's/agent-b content/owner content/' "$PROJECT/.claude/CLAUDE.md"
 
     run devflow role switch agent-b
     [ "$status" -eq 0 ]
