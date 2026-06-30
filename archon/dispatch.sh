@@ -26,6 +26,12 @@ fi
 
 cd "$WORKSPACE"
 
+# stash + ARCHON_OUT 统一清理（EXIT trap 覆盖所有退出路径）
+cleanup_exit() { git stash pop --quiet 2>/dev/null || true; rm -f "$ARCHON_OUT" 2>/dev/null || true; }
+ARCHON_OUT=""
+trap cleanup_exit EXIT
+git stash push -m "dispatch-$(date +%s)" --quiet 2>/dev/null || true
+
 # 确保在 main 分支上（防 B 切分支后忘切回导致 dispatch 跑偏）
 git checkout main 2>/dev/null || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] FATAL: 无法切回 main" | tee -a logs/dispatch.log; exit 1; }
 
@@ -47,11 +53,9 @@ CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
 log "--- dispatch 扫描: $PROJECT_NAME ---"
 
-# 同步远端（先 stash 本地改动，清理 rebase 残留）
-git stash push -m "dispatch-$(date +%s)" --quiet 2>/dev/null || true
+# 同步远端（stash 已在 EXIT trap 中统一管理）
 git rebase --abort 2>/dev/null || true
 git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
-git stash pop --quiet 2>/dev/null || true
 
 # handoff 检测：outbox/agent-b/ 有新消息 → 通知人（30min 去重）
 HANDOFF_DIR="$WORKSPACE/_handoff/outbox/agent-b"
@@ -142,7 +146,6 @@ while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "ARCHON: 尝试 #${ATTEMPT}/${MAX_RETRIES}"
     # 用临时文件捕获 Archon 输出，提取结构化标记
     ARCHON_OUT=$(mktemp)
-    trap "rm -f $ARCHON_OUT" EXIT
     if archon workflow run "$ARCHON_WORKFLOW" "$ISSUE_PATH" --from "$CURRENT_BRANCH" > "$ARCHON_OUT" 2>&1; then
         # 追加完整输出到主日志
         cat "$ARCHON_OUT" >> "$LOG_FILE"

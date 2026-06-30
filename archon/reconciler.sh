@@ -25,6 +25,11 @@ if [ -f "$LOCK" ]; then
   fi
 fi
 
+# stash 防御 — pull 前清理 dirty state（EXIT 时自动 pop）
+cleanup_stash() { git stash pop --quiet 2>/dev/null || true; }
+trap cleanup_stash EXIT
+git stash push -m "reconciler-$(date +%s)" --quiet 2>/dev/null || true
+
 git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
 
 CHANGED=false
