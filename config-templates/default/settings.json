@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(__PKG_MGR__ *)",
+      "Bash(__TEST_CMD__)",
+      "Bash(__LINT_CMD__)",
+      "Bash(curl *)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(chmod *)",
+      "Bash(mkdir *)",
+      "Bash(rm *)",
+      "Bash(mv *)",
+      "Bash(cp *)",
+      "Read(__WORKSPACE__/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Read(__WORKSPACE__/**/.env*)",
+      "Read(**/__pycache__/**)",
+      "Read(~/.ssh/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/file-guard.sh"}]},
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/bash-firewall.sh"}]},
+      {"matcher": "EnterWorktree", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/block-enter-worktree.sh"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Edit|Write|Bash", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/audit-log.sh"}]}
+    ]
+  },
+  "effortLevel": "max",
+  "model": "sonnet"
+}
