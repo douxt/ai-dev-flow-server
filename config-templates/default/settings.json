@@ -29,7 +29,8 @@
       {"matcher": "EnterWorktree", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/block-enter-worktree.sh"}]}
     ],
     "PostToolUse": [
-      {"matcher": "Edit|Write|Bash", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/audit-log.sh"}]}
+      {"matcher": "Edit|Write|Bash", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/audit-log.sh", "timeout": 3000}]},
+      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/plan-backup.sh", "timeout": 3000}]}
     ]
   },
   "effortLevel": "max",

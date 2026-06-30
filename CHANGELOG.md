@@ -157,3 +157,25 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 3. **Docker 持久化**：容器内自动创建 `~/.claude → ~/.config/claude` symlink。确保 `~/.config` 挂载了持久卷
 4. **CC skills 离线缓存**：版本跟随 repo。定期运行 `skills-cache/sync-skills.sh` 同步最新 skill
 5. **首次使用**：安装后检查 `.devflow/config.yaml`，填写 telegram 配置（如需通知功能）
+
+---
+
+## v2.1 — 计划防覆盖 + 决策持久化（2026-07-01）
+
+### 新增
+- **plan-backup hook**：每次 Edit/Write 计划文件时自动 git 备份到 `~/.claude/plans/.git-backup/`
+- **CLAUDE.md 模板追加 Agent B 权限边界**：明确 B 在业务项目可 merge PR、在管线框架只读、改管线走 handoff
+- **CLAUDE.md 模板追加计划管理规则**：不覆盖旧计划、关键决策提取 ADR、ADR 格式规范
+
+### 修改
+- `config-templates/default/hooks/plan-backup.sh` — 新增
+- `config-templates/default/settings.json` — PostToolUse 注册 plan-backup
+- `config-templates/default/CLAUDE.md` — 追加计划管理段
+
+### 已知约束
+- hook 内部使用 `$HOME/.claude/plans/` 硬编码路径，Docker 依赖 `~/.claude` symlink。若未来部署修改 `__CLAUDE_HOME__` 指向且不走 symlink，所有 hook（含 audit-log/file-guard/bash-firewall）均需同步适配
+
+### 影响
+- 所有通过 install.sh 新安装的项目自动获得计划防覆盖能力
+- 已有项目用 `bash install.sh <项目> --update` 可增量更新
+- install.sh 无需修改 — hook 目录整体复制，新增文件自动跟随
