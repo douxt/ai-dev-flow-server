@@ -1,43 +1,186 @@
 #!/bin/bash
-# install.sh — ai-dev-flow-server 一键安装到目标项目
-# 用法: bash install.sh <项目路径> [--tech-stack <python|node|go>] [--test-cmd <cmd>] [--lint-cmd <cmd>] [--pkg-mgr <npm|yarn|pnpm|uv|pip|cargo>]
+# install.sh — ai-dev-flow-server 通用安装器
+# 用法: bash install.sh <项目路径> [选项]
 set -euo pipefail
 
-# ── 参数 ──
+# ── 默认值 ──
 TARGET=""
 TECH_STACK=""
 TEST_CMD=""
 LINT_CMD=""
 PKG_MGR=""
 UPDATE_MODE=false
+MODE="full"
+HOME_OVERRIDE=""
+USER_OVERRIDE=""
+SCHEDULER=""
+NO_CONFIG=false
+NO_SKILLS=false
+SKIP_ROOT=false
+DRY_RUN=false
+FORCE=false
+
+# ── 参数解析 ──
 while [ $# -gt 0 ]; do
     case "$1" in
         --tech-stack) TECH_STACK="$2"; shift 2 ;;
         --test-cmd)   TEST_CMD="$2"; shift 2 ;;
         --lint-cmd)   LINT_CMD="$2"; shift 2 ;;
         --pkg-mgr)    PKG_MGR="$2"; shift 2 ;;
+        --mode)       MODE="$2"; shift 2 ;;
+        --home)       HOME_OVERRIDE="$2"; shift 2 ;;
+        --user)       USER_OVERRIDE="$2"; shift 2 ;;
+        --scheduler)  SCHEDULER="$2"; shift 2 ;;
+        --no-config)  NO_CONFIG=true; shift ;;
+        --no-skills)  NO_SKILLS=true; shift ;;
+        --skip-root)  SKIP_ROOT=true; shift ;;
+        --dry-run)    DRY_RUN=true; shift ;;
+        --force)      FORCE=true; shift ;;
         --update)     UPDATE_MODE=true; shift ;;
         --help)
-            echo "用法:"
-            echo "  bash install.sh <项目路径> [--tech-stack node|python|go] [--test-cmd ...]"
-            echo "  bash install.sh <项目路径> --update   # 仅更新 .devflow/ + workflows，保留 config 和 gate-state"
+            echo "用法: bash install.sh <项目路径> [选项]"
+            echo ""
+            echo "必需:"
+            echo "  <项目路径>                    目标项目路径"
+            echo ""
+            echo "模式:"
+            echo "  --mode frontend|backend|full  部署模式（默认 full）"
+            echo "  --update                      增量更新（读取 .devflow/config.yaml mode）"
+            echo ""
+            echo "环境:"
+            echo "  --home <path>                 覆盖 \$HOME（Docker 内 coder 路径）"
+            echo "  --user <name>                 调度器运行用户（默认当前用户）"
+            echo "  --scheduler systemd|cron|none|external  调度器类型（默认自动检测）"
+            echo ""
+            echo "技术栈:"
+            echo "  --tech-stack node|python|go   技术栈（默认自动检测）"
+            echo "  --test-cmd <cmd>              测试命令"
+            echo "  --lint-cmd <cmd>              Lint 命令"
+            echo "  --pkg-mgr <npm|yarn|pnpm|uv|pip|cargo>  包管理器"
+            echo ""
+            echo "控制:"
+            echo "  --no-config                   跳过 settings + hooks + CLAUDE.md 安装"
+            echo "  --no-skills                   跳过 CC skill 安装"
+            echo "  --skip-root                   跳过 root 段输出"
+            echo "  --dry-run                     预览模式，不实际写入"
+            echo "  --force                       强制覆盖已有文件"
+            echo "  --help                        显示此帮助"
             exit 0 ;;
         *)            TARGET="$1"; shift ;;
     esac
 done
 
 if [ -z "$TARGET" ]; then
-    echo "❌ 需要指定目标项目路径"; echo "用法: bash install.sh <项目路径> [--tech-stack node|python|go]"; exit 1
+    echo "❌ 需要指定目标项目路径"; echo "用法: bash install.sh <项目路径> [选项]"; exit 1
+fi
+
+# ── 模式校验 ──
+case "$MODE" in frontend|backend|full) ;; *)
+    echo "❌ 无效 --mode: $MODE（可选: frontend, backend, full）"; exit 1 ;; esac
+
+# ── 调度器校验 ──
+if [ -n "$SCHEDULER" ]; then
+    case "$SCHEDULER" in systemd|cron|none|external) ;; *)
+        echo "❌ 无效 --scheduler: $SCHEDULER（可选: systemd, cron, none, external）"; exit 1 ;; esac
 fi
 
 TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
 SOURCE=$(cd "$(dirname "$0")" && pwd)
+CLAUDE_HOME="${HOME_OVERRIDE:-$HOME}"
+PROJECT=$(basename "$TARGET")
 
-# ── update 模式 ──
+# ── dry-run 包装 ──
+dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
+
+maybe_cp() {
+    local src="$1" dst="$2"
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $(basename "$src") → $dst"; return 0; fi
+    if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $dst 已存在，跳过（--force 可强制覆盖）"; return 0; fi
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst" && echo "  ✅ $(basename "$dst")"
+}
+
+maybe_cp_dir() {
+    local src="$1" dstdir="$2"
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $src/* → $dstdir/"; return 0; fi
+    mkdir -p "$dstdir"
+    local copied=0
+    for f in "$src"/*; do
+        [ -f "$f" ] || continue
+        local dst="$dstdir/$(basename "$f")"
+        if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $(basename "$dst") 已存在，跳过"; continue; fi
+        cp "$f" "$dst" && copied=$((copied + 1))
+    done
+    echo "  ✅ $dstdir/ ($copied files)"
+}
+
+maybe_mkdir() {
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] mkdir -p $1"; return 0; fi
+    [ -d "$1" ] && [ "$FORCE" != true ] && return 0
+    mkdir -p "$1"
+}
+
+# ── 环境检测 ──
+detect_environment() {
+    IS_DOCKER=false; HAS_SYSTEMD=false; HAS_CRON=false
+    if [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then IS_DOCKER=true; fi
+    if [ "$IS_DOCKER" = false ] && [ -d /run/systemd/system ]; then HAS_SYSTEMD=true; fi
+    if command -v crontab >/dev/null 2>&1; then HAS_CRON=true; fi
+}
+detect_environment
+
+# 自动调度器选择
+if [ -z "$SCHEDULER" ]; then
+    if [ "$IS_DOCKER" = true ]; then SCHEDULER="none"
+    elif [ "$HAS_SYSTEMD" = true ]; then SCHEDULER="systemd"
+    elif [ "$HAS_CRON" = true ]; then SCHEDULER="cron"
+    else SCHEDULER="none"; fi
+fi
+
+# ── 模式组件开关 ──
+FRONTEND=false; BACKEND=false
+case "$MODE" in
+    frontend) FRONTEND=true ;;
+    backend)  BACKEND=true ;;
+    full)     FRONTEND=true; BACKEND=true ;;
+esac
+
+# ── update 模式：读 config.yaml mode ──
 if [ "$UPDATE_MODE" = true ]; then
-    echo "── ai-dev-flow-server 更新模式 ──"
-    echo "  源: $SOURCE"
-    echo "  目标: $TARGET"
+    CONFIG_YAML="$TARGET/.devflow/config.yaml"
+    if [ -f "$CONFIG_YAML" ]; then
+        STORED_MODE=$(grep -oP '^\s*mode:\s*\K\S+' "$CONFIG_YAML" 2>/dev/null || echo "")
+        if [ -n "$STORED_MODE" ] && [ "$MODE" = "full" ]; then
+            MODE="$STORED_MODE"
+            FRONTEND=false; BACKEND=false
+            case "$MODE" in
+                frontend) FRONTEND=true ;; backend) BACKEND=true ;; full) FRONTEND=true; BACKEND=true ;;
+            esac
+            echo "ℹ️  从 config.yaml 读取 mode: $MODE"
+        elif [ -z "$STORED_MODE" ]; then
+            echo "⚠️  config.yaml 无 mode 字段，默认 full（可 --mode 显式指定）"
+        fi
+    fi
+fi
+
+echo "╔══════════════════════════════════════╗"
+echo "║  ai-dev-flow-server 通用安装器      ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
+echo "  源: $SOURCE"
+echo "  目标: $TARGET"
+echo "  模式: $MODE (frontend=$FRONTEND, backend=$BACKEND)"
+echo "  调度器: $SCHEDULER"
+echo "  CLAUDE_HOME: $CLAUDE_HOME"
+[ "$DRY_RUN" = true ] && echo "  ⚠️  DRY-RUN 模式：只预览，不写入"
+[ "$FORCE" = true ] && echo "  ⚠️  FORCE 模式：强制覆盖已有文件"
+echo ""
+
+# ═══════════════════════════════════
+# update 模式
+# ═══════════════════════════════════
+if [ "$UPDATE_MODE" = true ]; then
+    echo "── 更新模式 ──"
     if [ -d "$SOURCE/.git" ]; then
         echo "  git pull ..."
         cd "$SOURCE" && git pull --rebase --quiet 2>/dev/null || echo "  ⚠️  git pull 失败，继续用当前版本"
@@ -46,157 +189,163 @@ if [ "$UPDATE_MODE" = true ]; then
     deploy_file() {
         local src="$1" dst="$2"
         [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
-        mkdir -p "$(dirname "$dst")"
-        cp -f "$src" "$dst" || { echo "  ❌ cp 失败: $dst"; return 1; }
-        diff "$src" "$dst" >/dev/null || { echo "  ⚠️ diff 校验失败: $dst"; return 1; }
+        dry_run "mkdir -p $(dirname "$dst")"
+        dry_run "cp -f $src $dst"
         return 0
     }
 
-    echo "  更新 archon/ ..."
-    deploy_file "$SOURCE/archon/dispatch.sh"           "$TARGET/.devflow/archon/dispatch.sh"
-    deploy_file "$SOURCE/archon/reconciler.sh"         "$TARGET/.devflow/archon/reconciler.sh"
-    deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
-    mkdir -p "$TARGET/.archon/workflows"
-    deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/auto-execute-afk.yaml"
-
-    echo "  更新 scripts/ ..."
-    deploy_file "$SOURCE/archon/status.sh"             "$TARGET/.devflow/scripts/status.sh"
-    deploy_file "$SOURCE/scripts/check-layer.sh"       "$TARGET/.devflow/scripts/check-layer.sh"
-    for py in "$SOURCE/scripts/"*.py; do
-        [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
-    done
+    if [ "$BACKEND" = true ]; then
+        echo "  更新 archon/ ..."
+        deploy_file "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/dispatch.sh"
+        deploy_file "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/reconciler.sh"
+        deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
+        dry_run "mkdir -p $TARGET/.archon/workflows"
+        deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/auto-execute-afk.yaml"
+        echo "  更新 scripts/ ..."
+        deploy_file "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
+        deploy_file "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+        for py in "$SOURCE/scripts/"*.py; do
+            [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
+        done
+    fi
 
     echo "  更新 knowledge/ ..."
     for md in "$SOURCE/knowledge/"*.md; do
         [ -f "$md" ] && deploy_file "$md" "$TARGET/.devflow/knowledge/$(basename "$md")"
     done
 
-    echo "  更新 workflows/ ..."
-    mkdir -p "$HOME/.claude/workflows"
-    for js in "$SOURCE/workflows/"*.js; do
-        [ -f "$js" ] && deploy_file "$js" "$HOME/.claude/workflows/$(basename "$js")"
-    done
+    if [ "$FRONTEND" = true ]; then
+        echo "  更新 workflows/ ..."
+        dry_run "mkdir -p $CLAUDE_HOME/.claude/workflows"
+        for js in "$SOURCE/workflows/"*.js; do
+            [ -f "$js" ] && deploy_file "$js" "$CLAUDE_HOME/.claude/workflows/$(basename "$js")"
+        done
+    fi
 
     echo "  更新 issue 模板 ..."
-    mkdir -p "$TARGET/issues"
+    dry_run "mkdir -p $TARGET/issues"
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
 
-    echo "  设置可执行权限 ..."
-    chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" 2>/dev/null || true
-    chmod +x "$TARGET/.devflow/scripts/"*.sh 2>/dev/null || true
+    dry_run "chmod +x $TARGET/.devflow/archon/dispatch.sh $TARGET/.devflow/archon/reconciler.sh"
+    dry_run "chmod +x $TARGET/.devflow/scripts/"*.sh
 
-    echo "  确保 logs/ ..."
-    mkdir -p "$TARGET/logs"
-
+    dry_run "mkdir -p $TARGET/logs"
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
     exit 0
 fi
 
-echo "╔══════════════════════════════════════╗"
-echo "║  ai-dev-flow-server 安装器          ║"
-echo "╚══════════════════════════════════════╝"
-echo ""
-echo "  源: $SOURCE"
-echo "  目标: $TARGET"
-echo ""
-
-# ── 0. 预检 ──
+# ═══════════════════════════════════
+# 0. 预检
+# ═══════════════════════════════════
 echo "── 步骤 0: 预检 ──"
 ERRORS=0
 
 if [ ! -d "$TARGET/.git" ]; then
     echo "  ❌ 不是 git 仓库（缺少 .git/）"
-    ERRORS=$((ERRORS + 1))
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] 跳过致命错误"; else ERRORS=$((ERRORS + 1)); fi
 else
     echo "  ✅ git 仓库"
 fi
 
 if command -v gh >/dev/null 2>&1; then
-    if gh auth status >/dev/null 2>&1; then
-        echo "  ✅ gh CLI 已认证"
-    else
-        echo "  ⚠️  gh CLI 未认证，请运行: gh auth login"
-    fi
+    if gh auth status >/dev/null 2>&1; then echo "  ✅ gh CLI 已认证"
+    else echo "  ⚠️  gh CLI 未认证，请运行: gh auth login"; fi
 else
     echo "  ⚠️  gh CLI 未安装，PR 创建功能需要 gh"
 fi
 
+if command -v claude >/dev/null 2>&1; then echo "  ✅ claude CLI 可用"
+else echo "  ⚠️  claude CLI 未安装，CC skill 将无法使用"; fi
+
 if [ ! -f "$TARGET/.claude/CLAUDE.md" ] && [ ! -f "$TARGET/CLAUDE.md" ]; then
     echo "  ⚠️  缺少 CLAUDE.md（建议创建，说明技术栈和项目结构）"
-else
-    echo "  ✅ CLAUDE.md 存在"
-fi
+else echo "  ✅ CLAUDE.md 存在"; fi
 
 ISSUES_DIR="$TARGET/issues"
 if [ ! -d "$ISSUES_DIR" ]; then
     echo "  ⚠️  issues/ 目录不存在，将自动创建"
-    mkdir -p "$ISSUES_DIR"
-    touch "$ISSUES_DIR/.gitkeep"
+    dry_run "mkdir -p $ISSUES_DIR"
+    dry_run "touch $ISSUES_DIR/.gitkeep"
 fi
 echo "  ✅ issues/ 目录就绪"
 
+# Docker 持久化：symlink ~/.claude → ~/.config/claude
+if [ "$IS_DOCKER" = true ]; then
+    CLAUDE_DIR="$CLAUDE_HOME/.claude"
+    CONFIG_CLAUDE="$CLAUDE_HOME/.config/claude"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN] Docker 持久化：ln -sfn ~/.config/claude ~/.claude"
+    elif [ -d "$CLAUDE_DIR" ] && [ ! -L "$CLAUDE_DIR" ]; then
+        if [ "$(ls -A "$CLAUDE_DIR" 2>/dev/null)" ]; then
+            echo "  ℹ️  Docker 持久化：mv ~/.claude → ~/.config/claude"
+            mkdir -p "$CONFIG_CLAUDE"
+            cp -r "$CLAUDE_DIR"/* "$CONFIG_CLAUDE/" 2>/dev/null || true
+            rm -rf "$CLAUDE_DIR"
+        else rm -rf "$CLAUDE_DIR"; fi
+    fi
+    if [ ! -e "$CLAUDE_DIR" ]; then
+        mkdir -p "$CONFIG_CLAUDE"
+        ln -sfn "$CONFIG_CLAUDE" "$CLAUDE_DIR"
+        echo "  ✅ ~/.claude → ~/.config/claude symlink 已创建（Docker 持久化）"
+    fi
+fi
+
 # 推断技术栈
 if [ -z "$TECH_STACK" ]; then
-    if [ -f "$TARGET/package.json" ]; then
-        TECH_STACK="node"
-    elif [ -f "$TARGET/pyproject.toml" ] || [ -f "$TARGET/setup.py" ] || [ -f "$TARGET/requirements.txt" ]; then
-        TECH_STACK="python"
-    elif [ -f "$TARGET/go.mod" ]; then
-        TECH_STACK="go"
-    else
-        TECH_STACK="node"  # 默认
-        echo "  ℹ️  无法推断技术栈，默认使用 node"
-    fi
+    if [ -f "$TARGET/package.json" ]; then TECH_STACK="node"
+    elif [ -f "$TARGET/pyproject.toml" ] || [ -f "$TARGET/setup.py" ] || [ -f "$TARGET/requirements.txt" ]; then TECH_STACK="python"
+    elif [ -f "$TARGET/go.mod" ]; then TECH_STACK="go"
+    else TECH_STACK="node"; echo "  ℹ️  无法推断技术栈，默认使用 node"; fi
 fi
 echo "  ℹ️  技术栈: $TECH_STACK"
 
-# 技术栈默认值
 case "$TECH_STACK" in
     node)
         [ -z "$PKG_MGR" ] && PKG_MGR="npm"
         [ -z "$TEST_CMD" ] && TEST_CMD="npm test"
-        [ -z "$LINT_CMD" ] && LINT_CMD="npm run lint"
-        ;;
+        [ -z "$LINT_CMD" ] && LINT_CMD="npm run lint" ;;
     python)
         [ -z "$PKG_MGR" ] && PKG_MGR="uv"
         [ -z "$TEST_CMD" ] && TEST_CMD="uv run pytest"
-        [ -z "$LINT_CMD" ] && LINT_CMD="uv run ruff check"
-        ;;
+        [ -z "$LINT_CMD" ] && LINT_CMD="uv run ruff check" ;;
     go)
         [ -z "$PKG_MGR" ] && PKG_MGR="go"
         [ -z "$TEST_CMD" ] && TEST_CMD="go test ./..."
-        [ -z "$LINT_CMD" ] && LINT_CMD="go vet ./..."
-        ;;
-    *)
-        echo "  ❌ 不支持的技术栈: $TECH_STACK"; exit 1
-        ;;
+        [ -z "$LINT_CMD" ] && LINT_CMD="go vet ./..." ;;
+    *) echo "  ❌ 不支持的技术栈: $TECH_STACK"; exit 1 ;;
 esac
-
 echo "  包管理: $PKG_MGR | 测试: $TEST_CMD | Lint: $LINT_CMD"
 
-# 测试命令是否存在
-if ! eval "cd \"$TARGET\" && command -v ${TEST_CMD%% *}" >/dev/null 2>&1; then
-    echo "  ⚠️  测试命令 '${TEST_CMD%% *}' 不可用，请确认依赖已安装"
+if [ "$DRY_RUN" = false ]; then
+    if ! eval "cd \"$TARGET\" && command -v ${TEST_CMD%% *}" >/dev/null 2>&1; then
+        echo "  ⚠️  测试命令 '${TEST_CMD%% *}' 不可用，请确认依赖已安装"
+    fi
 fi
 
-if [ $ERRORS -gt 0 ]; then
-    echo ""; echo "❌ 预检未通过（$ERRORS 项），请修正后重新运行"; exit 1
-fi
+if [ $ERRORS -gt 0 ]; then echo ""; echo "❌ 预检未通过（$ERRORS 项），请修正后重新运行"; exit 1; fi
 echo ""
 
-# ── 1. 生成 config.yaml ──
+# ═══════════════════════════════════
+# 1. 生成 config.yaml
+# ═══════════════════════════════════
 echo "── 步骤 1: 生成 .devflow/config.yaml ──"
+REPO_URL=$(cd "$TARGET" && git remote get-url origin 2>/dev/null || echo "git@github.com:user/${PROJECT}.git")
 
-PROJECT_NAME=$(basename "$TARGET")
-REPO_URL=$(cd "$TARGET" && git remote get-url origin 2>/dev/null || echo "git@github.com:user/${PROJECT_NAME}.git")
+maybe_mkdir "$TARGET/.devflow"
 
-mkdir -p "$TARGET/.devflow"
-cat > "$TARGET/.devflow/config.yaml" << DEVCONFIG
+if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY-RUN] 写入 .devflow/config.yaml"
+elif [ -f "$TARGET/.devflow/config.yaml" ] && [ "$FORCE" != true ]; then
+    echo "  ⚠️  .devflow/config.yaml 已存在，跳过（--force 可强制覆盖）"
+else
+    cat > "$TARGET/.devflow/config.yaml" << DEVCONFIG
 # .devflow/config.yaml — 由 ai-dev-flow-server install.sh 生成
 project:
-  name: ${PROJECT_NAME}
+  name: ${PROJECT}
   repo_url: ${REPO_URL}
   workspace: ${TARGET}
+
+mode: ${MODE}
 
 tech_stack:
   language: ${TECH_STACK}
@@ -217,92 +366,225 @@ notify:
   telegram_chat_id: "<从 MAF-Hub config/telegram.json 复制>"
   telegram_bot_token: "<同上>"
 DEVCONFIG
-
-echo "  ✅ .devflow/config.yaml 已生成（请手动填写 telegram_chat_id 和 telegram_bot_token）"
-echo ""
-
-# ── 2. 复制 workflows ──
-echo "── 步骤 2: 复制 gate 脚本到 ~/.claude/workflows/ ──"
-mkdir -p "$HOME/.claude/workflows"
-cp "$SOURCE/workflows/"*.js "$HOME/.claude/workflows/"
-echo "  ✅ 6 个 gate 脚本已安装"
-echo ""
-
-# ── 3. 复制 .gate-state ──
-echo "── 步骤 3: 复制 .gate-state ──"
-if [ -f "$TARGET/.gate-state" ]; then
-    echo "  ⚠️  .gate-state 已存在，跳过（保留现有）"
-else
-    cp "$SOURCE/templates/gate-state.yml" "$TARGET/.gate-state"
-    echo "  ✅ .gate-state 已创建"
+    echo "  ✅ .devflow/config.yaml 已生成（请手动填写 telegram 配置）"
 fi
 echo ""
 
-# ── 4. 追加 CLAUDE.md ──
+# ═══════════════════════════════════
+# A. 安装 config（frontend + full）
+# ═══════════════════════════════════
+if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
+    echo "── 步骤 A: 安装 CC 配置（settings + hooks + CLAUDE.md）──"
+
+    CLAUDE_DIR="$CLAUDE_HOME/.claude"
+    dry_run "mkdir -p $CLAUDE_DIR/hooks"
+
+    # settings.json
+    SETTINGS_SRC="$SOURCE/config-templates/default/settings.json"
+    SETTINGS_DST="$CLAUDE_DIR/settings.local.json"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN] 生成 $SETTINGS_DST（替换 __VAR__ 占位符）"
+    elif [ -f "$SETTINGS_DST" ] && [ "$FORCE" != true ]; then
+        echo "  ⚠️  settings.local.json 已存在，跳过（--force 可强制覆盖）"
+    elif [ -f "$SETTINGS_SRC" ]; then
+        sed -e "s|__PKG_MGR__|${PKG_MGR}|g" \
+            -e "s|__TEST_CMD__|${TEST_CMD}|g" \
+            -e "s|__LINT_CMD__|${LINT_CMD}|g" \
+            -e "s|__WORKSPACE__|${TARGET}|g" \
+            -e "s|__CLAUDE_HOME__|${CLAUDE_DIR}|g" \
+            "$SETTINGS_SRC" > "$SETTINGS_DST"
+        if jq . "$SETTINGS_DST" >/dev/null 2>&1; then
+            echo "  ✅ settings.local.json（占位符已替换）"
+        else
+            echo "  ❌ settings.local.json JSON 语法错误，已回滚"
+            cp "$SETTINGS_SRC" "$SETTINGS_DST.bak" 2>/dev/null || true
+            rm -f "$SETTINGS_DST"
+        fi
+    else
+        echo "  ⚠️  config-templates/default/settings.json 不存在，跳过"
+    fi
+
+    # CLAUDE.md 全局规则
+    CLAUDE_MD_SRC="$SOURCE/config-templates/default/CLAUDE.md"
+    CLAUDE_MD_DST="$CLAUDE_DIR/CLAUDE.md"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN] 安装 ~/.claude/CLAUDE.md"
+    elif [ -f "$CLAUDE_MD_DST" ] && [ "$FORCE" != true ]; then
+        echo "  ⚠️  ~/.claude/CLAUDE.md 已存在，跳过（--force 可强制覆盖）"
+    elif [ -f "$CLAUDE_MD_SRC" ]; then
+        cp "$CLAUDE_MD_SRC" "$CLAUDE_MD_DST"
+        echo "  ✅ ~/.claude/CLAUDE.md（全局 worktree 规则）"
+    fi
+
+    # 4 个 hook
+    if [ -d "$SOURCE/config-templates/default/hooks" ]; then
+        for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
+            [ -f "$hook" ] || continue
+            hook_name=$(basename "$hook")
+            hook_dst="$CLAUDE_DIR/hooks/$hook_name"
+            if [ "$DRY_RUN" = true ]; then
+                echo "  [DRY-RUN] cp $hook_name → $hook_dst"
+            elif [ -f "$hook_dst" ] && [ "$FORCE" != true ]; then
+                echo "  ⚠️  hook/$hook_name 已存在，跳过"
+            else
+                cp "$hook" "$hook_dst"
+                chmod +x "$hook_dst" 2>/dev/null || true
+                echo "  ✅ hook/$hook_name"
+            fi
+        done
+    fi
+    echo ""
+fi
+
+# ═══════════════════════════════════
+# B. 安装 CC skills（frontend + full）
+# ═══════════════════════════════════
+if [ "$FRONTEND" = true ] && [ "$NO_SKILLS" = false ]; then
+    echo "── 步骤 B: 安装 CC skills ──"
+
+    SKILLS_SRC="$SOURCE/skills-cache"
+    SKILLS_DST="$CLAUDE_HOME/.claude/skills"
+
+    if [ ! -d "$SKILLS_SRC" ]; then
+        echo "  ⚠️  skills-cache/ 不存在，跳过"
+    else
+        # CC 版本兼容性检查
+        if [ -f "$SKILLS_SRC/.version" ] && [ "$DRY_RUN" = false ]; then
+            CACHED_CC=$(jq -r '.cc_version' "$SKILLS_SRC/.version" 2>/dev/null || echo "")
+            LOCAL_CC=$(claude --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "")
+            if [ -n "$CACHED_CC" ] && [ -n "$LOCAL_CC" ]; then
+                CACHED_MAJOR="${CACHED_CC%%.*}"; LOCAL_MAJOR="${LOCAL_CC%%.*}"
+                if [ "$CACHED_MAJOR" != "$LOCAL_MAJOR" ]; then
+                    echo "  ⚠️  skills-cache CC 版本 ($CACHED_CC) 与本地 ($LOCAL_CC) 大版本不同，可能不兼容"
+                fi
+            fi
+        fi
+
+        dry_run "mkdir -p $SKILLS_DST"
+        for skill_dir in "$SKILLS_SRC"/*/; do
+            [ -d "$skill_dir" ] || continue
+            skill_name=$(basename "$skill_dir")
+            [[ "$skill_name" == .* ]] && continue
+            skill_dst="$SKILLS_DST/$skill_name"
+            if [ "$DRY_RUN" = true ]; then
+                echo "  [DRY-RUN] cp -r $skill_name/ → $skill_dst"
+            elif [ -d "$skill_dst" ] && [ "$FORCE" != true ]; then
+                echo "  ⚠️  skill/$skill_name 已存在，跳过"
+            else
+                [ "$FORCE" = true ] && rm -rf "$skill_dst"
+                cp -rL "$skill_dir" "$skill_dst"
+                echo "  ✅ skill/$skill_name"
+            fi
+        done
+    fi
+    echo ""
+fi
+
+# ═══════════════════════════════════
+# 2. 复制 workflows（frontend + full）
+# ═══════════════════════════════════
+if [ "$FRONTEND" = true ]; then
+    echo "── 步骤 2: 复制 gate 脚本到 ~/.claude/workflows/ ──"
+    dry_run "mkdir -p $CLAUDE_HOME/.claude/workflows"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN] cp workflows/*.js → $CLAUDE_HOME/.claude/workflows/"
+    else
+        count=0
+        for js in "$SOURCE/workflows/"*.js; do
+            [ -f "$js" ] || continue
+            dst="$CLAUDE_HOME/.claude/workflows/$(basename "$js")"
+            if [ -f "$dst" ] && [ "$FORCE" != true ]; then
+                echo "  ⚠️  $(basename "$js") 已存在，跳过"; continue
+            fi
+            cp "$js" "$dst" && count=$((count + 1))
+        done
+        echo "  ✅ $count 个 gate 脚本已安装"
+    fi
+    echo ""
+fi
+
+# ═══════════════════════════════════
+# 3. 复制 .gate-state（frontend + full）
+# ═══════════════════════════════════
+if [ "$FRONTEND" = true ]; then
+    echo "── 步骤 3: 复制 .gate-state ──"
+    GATE_STATE="$TARGET/.gate-state"
+    if [ -f "$GATE_STATE" ]; then
+        echo "  ⚠️  .gate-state 已存在，跳过（永不覆盖，防止进度丢失）"
+    else
+        dry_run "cp $SOURCE/templates/gate-state.yml $GATE_STATE"
+        [ "$DRY_RUN" = false ] && cp "$SOURCE/templates/gate-state.yml" "$GATE_STATE" && echo "  ✅ .gate-state 已创建"
+    fi
+    echo ""
+fi
+
+# ═══════════════════════════════════
+# 4. 追加 CLAUDE.md（所有 mode）
+# ═══════════════════════════════════
 echo "── 步骤 4: 追加 CLAUDE.md 片段（幂等）──"
 CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
+if [ ! -f "$CLAUDE_MD" ]; then CLAUDE_MD="$TARGET/CLAUDE.md"; fi
 if [ ! -f "$CLAUDE_MD" ]; then
-    CLAUDE_MD="$TARGET/CLAUDE.md"
-fi
-if [ ! -f "$CLAUDE_MD" ]; then
-    mkdir -p "$TARGET/.claude"
+    dry_run "mkdir -p $TARGET/.claude"
     CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
-    touch "$CLAUDE_MD"
+    [ "$DRY_RUN" = false ] && { mkdir -p "$TARGET/.claude"; touch "$CLAUDE_MD"; }
 fi
 
 if grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
     echo "  ⚠️  CLAUDE.md 已含 ai-dev-flow-server 标记，跳过追加"
 else
-    cat "$SOURCE/templates/CLAUDE.md.append" >> "$CLAUDE_MD"
-    echo "  ✅ CLAUDE.md 片段已追加"
+    dry_run "cat $SOURCE/templates/CLAUDE.md.append >> $CLAUDE_MD"
+    [ "$DRY_RUN" = false ] && cat "$SOURCE/templates/CLAUDE.md.append" >> "$CLAUDE_MD" && echo "  ✅ CLAUDE.md 片段已追加"
 fi
 echo ""
 
-# ── 5. 复制 devflow 文件 ──
+# ═══════════════════════════════════
+# 5. 复制 devflow 文件（按 mode）
+# ═══════════════════════════════════
 echo "── 步骤 5: 复制 .devflow/ 文件 ──"
-mkdir -p "$TARGET/.devflow/archon" "$TARGET/.devflow/scripts" "$TARGET/.devflow/knowledge"
+dry_run "mkdir -p $TARGET/.devflow/archon $TARGET/.devflow/scripts $TARGET/.devflow/knowledge"
 
-# archon/（含 dispatch.sh, reconciler.sh, auto-execute-afk.yaml）
-cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/"
-cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/"
-cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/"
-chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"
+# knowledge/ — 所有 mode
+maybe_cp_dir "$SOURCE/knowledge" "$TARGET/.devflow/knowledge"
 
-# scripts/
-cp "$SOURCE/scripts/check_constitution.py" "$TARGET/.devflow/scripts/"
-cp "$SOURCE/scripts/cost_tracker.py" "$TARGET/.devflow/scripts/"
-cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/"
-cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/"
-cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/"
-chmod +x "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+# archon/ — backend + full
+if [ "$BACKEND" = true ]; then
+    maybe_cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/dispatch.sh"
+    maybe_cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/reconciler.sh"
+    maybe_cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
+    [ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" 2>/dev/null || true
 
-# knowledge/
-cp "$SOURCE/knowledge/"*.md "$TARGET/.devflow/knowledge/"
+    # scripts/
+    maybe_cp "$SOURCE/scripts/check_constitution.py" "$TARGET/.devflow/scripts/check_constitution.py"
+    maybe_cp "$SOURCE/scripts/cost_tracker.py" "$TARGET/.devflow/scripts/cost_tracker.py"
+    maybe_cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/notify.py"
+    maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
+    maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+    [ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" 2>/dev/null || true
+
+    # .archon/workflows/
+    echo "── 步骤 5b: 注册 Archon workflow ──"
+    dry_run "mkdir -p $TARGET/.archon/workflows"
+    maybe_cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/auto-execute-afk.yaml"
+
+    # logs/
+    echo "── 步骤 5c: 创建日志目录 ──"
+    dry_run "mkdir -p $TARGET/logs"
+    if [ "$DRY_RUN" = false ] && [ -n "${USER_OVERRIDE:-}" ] && command -v chown >/dev/null 2>&1; then
+        chown -R "${USER_OVERRIDE}:${USER_OVERRIDE}" "$TARGET/logs" 2>/dev/null || \
+            echo "  ⚠️  无法 chown logs/，请手动: chown ${USER_OVERRIDE} $TARGET/logs"
+    fi
+fi
 
 echo "  ✅ .devflow/ 文件已复制"
 echo ""
 
-# ── 5b. 复制 Archon workflow 到 .archon/workflows/ ──
-echo "── 步骤 5b: 注册 Archon workflow ──"
-mkdir -p "$TARGET/.archon/workflows"
-cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/"
-echo "  ✅ auto-execute-afk.yaml → .archon/workflows/"
-echo ""
-
-# ── 5c. 创建日志目录并设权限 ──
-echo "── 步骤 5c: 创建日志目录 ──"
-mkdir -p "$TARGET/logs"
-if command -v chown >/dev/null 2>&1; then
-    chown -R www:www "$TARGET/logs" 2>/dev/null || \
-        echo "  ⚠️  无法 chown logs/，请手动: chown www:www $TARGET/logs"
-fi
-echo "  ✅ logs/ 已创建"
-echo ""
-
-# ── 5d. 确保 git upstream 已设置 ──
+# ═══════════════════════════════════
+# 5d. git upstream 检查
+# ═══════════════════════════════════
 echo "── 步骤 5d: 检查 git upstream ──"
 CURRENT_BRANCH=$(cd "$TARGET" && git branch --show-current 2>/dev/null || echo "")
-if [ -n "$CURRENT_BRANCH" ]; then
+if [ -n "$CURRENT_BRANCH" ] && [ "$DRY_RUN" = false ]; then
     if cd "$TARGET" && git rev-parse --abbrev-ref "${CURRENT_BRANCH}@{upstream}" >/dev/null 2>&1; then
         echo "  ✅ upstream 已设置"
     else
@@ -310,42 +592,50 @@ if [ -n "$CURRENT_BRANCH" ]; then
             echo "  ⚠️  无法自动设置 upstream，请手动: git push --set-upstream origin $CURRENT_BRANCH"
     fi
 else
-    echo "  ⚠️  无法检测当前分支"
+    [ "$DRY_RUN" = true ] && echo "  [DRY-RUN] 检查 git upstream"
+    [ "$DRY_RUN" = false ] && echo "  ⚠️  无法检测当前分支"
 fi
 echo ""
 
-# ── 6. 复制 issue 模板 ──
+# ═══════════════════════════════════
+# 6. issue 模板
+# ═══════════════════════════════════
 echo "── 步骤 6: 复制 issue 模板 ──"
-if [ -f "$TARGET/issues/TEMPLATE.md" ]; then
-    echo "  ⚠️  issues/TEMPLATE.md 已存在，跳过"
-else
-    cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
-    echo "  ✅ issues/TEMPLATE.md 已创建"
-fi
+maybe_cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
 echo ""
 
-# ── 7. 创建 _handoff/ 协作目录 ──
+# ═══════════════════════════════════
+# 7. _handoff/
+# ═══════════════════════════════════
 echo "── 步骤 7: 创建 _handoff/ Agent 协作目录 ──"
 HANDOFF_DIR="$TARGET/_handoff"
-if [ -d "$HANDOFF_DIR" ]; then
+if [ -d "$HANDOFF_DIR" ] && [ "$FORCE" != true ]; then
     echo "  ⚠️  _handoff/ 已存在，跳过"
 else
-    mkdir -p "$HANDOFF_DIR/outbox/agent-b"
-    mkdir -p "$HANDOFF_DIR/inbox/agent-b"
-    mkdir -p "$HANDOFF_DIR/archive"
-    cp "$SOURCE/templates/_handoff/README.md" "$HANDOFF_DIR/"
-    cp "$SOURCE/templates/_handoff/TEMPLATE.md" "$HANDOFF_DIR/"
-    echo "  ✅ _handoff/{outbox/agent-b,inbox/agent-b,archive}/ 已创建"
+    dry_run "mkdir -p $HANDOFF_DIR/outbox/agent-b $HANDOFF_DIR/inbox/agent-b $HANDOFF_DIR/archive"
+    if [ "$DRY_RUN" = false ]; then
+        mkdir -p "$HANDOFF_DIR/outbox/agent-b" "$HANDOFF_DIR/inbox/agent-b" "$HANDOFF_DIR/archive"
+        [ -f "$SOURCE/templates/_handoff/README.md" ] && cp "$SOURCE/templates/_handoff/README.md" "$HANDOFF_DIR/"
+        [ -f "$SOURCE/templates/_handoff/TEMPLATE.md" ] && cp "$SOURCE/templates/_handoff/TEMPLATE.md" "$HANDOFF_DIR/"
+        echo "  ✅ _handoff/{outbox/agent-b,inbox/agent-b,archive}/ 已创建"
+    else
+        echo "  [DRY-RUN] _handoff/{outbox/agent-b,inbox/agent-b,archive}/"
+    fi
 fi
 echo ""
 
-# ── 8. 生成 AGENTS.md ──
+# ═══════════════════════════════════
+# 8. AGENTS.md
+# ═══════════════════════════════════
 echo "── 步骤 8: 生成 AGENTS.md ──"
 AGENTS_MD="$TARGET/AGENTS.md"
-if [ -f "$AGENTS_MD" ]; then
+if [ -f "$AGENTS_MD" ] && [ "$FORCE" != true ]; then
     echo "  ⚠️  AGENTS.md 已存在，跳过"
 else
-    cat > "$AGENTS_MD" << 'AGENTSEOF'
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN] 生成 AGENTS.md"
+    else
+        cat > "$AGENTS_MD" << 'AGENTSEOF'
 # AGENTS.md — PROJECT_NAME_PLACEHOLDER
 
 ## 本 Agent 身份
@@ -356,7 +646,7 @@ else
 - 壁垒: 无 shell、无部署权限、无合并权限 → 遇阻写 _handoff/outbox/agent-b/
 
 ## 项目壁垒（不可修改，见 CLAUDE.md 完整列表）
-- 禁止修改：.devflow/、CI/CD 配置、Dockerfile、系统配置
+- 禁止修改：.devflow/archon/、.devflow/scripts/、CI/CD 配置、Dockerfile、docker-compose*.yml、install.sh、uninstall.sh、系统配置
 - 禁止操作：systemctl、docker、合并 master
 - 代码只能写在 ai/ 分支，合并由 dev-machine/agent-a 完成
 
@@ -365,59 +655,70 @@ else
 - 读回复: _handoff/inbox/agent-b/
 - 消息模板: _handoff/TEMPLATE.md
 AGENTSEOF
-    sed -i "s/PROJECT_NAME_PLACEHOLDER/${PROJECT_NAME}/g" "$AGENTS_MD"
-    echo "  ✅ AGENTS.md 已生成"
+        sed -i "s/PROJECT_NAME_PLACEHOLDER/${PROJECT}/g" "$AGENTS_MD"
+        echo "  ✅ AGENTS.md 已生成"
+    fi
 fi
 echo ""
 
-# ── 9. 部署 git hooks ──
+# ═══════════════════════════════════
+# 9. git hooks
+# ═══════════════════════════════════
 echo "── 步骤 9: 部署 git hooks ──"
 HOOKS_DIR="$TARGET/.git/hooks"
-mkdir -p "$HOOKS_DIR"
-cp "$SOURCE/templates/pre-commit" "$HOOKS_DIR/pre-commit"
-cp "$SOURCE/templates/pre-push" "$HOOKS_DIR/pre-push"
-chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push"
-echo "  ✅ pre-commit + pre-push hook 已部署"
+dry_run "mkdir -p $HOOKS_DIR"
+maybe_cp "$SOURCE/templates/pre-commit" "$HOOKS_DIR/pre-commit"
+maybe_cp "$SOURCE/templates/pre-push" "$HOOKS_DIR/pre-push"
+[ "$DRY_RUN" = false ] && chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push" 2>/dev/null || true
 echo ""
 
-# ── 10. 输出检查清单 ──
+# ═══════════════════════════════════
+# 10. 用户段检查清单
+# ═══════════════════════════════════
 echo "╔══════════════════════════════════════╗"
 echo "║  用户段安装完成                      ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 echo "📋 检查清单："
 echo "  [ ] .devflow/config.yaml — 填写 telegram_chat_id 和 telegram_bot_token"
-echo "  [ ] .devflow/archon/ — dispatch.sh + reconciler.sh + auto-execute-afk.yaml"
-echo "  [ ] .archon/workflows/ — auto-execute-afk.yaml（archon 可发现）"
-echo "  [ ] .devflow/scripts/ — check_constitution.py + cost_tracker.py + notify.py"
+if [ "$BACKEND" = true ]; then
+    echo "  [ ] .devflow/archon/ — dispatch.sh + reconciler.sh + auto-execute-afk.yaml"
+    echo "  [ ] .archon/workflows/ — auto-execute-afk.yaml（archon 可发现）"
+    echo "  [ ] .devflow/scripts/ — check_constitution.py + cost_tracker.py + notify.py"
+fi
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
-echo "  [ ] .gate-state — Gate 状态追踪"
-echo "  [ ] ~/.claude/skills/ — 7 个 gate skill"
-echo "  [ ] logs/ — 确保属主 www（sudo chown www:www logs/）"
+if [ "$FRONTEND" = true ]; then
+    echo "  [ ] .gate-state — Gate 状态追踪"
+    echo "  [ ] ~/.claude/skills/ — 15 个 CC skill"
+    echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
+fi
+if [ "$BACKEND" = true ]; then
+    echo "  [ ] logs/ — 确保属主正确"
+fi
 echo "  [ ] _handoff/ — Agent 协作收件箱（outbox/agent-b + inbox/agent-b + archive）"
 echo "  [ ] AGENTS.md — Agent 身份 + 壁垒声明"
 echo "  [ ] .git/hooks/pre-commit — 拦截修改受保护文件"
 echo "  [ ] .git/hooks/pre-push — 拦截直推 master"
 echo ""
 
-# ── 11. 输出 root 段 ──
-PROJECT=$(basename "$TARGET")
+# ═══════════════════════════════════
+# 11. root 段（按 scheduler）
+# ═══════════════════════════════════
+if [ "$SKIP_ROOT" = false ] && [ "$BACKEND" = true ]; then
+    echo "╔══════════════════════════════════════╗"
+    echo "║  root 段（请以 root 身份执行）       ║"
+    echo "╚══════════════════════════════════════╝"
+    echo ""
 
-echo "╔══════════════════════════════════════╗"
-echo "║  root 段（请以 root 身份执行）       ║"
-echo "╚══════════════════════════════════════╝"
-echo ""
-
-# 生成 service 文件（从模板替换变量）
-DISPATCH_SERVICE="/etc/systemd/system/dispatch-${PROJECT}.service"
-RECONCILE_SERVICE="/etc/systemd/system/reconcile-${PROJECT}.service"
-
-echo "# 0. 创建 /etc/devflow/${PROJECT}.env（API 密钥文件）"
-cat << 'ENVFILE_STEP'
+    case "$SCHEDULER" in
+        systemd)
+            SVC_USER="${USER_OVERRIDE:-www}"
+            echo "# 0. 创建 /etc/devflow/${PROJECT}.env（API 密钥文件）"
+            cat << ENVFILE_STEP
 mkdir -p /etc/devflow
-API_KEY=$(python3 -c "
+API_KEY=\$(python3 -c "
 import json, os
-p = '/home/www/.claude/settings.local.json'
+p = '/home/${SVC_USER}/.claude/settings.local.json'
 if os.path.exists(p):
     with open(p) as f:
         d = json.load(f)
@@ -425,29 +726,30 @@ if os.path.exists(p):
 else:
     print('MISSING')
 ")
-if [ "$API_KEY" != "MISSING" ]; then
+if [ "\$API_KEY" != "MISSING" ]; then
   cat > /etc/devflow/${PROJECT}.env << INNER
-ANTHROPIC_API_KEY=$API_KEY
+ANTHROPIC_API_KEY=\$API_KEY
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 INNER
   chmod 640 /etc/devflow/${PROJECT}.env
-  chown root:www /etc/devflow/${PROJECT}.env
+  chown root:${SVC_USER} /etc/devflow/${PROJECT}.env
   echo "  ✓ /etc/devflow/${PROJECT}.env (chmod 640)"
 else
-  echo "  ⚠ /home/www/.claude/settings.local.json 未找到，跳过 .env 创建"
+  echo "  ⚠ /home/${SVC_USER}/.claude/settings.local.json 未找到，跳过 .env 创建"
 fi
 ENVFILE_STEP
 
-echo "# 1. 创建 dispatch-${PROJECT}.service"
-cat << DISPATCH_SVC
-cat > $DISPATCH_SERVICE << 'EOF'
+            echo ""
+            echo "# 1. 创建 dispatch-${PROJECT}.service"
+            cat << DISPATCH_SVC
+cat > /etc/systemd/system/dispatch-${PROJECT}.service << 'EOF'
 [Unit]
 Description=DevFlow AFK Dispatch — ${PROJECT}
 After=network.target
 
 [Service]
 Type=oneshot
-User=www
+User=${SVC_USER}
 WorkingDirectory=${TARGET}
 EnvironmentFile=/etc/devflow/${PROJECT}.env
 ExecStart=/bin/bash ${TARGET}/.devflow/archon/dispatch.sh ${TARGET}
@@ -456,9 +758,9 @@ StandardError=append:${TARGET}/logs/dispatch.log
 EOF
 DISPATCH_SVC
 
-echo ""
-echo "# 2. 创建 dispatch-${PROJECT}.timer（每 5 分钟）"
-cat << DISPATCH_TIMER
+            echo ""
+            echo "# 2. 创建 dispatch-${PROJECT}.timer（每 5 分钟）"
+            cat << DISPATCH_TIMER
 cat > /etc/systemd/system/dispatch-${PROJECT}.timer << 'EOF'
 [Unit]
 Description=DevFlow AFK Dispatch Timer — ${PROJECT}
@@ -472,17 +774,17 @@ WantedBy=timers.target
 EOF
 DISPATCH_TIMER
 
-echo ""
-echo "# 3. 创建 reconcile-${PROJECT}.service"
-cat << RECONCILE_SVC
-cat > $RECONCILE_SERVICE << 'EOF'
+            echo ""
+            echo "# 3. 创建 reconcile-${PROJECT}.service"
+            cat << RECONCILE_SVC
+cat > /etc/systemd/system/reconcile-${PROJECT}.service << 'EOF'
 [Unit]
 Description=DevFlow AFK Reconcile — ${PROJECT}
 After=network.target
 
 [Service]
 Type=oneshot
-User=www
+User=${SVC_USER}
 WorkingDirectory=${TARGET}
 EnvironmentFile=/etc/devflow/${PROJECT}.env
 ExecStart=/bin/bash ${TARGET}/.devflow/archon/reconciler.sh ${TARGET}
@@ -491,9 +793,9 @@ StandardError=append:${TARGET}/logs/reconcile.log
 EOF
 RECONCILE_SVC
 
-echo ""
-echo "# 4. 创建 reconcile-${PROJECT}.timer（每 15 分钟）"
-cat << RECONCILE_TIMER
+            echo ""
+            echo "# 4. 创建 reconcile-${PROJECT}.timer（每 15 分钟）"
+            cat << RECONCILE_TIMER
 cat > /etc/systemd/system/reconcile-${PROJECT}.timer << 'EOF'
 [Unit]
 Description=DevFlow AFK Reconcile Timer — ${PROJECT}
@@ -507,14 +809,53 @@ WantedBy=timers.target
 EOF
 RECONCILE_TIMER
 
-echo ""
-echo "# 5. 激活 timer"
-echo "systemctl daemon-reload"
-echo "systemctl enable --now dispatch-${PROJECT}.timer reconcile-${PROJECT}.timer"
-echo "systemctl status dispatch-${PROJECT}.timer reconcile-${PROJECT}.timer"
+            echo ""
+            echo "# 5. 激活 timer"
+            echo "systemctl daemon-reload"
+            echo "systemctl enable --now dispatch-${PROJECT}.timer reconcile-${PROJECT}.timer"
+            echo "systemctl status dispatch-${PROJECT}.timer reconcile-${PROJECT}.timer"
+            ;;
 
-echo ""
+        cron)
+            CRON_USER="${USER_OVERRIDE:-$(whoami)}"
+            echo "# 创建 crontab 条目（以 ${CRON_USER} 用户运行）"
+            echo ""
+            echo "crontab -u ${CRON_USER} -l 2>/dev/null | grep -v 'dispatch.sh\|reconciler.sh' > /tmp/cron.\$\$"
+            echo "cat >> /tmp/cron.\$\$ << 'CRONEOF'"
+            echo "*/5 * * * * cd ${TARGET} && bash ${TARGET}/.devflow/archon/dispatch.sh ${TARGET} >> ${TARGET}/logs/dispatch.log 2>&1"
+            echo "*/15 * * * * cd ${TARGET} && bash ${TARGET}/.devflow/archon/reconciler.sh ${TARGET} >> ${TARGET}/logs/reconcile.log 2>&1"
+            echo "CRONEOF"
+            echo "crontab -u ${CRON_USER} /tmp/cron.\$\$"
+            echo "rm /tmp/cron.\$\$"
+            echo "echo '✅ crontab 已安装'"
+            ;;
+
+        external)
+            echo "# 请在宿主机配置调度器，定期触发以下命令："
+            echo ""
+            echo "# dispatch（每 5 分钟）:"
+            echo "docker exec <容器名> bash ${TARGET}/.devflow/archon/dispatch.sh ${TARGET}"
+            echo ""
+            echo "# reconcile（每 15 分钟）:"
+            echo "docker exec <容器名> bash ${TARGET}/.devflow/archon/reconciler.sh ${TARGET}"
+            ;;
+
+        none)
+            echo "# --scheduler none：不安装调度器"
+            echo "# 如需手动触发："
+            echo "#   bash ${TARGET}/.devflow/archon/dispatch.sh ${TARGET}"
+            echo "#   bash ${TARGET}/.devflow/archon/reconciler.sh ${TARGET}"
+            ;;
+    esac
+    echo ""
+fi
+
 echo "══════════════════════════════════════"
-echo "安装完成。执行 root 段后，在 OpenLobby 中开始走 gate 流程："
-echo "  /gate-1-grill → /gate-2-prd → /gate-3-issues → AFK 自动消化"
+echo "安装完成。"
+if [ "$FRONTEND" = true ]; then
+    echo "  gate 流程：/gate-1-grill → /gate-2-prd → /gate-3-issues → AFK 自动消化"
+fi
+if [ "$BACKEND" = true ]; then
+    echo "  后端管线：dispatch.sh + reconciler.sh 通过 $SCHEDULER 调度"
+fi
 echo "══════════════════════════════════════"
