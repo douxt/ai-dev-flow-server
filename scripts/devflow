@@ -85,10 +85,13 @@ switch_role() {
         mkdir -p "$handoff/outbox/agent-b" "$handoff/inbox/agent-b" "$handoff/archive"
         echo "  ✅ _handoff/ 已创建"
         if [ ! -f "$agents" ]; then
-            if [ -f "$devflow_dir/templates/roles/agent-b/AGENTS.md" ]; then
-                cp "$devflow_dir/templates/roles/agent-b/AGENTS.md" "$agents"
+            local tmpl="$devflow_dir/templates/roles/agent-b/AGENTS.md"
+            if [ -f "$tmpl" ]; then
+                cp "$tmpl" "$agents"
                 sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$agents"
                 echo "  ✅ AGENTS.md 已生成"
+            else
+                echo "  ⚠️  AGENTS.md 模板不存在: $tmpl"
             fi
         fi
     else

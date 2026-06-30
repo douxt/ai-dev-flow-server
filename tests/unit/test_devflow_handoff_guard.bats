@@ -27,6 +27,7 @@ EOF
 <!-- ai-dev-flow-server end -->" > "$PROJECT/.devflow/templates/roles/owner.append"
     echo "agent-b content
 <!-- ai-dev-flow-server end -->" > "$PROJECT/.devflow/templates/roles/agent-b/CLAUDE.md.append"
+    echo "# AGENTS.md for __PROJECT__" > "$PROJECT/.devflow/templates/roles/agent-b/AGENTS.md"
 
     cp /code/scripts/devflow "$PROJECT/.devflow/scripts/devflow"
     chmod +x "$PROJECT/.devflow/scripts/devflow"
