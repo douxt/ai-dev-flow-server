@@ -3,7 +3,9 @@
 # 部署到 .devflow/scripts/devflow，symlink 到 ~/.local/bin/devflow
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 解析真实路径（处理 symlink）
+SCRIPT_REAL="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
 # 从 .devflow/scripts/ 向上找到项目根
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG="$PROJECT_DIR/.devflow/config.yaml"
