@@ -7,7 +7,8 @@ run_tests() {
     local image="$1"; shift
     echo "=== $image ==="
     docker build -t "devflow-test:$image" -f "$SCRIPT_DIR/Dockerfile.$image" "$SCRIPT_DIR"
-    docker run --rm -v "$REPO_ROOT:/code" "devflow-test:$image" "$SCRIPT_DIR"/unit/*.bats "$SCRIPT_DIR"/integration/*.bats "$@"
+    docker run --rm --entrypoint bash -v "$REPO_ROOT:/code" "devflow-test:$image" \
+        -c "cd /code && bats tests/unit/*.bats tests/integration/*.bats $*"
 }
 
 run_tests alpine "$@"

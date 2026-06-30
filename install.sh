@@ -616,13 +616,14 @@ echo ""
 # 5. 复制 devflow 文件（按 mode）
 # ═══════════════════════════════════
 echo "── 步骤 5: 复制 .devflow/ 文件 ──"
-dry_run "mkdir -p $TARGET/.devflow/archon $TARGET/.devflow/scripts $TARGET/.devflow/knowledge"
+dry_run "mkdir -p $TARGET/.devflow/knowledge"
 
 # knowledge/ — 所有 mode
 maybe_cp_dir "$SOURCE/knowledge" "$TARGET/.devflow/knowledge"
 
-# archon/ — backend + full
+# archon/ + scripts/ — backend + full
 if [ "$BACKEND" = true ]; then
+    dry_run "mkdir -p $TARGET/.devflow/archon $TARGET/.devflow/scripts"
     maybe_cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/dispatch.sh"
     maybe_cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/reconciler.sh"
     maybe_cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
