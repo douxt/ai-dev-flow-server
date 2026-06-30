@@ -4,7 +4,10 @@
 set -euo pipefail
 
 # 解析真实路径（处理 symlink）
-SCRIPT_REAL="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_REAL="$0"
+if [ -L "$SCRIPT_REAL" ]; then
+    SCRIPT_REAL="$(readlink -f "$SCRIPT_REAL" 2>/dev/null || realpath "$SCRIPT_REAL" 2>/dev/null || readlink "$SCRIPT_REAL")"
+fi
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
 # 从 .devflow/scripts/ 向上找到项目根
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"

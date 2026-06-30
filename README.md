@@ -43,6 +43,28 @@ bash install.sh /path/to/your-project --tech-stack node
 
 可通过 `--pkg-mgr`、`--test-cmd`、`--lint-cmd` 覆盖默认值。
 
+## 角色系统（`--role`）
+
+3 级角色控制 Agent 行为边界：
+
+| 角色 | 权限 | 产出 | 适用 |
+|------|------|------|------|
+| `owner` | 全权，无额外约束 | 代码+PR+部署 | 个人项目 |
+| `developer` | 业务代码+PR合并，禁改管线 | 代码+PR | 团队项目 |
+| `agent-b`（默认） | 仅产出issue，handoff协作 | issue | 受限环境 |
+
+```bash
+# 初始安装
+bash install.sh . --role developer
+
+# 秒切角色
+devflow role switch owner
+devflow role              # 查看当前角色
+devflow role list         # 列出可用角色
+```
+
+切换角色时自动处理 CLAUDE.md 约束段 + _handoff/ + AGENTS.md 的创建/删除。
+
 ## 项目结构
 
 ```

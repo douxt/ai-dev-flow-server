@@ -1,3 +1,45 @@
+# ai-dev-flow-server v2.1 变更说明
+
+> 发布日期：2026-06-30
+> 变更范围：角色分级模板系统 + `devflow role switch` 秒切命令
+
+## 一句话总结
+
+引入 `--role` 参数（owner/developer/agent-b）+ `devflow role switch` 秒切命令，不同项目获得不同 Agent 行为边界。
+
+---
+
+## 新增功能
+
+### 角色分级模板系统（`--role owner|developer|agent-b`）
+
+| 角色 | 权限 | 产出 | 适用 |
+|------|------|------|------|
+| `owner` | 全权 | 代码+PR+部署 | 个人项目 |
+| `developer` | 业务代码+PR，禁改管线 | 代码+PR | 团队项目 |
+| `agent-b`（默认） | 仅issue，handoff协作 | issue | 受限环境 |
+
+### `devflow role switch` 秒切命令
+
+```bash
+devflow role              # 查看当前角色
+devflow role switch <R>   # 切换角色
+devflow role list         # 列出可用角色
+```
+
+切换时自动：替换 CLAUDE.md 约束段、创建/删除 `_handoff/`、创建/删除 `AGENTS.md`、更新 `config.yaml` role 字段。
+
+### 模板拆分
+
+- `CLAUDE.md.base.append` — 通用（Gate 流程、Issue 状态机、计划文件管理+ADR）
+- `roles/{owner,developer,agent-b}/` — 角色专属约束
+
+### 修复
+
+- 解除模板中 OpenLobby 身份硬编码，改为 `__PROJECT__` 占位符
+
+---
+
 # ai-dev-flow-server v2.0 变更说明
 
 > 发布日期：2026-06-30  
