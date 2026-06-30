@@ -21,7 +21,7 @@ for s in "${SKILLS[@]}"; do
   fi
 done
 
-CC_VERSION=$(claude --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "unknown")
+CC_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
 cat > .version << EOF
 {"cc_version":"$CC_VERSION","sync_date":"$(date -I)","skill_count":${#SKILLS[@]}}
 EOF

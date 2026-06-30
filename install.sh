@@ -251,8 +251,12 @@ if [ "$UPDATE_MODE" = true ]; then
     dry_run "mkdir -p $TARGET/issues"
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
 
-    dry_run "chmod +x $TARGET/.devflow/archon/dispatch.sh $TARGET/.devflow/archon/reconciler.sh"
-    dry_run "chmod +x $TARGET/.devflow/scripts/"*.sh
+    for f in "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"; do
+        [ -f "$f" ] && dry_run "chmod +x $f"
+    done
+    for f in "$TARGET/.devflow/scripts/"*.sh; do
+        [ -f "$f" ] && dry_run "chmod +x $f"
+    done
 
     dry_run "mkdir -p $TARGET/logs"
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
