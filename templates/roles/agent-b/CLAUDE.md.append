@@ -1,48 +1,12 @@
 
-<!-- ⚠️ 以下由 ai-dev-flow-server install.sh 自动追加 -->
-## AI Dev Flow（服务器版）
-
-本项目已安装 ai-dev-flow-server 开发流程约束。
-
-### Gate 流程
-
-| Gate | 命令 | 说明 |
-|------|------|------|
-| 1 | `/gate-1-grill` | 需求对齐 — grill 全方位拷问 |
-| 2 | `/gate-2-prd` | 产出 PRD — 附带宪法自检 |
-| 3 | `/gate-3-issues` | 拆解 Issue — 垂直切片 + 宪法对照 |
-| 4 | `/gate-4-review` | Issue 评审 — CC 子进程独立评审 |
-| 5 | `/gate-5-prep` | 环境检查 — .devflow/ 完整性 |
-| 6 | `/gate-6-afk` | AFK 就绪 — 确认 dispatch 管线 |
-
-### Issue 状态机
-
-```
-backlog → ready → in_progress → done
-```
-
-- 人将 issue 拖到 `ready` → dispatch.timer 自动消化
-- dispatch.sh: 宪法检查 → 原子抢占 → Archon 7 节点工作流 → PR
-- PR 创建后 Telegram 通知审批
-
-### 关键路径
-
-| 内容 | 路径 |
-|------|------|
-| 项目配置 | `.devflow/config.yaml` |
-| 知识库 | `.devflow/knowledge/` |
-| Gate 状态 | `.gate-state` |
-| Issue 目录 | `issues/` |
-| 调度日志 | `logs/dispatch.log` |
-
 ### Agent B 行为边界（硬性，不可绕过）
 
-本仓库运行在 OpenLobby 上的是 Agent B。你必须遵守以下约束：
+本仓库是 __PROJECT__。你是 Agent B。你必须遵守以下约束：
 
 #### 代码修改范围
-- 只能修改业务功能代码（src/、lib/、app/ 等业务目录）
+- 只能修改业务功能代码（见 `.devflow/config.yaml` 的 `business_paths` 字段指定目录，默认 `src/`、`lib/`、`app/`）
 - 禁止修改：.devflow/、.github/workflows/、Makefile、Dockerfile、docker-compose*.yml、systemd unit 文件、nginx/Apache/Caddy 配置、部署脚本、CI/CD 配置、密钥文件
-- 禁止修改 CLAUDE.md 中 `## Agent B 行为边界` 及 `## 项目壁垒` 两个章节
+- 禁止修改 CLAUDE.md 中 `### Agent B 行为边界` 章节
 
 #### 工作区规则（替代 worktree 隔离）
 - 无 shell 无法创建 worktree → **分支即隔离**
@@ -63,7 +27,7 @@ backlog → ready → in_progress → done
 
 | 你改了什么 | 你能做什么 | 你不能做什么 |
 |-----------|-----------|-------------|
-| 仅业务代码（src/ lib/ app/ 等） | 开发、PR、`gh pr merge --merge` 自行合并 | — |
+| 仅业务代码 | 开发、PR、`gh pr merge --merge` 自行合并 | — |
 | 发现管线 bug（.devflow/ .archon/ .github/ workflows/ Dockerfile systemd） | 写 `_handoff/outbox/agent-b/` 报告 A | 直接修改管线文件 |
 
 不确定时跑：
@@ -94,23 +58,4 @@ bash .devflow/scripts/check-layer.sh main..HEAD
 | 写委托 | `_handoff/outbox/agent-b/` | 需要 A 做的事写到这里 |
 | 读回复 | `_handoff/inbox/agent-b/` | A 的回复在这里 |
 | 消息模板 | `_handoff/TEMPLATE.md` | 写消息时参考 |
-
-### 计划文件管理（防覆盖）
-
-- 每次新计划创建新文件，文件名含日期+主题，禁止覆盖已有计划文件
-- 计划执行完毕后，关键设计决策（权限边界、接口约束、架构取舍、被拒绝的方案）必须提取为 ADR
-- ADR 存放：项目有 `docs/decisions/` 则写项目，否则写 `~/.claude/plans/decisions/`
-- 旧计划文件保留不删；计划只存执行步骤，不可变决策回流正式文档
-
-### ADR 格式
-
-```markdown
-# ADR-NNN: <标题>
-## 状态：已采纳 / 已废弃
-## 日期：YYYY-MM-DD
-## 背景
-## 决策
-## 后果
-## 拒绝的方案
-```
 <!-- ai-dev-flow-server end -->

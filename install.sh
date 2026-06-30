@@ -19,6 +19,8 @@ NO_SKILLS=false
 SKIP_ROOT=false
 DRY_RUN=false
 FORCE=false
+ROLE="agent-b"
+ROLE_SET=false
 
 # ── 函数定义 ──
 dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
@@ -78,6 +80,7 @@ while [ $# -gt 0 ]; do
         --dry-run)    DRY_RUN=true; shift ;;
         --force)      FORCE=true; shift ;;
         --update)     UPDATE_MODE=true; shift ;;
+        --role)       ROLE="$2"; ROLE_SET=true; shift 2 ;;
         --help)
             echo "用法: bash install.sh <项目路径> [选项]"
             echo ""
@@ -86,6 +89,7 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "模式:"
             echo "  --mode frontend|backend|full  部署模式（默认 full）"
+            echo "  --role owner|developer|agent-b  角色级别（默认 agent-b）"
             echo "  --update                      增量更新（读取 .devflow/config.yaml mode）"
             echo ""
             echo "环境:"
@@ -125,6 +129,10 @@ if [ -n "$SCHEDULER" ]; then
         echo "❌ 无效 --scheduler: $SCHEDULER（可选: systemd, cron, none, external）"; exit 1 ;; esac
 fi
 
+# ── 角色校验 ──
+case "$ROLE" in owner|developer|agent-b) ;; *)
+    echo "❌ 无效 --role: $ROLE（可选: owner, developer, agent-b）"; exit 1 ;; esac
+
 TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
 SOURCE=$(cd "$(dirname "$0")" && pwd)
 CLAUDE_HOME="${HOME_OVERRIDE:-$HOME}"
@@ -163,6 +171,18 @@ if [ "$UPDATE_MODE" = true ]; then
         elif [ -z "$STORED_MODE" ]; then
             echo "⚠️  config.yaml 无 mode 字段，默认 full（可 --mode 显式指定）"
         fi
+        # 读取 stored role
+        STORED_ROLE=$(grep -E '^[[:space:]]*role:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*role:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
+        # 未显式传 --role 时从 config 读取
+        if [ "$ROLE_SET" = false ] && [ -n "$STORED_ROLE" ]; then
+            ROLE="$STORED_ROLE"
+            echo "ℹ️  从 config.yaml 读取 role: $ROLE"
+        fi
+        # 若 --role 显式传了不同值，写回 config.yaml
+        if [ "$ROLE_SET" = true ] && [ "$ROLE" != "$STORED_ROLE" ]; then
+            sed -i "s/^[[:space:]]*role:.*/role: $ROLE/" "$CONFIG_YAML"
+            echo "ℹ️  config.yaml role 更新为: $ROLE"
+        fi
     fi
 fi
 
@@ -173,6 +193,7 @@ echo ""
 echo "  源: $SOURCE"
 echo "  目标: $TARGET"
 echo "  模式: $MODE (frontend=$FRONTEND, backend=$BACKEND)"
+echo "  角色: $ROLE"
 echo "  调度器: $SCHEDULER"
 echo "  CLAUDE_HOME: $CLAUDE_HOME"
 [ "$DRY_RUN" = true ] && echo "  ⚠️  DRY-RUN 模式：只预览，不写入"
@@ -388,6 +409,7 @@ project:
   workspace: ${TARGET}
 
 mode: ${MODE}
+role: ${ROLE}
 
 tech_stack:
   language: ${TECH_STACK}
@@ -593,9 +615,9 @@ if [ "$FRONTEND" = true ]; then
 fi
 
 # ═══════════════════════════════════
-# 4. 追加 CLAUDE.md（所有 mode）
+# 4. 追加 CLAUDE.md（所有 mode，按 role 拼接）
 # ═══════════════════════════════════
-echo "── 步骤 4: 追加 CLAUDE.md 片段（幂等）──"
+echo "── 步骤 4: 追加 CLAUDE.md 片段（幂等，role=$ROLE）──"
 CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
 if [ ! -f "$CLAUDE_MD" ]; then CLAUDE_MD="$TARGET/CLAUDE.md"; fi
 if [ ! -f "$CLAUDE_MD" ]; then
@@ -607,8 +629,19 @@ fi
 if grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
     echo "  ⚠️  CLAUDE.md 已含 ai-dev-flow-server 标记，跳过追加"
 else
-    dry_run "cat $SOURCE/templates/CLAUDE.md.append >> $CLAUDE_MD"
-    [ "$DRY_RUN" = false ] && cat "$SOURCE/templates/CLAUDE.md.append" >> "$CLAUDE_MD" && echo "  ✅ CLAUDE.md 片段已追加"
+    # 拼接 base + role 模板
+    BASE_APPEND="$SOURCE/templates/CLAUDE.md.base.append"
+    if [ "$ROLE" = "agent-b" ]; then
+        ROLE_APPEND="$SOURCE/templates/roles/agent-b/CLAUDE.md.append"
+    else
+        ROLE_APPEND="$SOURCE/templates/roles/${ROLE}.append"
+    fi
+    dry_run "cat $BASE_APPEND $ROLE_APPEND >> $CLAUDE_MD"
+    if [ "$DRY_RUN" = false ]; then
+        cat "$BASE_APPEND" "$ROLE_APPEND" >> "$CLAUDE_MD"
+        sed -i "s/__PROJECT__/${PROJECT}/g" "$CLAUDE_MD"
+        echo "  ✅ CLAUDE.md 片段已追加（role=$ROLE）"
+    fi
 fi
 echo ""
 
@@ -651,6 +684,26 @@ if [ "$BACKEND" = true ]; then
     fi
 fi
 
+# devflow 脚本 + 模板 — 所有 mode
+echo "── 步骤 5f: 部署 devflow 角色管理 ──"
+dry_run "mkdir -p $TARGET/.devflow/scripts $TARGET/.devflow/templates/roles/agent-b"
+maybe_cp "$SOURCE/scripts/devflow" "$TARGET/.devflow/scripts/devflow"
+maybe_cp "$SOURCE/templates/CLAUDE.md.base.append" "$TARGET/.devflow/templates/CLAUDE.md.base.append"
+maybe_cp "$SOURCE/templates/roles/owner.append" "$TARGET/.devflow/templates/roles/owner.append"
+maybe_cp "$SOURCE/templates/roles/developer.append" "$TARGET/.devflow/templates/roles/developer.append"
+maybe_cp "$SOURCE/templates/roles/agent-b/CLAUDE.md.append" "$TARGET/.devflow/templates/roles/agent-b/CLAUDE.md.append"
+maybe_cp "$SOURCE/templates/roles/agent-b/AGENTS.md" "$TARGET/.devflow/templates/roles/agent-b/AGENTS.md"
+[ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/scripts/devflow" 2>/dev/null || true
+
+# symlink devflow 到 ~/.local/bin/
+if [ "$DRY_RUN" = false ]; then
+    mkdir -p "$CLAUDE_HOME/.local/bin"
+    ln -sf "$TARGET/.devflow/scripts/devflow" "$CLAUDE_HOME/.local/bin/devflow" 2>/dev/null || true
+    echo "  ✅ devflow → ~/.local/bin/devflow"
+else
+    echo "  [DRY-RUN] ln -s .devflow/scripts/devflow ~/.local/bin/devflow"
+fi
+
 echo "  ✅ .devflow/ 文件已复制"
 echo ""
 
@@ -680,8 +733,9 @@ maybe_cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
 echo ""
 
 # ═══════════════════════════════════
-# 7. _handoff/
+# 7. _handoff/（仅 agent-b）
 # ═══════════════════════════════════
+if [ "$ROLE" = "agent-b" ]; then
 echo "── 步骤 7: 创建 _handoff/ Agent 协作目录 ──"
 HANDOFF_DIR="$TARGET/_handoff"
 if [ -d "$HANDOFF_DIR" ] && [ "$FORCE" != true ]; then
@@ -698,10 +752,15 @@ else
     fi
 fi
 echo ""
+else
+    echo "── 步骤 7: _handoff/ 跳过（role=$ROLE，无需 Agent 协作通道）──"
+    echo ""
+fi
 
 # ═══════════════════════════════════
-# 8. AGENTS.md
+# 8. AGENTS.md（仅 agent-b）
 # ═══════════════════════════════════
+if [ "$ROLE" = "agent-b" ]; then
 echo "── 步骤 8: 生成 AGENTS.md ──"
 AGENTS_MD="$TARGET/AGENTS.md"
 if [ -f "$AGENTS_MD" ] && [ "$FORCE" != true ]; then
@@ -710,31 +769,16 @@ else
     if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] 生成 AGENTS.md"
     else
-        cat > "$AGENTS_MD" << 'AGENTSEOF'
-# AGENTS.md — PROJECT_NAME_PLACEHOLDER
-
-## 本 Agent 身份
-- 角色: Agent B
-- 项目: PROJECT_NAME_PLACEHOLDER
-- 全限定名: PROJECT_NAME_PLACEHOLDER/agent-b
-- 能力: gate 流程、功能代码（src/ 内）、需求→PRD→Issue、问题发现
-- 壁垒: 无 shell、无部署权限 → 遇阻写 _handoff/outbox/agent-b/
-
-## 项目壁垒（不可修改，见 CLAUDE.md 完整列表）
-- 禁止修改：.devflow/archon/、.devflow/scripts/、CI/CD 配置、Dockerfile、docker-compose*.yml、install.sh、uninstall.sh、系统配置
-- 禁止操作：systemctl、docker
-- 代码只能写在 ai/ 分支；业务代码 PR 人审后由 B 自行合并（`gh pr merge`），管线改动委托 A
-
-## 协作通道
-- 写委托: _handoff/outbox/agent-b/
-- 读回复: _handoff/inbox/agent-b/
-- 消息模板: _handoff/TEMPLATE.md
-AGENTSEOF
-        sed -i "s/PROJECT_NAME_PLACEHOLDER/${PROJECT}/g" "$AGENTS_MD"
+        cp "$SOURCE/templates/roles/agent-b/AGENTS.md" "$AGENTS_MD"
+        sed -i "s/__PROJECT__/${PROJECT}/g" "$AGENTS_MD"
         echo "  ✅ AGENTS.md 已生成"
     fi
 fi
 echo ""
+else
+    echo "── 步骤 8: AGENTS.md 跳过（role=$ROLE）──"
+    echo ""
+fi
 
 # ═══════════════════════════════════
 # 9. git hooks

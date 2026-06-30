@@ -1,0 +1,171 @@
+#!/bin/bash
+# devflow — ai-dev-flow-server 角色管理 CLI
+# 部署到 .devflow/scripts/devflow，symlink 到 ~/.local/bin/devflow
+set -euo pipefail
+
+# 解析真实路径（处理 symlink + bare command name）
+if [ "${0#/}" = "$0" ] && [ "${0#.}" = "$0" ]; then
+    # $0 是 bare name（如 devflow），通过 PATH 解析
+    SCRIPT_REAL="$(command -v "$0" 2>/dev/null || echo "$0")"
+else
+    SCRIPT_REAL="$0"
+fi
+# 处理 symlink
+if [ -L "$SCRIPT_REAL" ] 2>/dev/null; then
+    SCRIPT_REAL="$(readlink -f "$SCRIPT_REAL" 2>/dev/null || realpath "$SCRIPT_REAL" 2>/dev/null || readlink "$SCRIPT_REAL")"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
+# 从 .devflow/scripts/ 向上找到项目根
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CONFIG="$PROJECT_DIR/.devflow/config.yaml"
+CLAUDE_MD="$PROJECT_DIR/.claude/CLAUDE.md"
+[ ! -f "$CLAUDE_MD" ] && CLAUDE_MD="$PROJECT_DIR/CLAUDE.md"
+
+# ── helpers ──
+
+read_role() {
+    grep -E '^[[:space:]]*role:[[:space:]]*[^[:space:]#]+' "$CONFIG" 2>/dev/null | head -1 | sed 's/^[[:space:]]*role:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo ""
+}
+
+check_handoff_pending() {
+    local outbox="$PROJECT_DIR/_handoff/outbox/agent-b"
+    local inbox="$PROJECT_DIR/_handoff/inbox/agent-b"
+    if [ -d "$outbox" ] && [ "$(ls -A "$outbox" 2>/dev/null)" ]; then
+        echo "❌ _handoff/outbox/agent-b/ 有待处理消息，请先归档后再切换角色"
+        return 1
+    fi
+    if [ -d "$inbox" ] && [ "$(ls -A "$inbox" 2>/dev/null)" ]; then
+        echo "❌ _handoff/inbox/agent-b/ 有待处理消息，请先归档后再切换角色"
+        return 1
+    fi
+    return 0
+}
+
+switch_role() {
+    local new_role="$1"
+    local old_role=$(read_role)
+    [ -z "$old_role" ] && old_role="agent-b"
+
+    echo "  切换角色: $old_role → $new_role"
+
+    # 1. 检查 CLAUDE.md 是否有 marker
+    if ! grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
+        echo "❌ CLAUDE.md 不含 ai-dev-flow-server 标记段，无法切换"
+        echo "   请先运行 install.sh 安装开发流程"
+        return 1
+    fi
+
+    # 2. 拼接新的 CLAUDE.md 段
+    local devflow_dir="$PROJECT_DIR/.devflow"
+    local base="$devflow_dir/templates/CLAUDE.md.base.append"
+    local role_file=""
+    if [ "$new_role" = "agent-b" ]; then
+        role_file="$devflow_dir/templates/roles/agent-b/CLAUDE.md.append"
+    else
+        role_file="$devflow_dir/templates/roles/${new_role}.append"
+    fi
+
+    if [ ! -f "$base" ] || [ ! -f "$role_file" ]; then
+        echo "❌ 模板文件缺失: base=$base role=$role_file"
+        echo "   请运行 install.sh --update --role $new_role 重新生成模板"
+        return 1
+    fi
+
+    local tmp_md="${CLAUDE_MD}.devflow-tmp"
+    local combined_file="${CLAUDE_MD}.devflow-combined"
+    cat "$base" "$role_file" > "$combined_file"
+    sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$combined_file"
+
+    # 删除旧 marker 段，插入新内容
+    sed '/<!-- ai-dev-flow-server -->/,/<!-- ai-dev-flow-server end -->/d' "$CLAUDE_MD" > "$tmp_md"
+    cat "$combined_file" >> "$tmp_md"
+    rm -f "$combined_file"
+    mv "$tmp_md" "$CLAUDE_MD"
+    echo "  ✅ CLAUDE.md 已更新"
+
+    # 3. 管理 _handoff/ 和 AGENTS.md
+    local handoff="$PROJECT_DIR/_handoff"
+    local agents="$PROJECT_DIR/AGENTS.md"
+
+    if [ "$new_role" = "agent-b" ]; then
+        mkdir -p "$handoff/outbox/agent-b" "$handoff/inbox/agent-b" "$handoff/archive"
+        echo "  ✅ _handoff/ 已创建"
+        if [ ! -f "$agents" ]; then
+            local tmpl="$devflow_dir/templates/roles/agent-b/AGENTS.md"
+            if [ -f "$tmpl" ]; then
+                cp "$tmpl" "$agents"
+                sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$agents"
+                echo "  ✅ AGENTS.md 已生成"
+            else
+                echo "  ⚠️  AGENTS.md 模板不存在: $tmpl"
+            fi
+        fi
+    else
+        # 切离 agent-b 时检查 pending handoff
+        if [ "$old_role" = "agent-b" ]; then
+            check_handoff_pending || return 1
+        fi
+        # 删除 _handoff/ 目录（仅 devflow 创建的，含 agent-b 子目录的）
+        if [ -d "$handoff/outbox/agent-b" ] || [ -d "$handoff/inbox/agent-b" ]; then
+            rm -rf "$handoff"
+            echo "  ✅ _handoff/ 已删除"
+        fi
+        if [ -f "$agents" ]; then
+            rm -f "$agents"
+            echo "  ✅ AGENTS.md 已删除"
+        fi
+    fi
+
+    # 4. 更新 config.yaml role 字段
+    if grep -q '^[[:space:]]*role:' "$CONFIG" 2>/dev/null; then
+        sed -i "s/^[[:space:]]*role:.*/role: $new_role/" "$CONFIG"
+    else
+        # 在 mode 行后插入 role 字段
+        sed -i "/^mode:/a role: $new_role" "$CONFIG"
+    fi
+    echo "  ✅ config.yaml role 已更新为 $new_role"
+    echo ""
+    echo "✅ 角色已切换为 $new_role"
+}
+
+# ── 主入口 ──
+
+case "${1:-}" in
+    role)
+        case "${2:-}" in
+            "")
+                current=$(read_role)
+                [ -z "$current" ] && current="agent-b（默认，未在 config.yaml 中设置）"
+                echo "$current"
+                ;;
+            switch)
+                if [ -z "${3:-}" ]; then
+                    echo "用法: devflow role switch <owner|developer|agent-b>"
+                    exit 1
+                fi
+                case "$3" in owner|developer|agent-b) ;; *)
+                    echo "❌ 无效角色: $3（可选: owner, developer, agent-b）"; exit 1 ;; esac
+                switch_role "$3"
+                ;;
+            list)
+                echo "可用角色:"
+                echo "  owner      — 全权访问，无额外约束"
+                echo "  developer  — 业务代码 + PR 合并，禁改管线文件"
+                echo "  agent-b    — 仅产出 issue，handoff 协作，无 shell"
+                ;;
+            *)
+                echo "用法: devflow role [switch <R>|list]"
+                echo "  devflow role              查看当前角色"
+                echo "  devflow role switch <R>   切换角色"
+                echo "  devflow role list         列出可用角色"
+                ;;
+        esac
+        ;;
+    *)
+        echo "用法: devflow role [switch <R>|list]"
+        echo ""
+        echo "ai-dev-flow-server 角色管理工具"
+        echo "当前项目: $(basename "$PROJECT_DIR")"
+        echo "当前角色: $(read_role || echo '未设置')"
+        ;;
+esac
