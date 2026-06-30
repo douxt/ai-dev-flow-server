@@ -2,13 +2,23 @@
 # .git/hooks/pre-push — 拦截 Agent B 越权 push
 # 由 ai-dev-flow-server install.sh 部署
 
-REMOTE="$1"
-URL="$2"
+REF_LIST=$(cat)
+
+# 分支删除（zero SHA）→ 放行
+if echo "$REF_LIST" | grep -q "0000000000000000000000000000000000000000"; then
+    exit 0
+fi
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# www 用户（dispatch/reconciler 进程）允许直推 main
+if [ "$(whoami)" = "www" ]; then
+    exit 0
+fi
 
 # 硬阻断：master/main 分支
 if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
-    echo "⛔ BLOCKED: Agent B 禁止直推 $BRANCH。请推 ai/ 分支并委托 A 合并。"
+    echo "⛔ BLOCKED: Agent B 禁止直推 $BRANCH。请推 ai/ 分支，然后 gh pr merge 合并。"
     exit 1
 fi
 
