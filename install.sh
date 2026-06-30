@@ -679,6 +679,26 @@ if [ "$BACKEND" = true ]; then
     fi
 fi
 
+# devflow 脚本 + 模板 — 所有 mode
+echo "── 步骤 5f: 部署 devflow 角色管理 ──"
+dry_run "mkdir -p $TARGET/.devflow/scripts $TARGET/.devflow/templates/roles/agent-b"
+maybe_cp "$SOURCE/scripts/devflow" "$TARGET/.devflow/scripts/devflow"
+maybe_cp "$SOURCE/templates/CLAUDE.md.base.append" "$TARGET/.devflow/templates/CLAUDE.md.base.append"
+maybe_cp "$SOURCE/templates/roles/owner.append" "$TARGET/.devflow/templates/roles/owner.append"
+maybe_cp "$SOURCE/templates/roles/developer.append" "$TARGET/.devflow/templates/roles/developer.append"
+maybe_cp "$SOURCE/templates/roles/agent-b/CLAUDE.md.append" "$TARGET/.devflow/templates/roles/agent-b/CLAUDE.md.append"
+maybe_cp "$SOURCE/templates/roles/agent-b/AGENTS.md" "$TARGET/.devflow/templates/roles/agent-b/AGENTS.md"
+[ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/scripts/devflow" 2>/dev/null || true
+
+# symlink devflow 到 ~/.local/bin/
+if [ "$DRY_RUN" = false ]; then
+    mkdir -p "$CLAUDE_HOME/.local/bin"
+    ln -sf "$TARGET/.devflow/scripts/devflow" "$CLAUDE_HOME/.local/bin/devflow" 2>/dev/null || true
+    echo "  ✅ devflow → ~/.local/bin/devflow"
+else
+    echo "  [DRY-RUN] ln -s .devflow/scripts/devflow ~/.local/bin/devflow"
+fi
+
 echo "  ✅ .devflow/ 文件已复制"
 echo ""
 
