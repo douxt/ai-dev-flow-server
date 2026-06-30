@@ -20,6 +20,47 @@ SKIP_ROOT=false
 DRY_RUN=false
 FORCE=false
 
+# ── 函数定义 ──
+dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
+
+maybe_cp() {
+    local src="$1" dst="$2"
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $(basename "$src") → $dst"; return 0; fi
+    if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $dst 已存在，跳过（--force 可强制覆盖）"; return 0; fi
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst" && echo "  ✅ $(basename "$dst")"
+}
+
+maybe_cp_dir() {
+    local src="$1" dstdir="$2"
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $src/* → $dstdir/"; return 0; fi
+    mkdir -p "$dstdir"
+    local copied=0
+    for f in "$src"/*; do
+        [ -f "$f" ] || continue
+        local dst="$dstdir/$(basename "$f")"
+        if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $(basename "$dst") 已存在，跳过"; continue; fi
+        cp "$f" "$dst" && copied=$((copied + 1))
+    done
+    echo "  ✅ $dstdir/ ($copied files)"
+}
+
+maybe_mkdir() {
+    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] mkdir -p $1"; return 0; fi
+    [ -d "$1" ] && [ "$FORCE" != true ] && return 0
+    mkdir -p "$1"
+}
+
+detect_environment() {
+    IS_DOCKER=false; HAS_SYSTEMD=false; HAS_CRON=false
+    if [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then IS_DOCKER=true; fi
+    if [ "$IS_DOCKER" = false ] && [ -d /run/systemd/system ]; then HAS_SYSTEMD=true; fi
+    if command -v crontab >/dev/null 2>&1; then HAS_CRON=true; fi
+}
+
+# ── source guard（source 时到此为止，函数已全部定义）──
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
+
 # ── 参数解析 ──
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -89,44 +130,6 @@ SOURCE=$(cd "$(dirname "$0")" && pwd)
 CLAUDE_HOME="${HOME_OVERRIDE:-$HOME}"
 PROJECT=$(basename "$TARGET")
 
-# ── dry-run 包装 ──
-dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
-
-maybe_cp() {
-    local src="$1" dst="$2"
-    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $(basename "$src") → $dst"; return 0; fi
-    if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $dst 已存在，跳过（--force 可强制覆盖）"; return 0; fi
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst" && echo "  ✅ $(basename "$dst")"
-}
-
-maybe_cp_dir() {
-    local src="$1" dstdir="$2"
-    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $src/* → $dstdir/"; return 0; fi
-    mkdir -p "$dstdir"
-    local copied=0
-    for f in "$src"/*; do
-        [ -f "$f" ] || continue
-        local dst="$dstdir/$(basename "$f")"
-        if [ -f "$dst" ] && [ "$FORCE" != true ]; then echo "  ⚠️  $(basename "$dst") 已存在，跳过"; continue; fi
-        cp "$f" "$dst" && copied=$((copied + 1))
-    done
-    echo "  ✅ $dstdir/ ($copied files)"
-}
-
-maybe_mkdir() {
-    if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] mkdir -p $1"; return 0; fi
-    [ -d "$1" ] && [ "$FORCE" != true ] && return 0
-    mkdir -p "$1"
-}
-
-# ── 环境检测 ──
-detect_environment() {
-    IS_DOCKER=false; HAS_SYSTEMD=false; HAS_CRON=false
-    if [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then IS_DOCKER=true; fi
-    if [ "$IS_DOCKER" = false ] && [ -d /run/systemd/system ]; then HAS_SYSTEMD=true; fi
-    if command -v crontab >/dev/null 2>&1; then HAS_CRON=true; fi
-}
 detect_environment
 
 # 自动调度器选择
