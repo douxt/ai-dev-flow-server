@@ -61,16 +61,15 @@ switch_role() {
     fi
 
     local tmp_md="${CLAUDE_MD}.devflow-tmp"
-    local combined=$(cat "$base" "$role_file")
-    combined=$(echo "$combined" | sed "s/__PROJECT__/$(basename "$PROJECT_DIR")/g")
+    local combined_file="${CLAUDE_MD}.devflow-combined"
+    cat "$base" "$role_file" > "$combined_file"
+    sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$combined_file"
 
-    # 替换 marker 段
-    awk -v replacement="$combined" '
-    BEGIN { print_mode=1; replaced=0 }
-    /<!-- ai-dev-flow-server/ { print_mode=0; if (!replaced) { print replacement; replaced=1 } }
-    /<!-- ai-dev-flow-server end/ { print_mode=1; next }
-    print_mode { print }
-    ' "$CLAUDE_MD" > "$tmp_md" && mv "$tmp_md" "$CLAUDE_MD"
+    # 删除旧 marker 段，插入新内容
+    sed '/<!-- ai-dev-flow-server -->/,/<!-- ai-dev-flow-server end -->/d' "$CLAUDE_MD" > "$tmp_md"
+    cat "$combined_file" >> "$tmp_md"
+    rm -f "$combined_file"
+    mv "$tmp_md" "$CLAUDE_MD"
     echo "  ✅ CLAUDE.md 已更新"
 
     # 3. 管理 _handoff/ 和 AGENTS.md
