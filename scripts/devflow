@@ -3,9 +3,15 @@
 # 部署到 .devflow/scripts/devflow，symlink 到 ~/.local/bin/devflow
 set -euo pipefail
 
-# 解析真实路径（处理 symlink）
-SCRIPT_REAL="$0"
-if [ -L "$SCRIPT_REAL" ]; then
+# 解析真实路径（处理 symlink + bare command name）
+if [ "${0#/}" = "$0" ] && [ "${0#.}" = "$0" ]; then
+    # $0 是 bare name（如 devflow），通过 PATH 解析
+    SCRIPT_REAL="$(command -v "$0" 2>/dev/null || echo "$0")"
+else
+    SCRIPT_REAL="$0"
+fi
+# 处理 symlink
+if [ -L "$SCRIPT_REAL" ] 2>/dev/null; then
     SCRIPT_REAL="$(readlink -f "$SCRIPT_REAL" 2>/dev/null || realpath "$SCRIPT_REAL" 2>/dev/null || readlink "$SCRIPT_REAL")"
 fi
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"

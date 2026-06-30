@@ -170,13 +170,16 @@ if [ "$UPDATE_MODE" = true ]; then
         elif [ -z "$STORED_MODE" ]; then
             echo "⚠️  config.yaml 无 mode 字段，默认 full（可 --mode 显式指定）"
         fi
-        # 读取 stored role（仅当未显式传 --role 时，即 ROLE 仍为默认 agent-b）
-        if [ "$ROLE" = "agent-b" ]; then
-            STORED_ROLE=$(grep -E '^[[:space:]]*role:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*role:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
-            if [ -n "$STORED_ROLE" ] && [ "$STORED_ROLE" != "$ROLE" ]; then
-                ROLE="$STORED_ROLE"
-                echo "ℹ️  从 config.yaml 读取 role: $ROLE"
-            fi
+        # 读取 stored role
+        STORED_ROLE=$(grep -E '^[[:space:]]*role:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*role:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
+        if [ "$ROLE" = "agent-b" ] && [ -n "$STORED_ROLE" ] && [ "$STORED_ROLE" != "agent-b" ]; then
+            ROLE="$STORED_ROLE"
+            echo "ℹ️  从 config.yaml 读取 role: $ROLE"
+        fi
+        # 若 --role 显式传了不同值，写回 config.yaml
+        if [ -n "$STORED_ROLE" ] && [ "$ROLE" != "$STORED_ROLE" ]; then
+            sed -i "s/^[[:space:]]*role:.*/role: $ROLE/" "$CONFIG_YAML"
+            echo "ℹ️  config.yaml role 更新为: $ROLE"
         fi
     fi
 fi
