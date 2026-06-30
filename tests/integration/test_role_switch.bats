@@ -3,12 +3,8 @@
 
 load /code/tests/helpers/common.bash
 
-setup() {
-    # 复用 common.bash 的 setup，再额外安装
-    bash /code/install.sh "$TEST_PROJECT" --role agent-b
-}
-
 @test "switch: agent-b → developer" {
+    bash /code/install.sh "$TEST_PROJECT" --role agent-b
     export PATH="$HOME/.local/bin:$PATH"
     run devflow role switch developer
     [ "$status" -eq 0 ]
@@ -19,6 +15,7 @@ setup() {
 }
 
 @test "switch: developer → owner" {
+    bash /code/install.sh "$TEST_PROJECT" --role agent-b
     export PATH="$HOME/.local/bin:$PATH"
     devflow role switch developer
     run devflow role switch owner
@@ -28,6 +25,7 @@ setup() {
 }
 
 @test "switch: owner → agent-b" {
+    bash /code/install.sh "$TEST_PROJECT" --role agent-b
     export PATH="$HOME/.local/bin:$PATH"
     devflow role switch owner
     run devflow role switch agent-b
@@ -39,6 +37,7 @@ setup() {
 }
 
 @test "switch: full cycle agent-b → developer → owner → agent-b" {
+    bash /code/install.sh "$TEST_PROJECT" --role agent-b
     export PATH="$HOME/.local/bin:$PATH"
     devflow role switch developer
     devflow role switch owner

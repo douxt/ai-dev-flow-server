@@ -20,6 +20,7 @@ SKIP_ROOT=false
 DRY_RUN=false
 FORCE=false
 ROLE="agent-b"
+ROLE_SET=false
 
 # ── 函数定义 ──
 dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
@@ -79,7 +80,7 @@ while [ $# -gt 0 ]; do
         --dry-run)    DRY_RUN=true; shift ;;
         --force)      FORCE=true; shift ;;
         --update)     UPDATE_MODE=true; shift ;;
-        --role)       ROLE="$2"; shift 2 ;;
+        --role)       ROLE="$2"; ROLE_SET=true; shift 2 ;;
         --help)
             echo "用法: bash install.sh <项目路径> [选项]"
             echo ""
@@ -172,12 +173,13 @@ if [ "$UPDATE_MODE" = true ]; then
         fi
         # 读取 stored role
         STORED_ROLE=$(grep -E '^[[:space:]]*role:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*role:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
-        if [ "$ROLE" = "agent-b" ] && [ -n "$STORED_ROLE" ] && [ "$STORED_ROLE" != "agent-b" ]; then
+        # 未显式传 --role 时从 config 读取
+        if [ "$ROLE_SET" = false ] && [ -n "$STORED_ROLE" ]; then
             ROLE="$STORED_ROLE"
             echo "ℹ️  从 config.yaml 读取 role: $ROLE"
         fi
         # 若 --role 显式传了不同值，写回 config.yaml
-        if [ -n "$STORED_ROLE" ] && [ "$ROLE" != "$STORED_ROLE" ]; then
+        if [ "$ROLE_SET" = true ] && [ "$ROLE" != "$STORED_ROLE" ]; then
             sed -i "s/^[[:space:]]*role:.*/role: $ROLE/" "$CONFIG_YAML"
             echo "ℹ️  config.yaml role 更新为: $ROLE"
         fi
