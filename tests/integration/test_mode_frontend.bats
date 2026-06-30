@@ -42,3 +42,10 @@ load /code/tests/helpers/common.bash
     # knowledge/ 存在（全 mode 共享）
     [ -d "$TEST_PROJECT/.devflow/knowledge" ]
 }
+
+@test "frontend mode deploys plan-backup hook" {
+    run bash /code/install.sh "$TEST_PROJECT" --mode frontend
+    [ "$status" -eq 0 ]
+    [ -f "$HOME/.claude/hooks/plan-backup.sh" ]
+    grep -q "plan-backup" "$HOME/.claude/settings.local.json"
+}
