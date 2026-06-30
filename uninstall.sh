@@ -189,7 +189,7 @@ if [ "$BACKEND" = true ]; then
     fi
     # 清理空 .archon/
     if [ -d "$TARGET/.archon" ]; then
-        rmdir "$TARGET/.archon" 2>/dev/null || true
+        [ "$DRY_RUN" = false ] && rmdir "$TARGET/.archon" 2>/dev/null || true
     fi
 
     echo "5b. 移除 logs/ ..."

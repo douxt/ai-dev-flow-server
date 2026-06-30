@@ -149,7 +149,7 @@ esac
 if [ "$UPDATE_MODE" = true ]; then
     CONFIG_YAML="$TARGET/.devflow/config.yaml"
     if [ -f "$CONFIG_YAML" ]; then
-        STORED_MODE=$(grep -oP '^\s*mode:\s*\K\S+' "$CONFIG_YAML" 2>/dev/null || echo "")
+        STORED_MODE=$(grep -E '^\s*mode:\s*\S+' "$CONFIG_YAML" 2>/dev/null | sed 's/.*mode:\s*//' || echo "")
         if [ -n "$STORED_MODE" ] && [ "$MODE" = "full" ]; then
             MODE="$STORED_MODE"
             FRONTEND=false; BACKEND=false
@@ -275,7 +275,7 @@ if [ "$IS_DOCKER" = true ]; then
     CONFIG_CLAUDE="$CLAUDE_HOME/.config/claude"
     if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] Docker 持久化：ln -sfn ~/.config/claude ~/.claude"
-    elif [ -d "$CLAUDE_DIR" ] && [ ! -L "$CLAUDE_DIR" ]; then
+    elif [ -d "$CLAUDE_DIR" ] && [ ! -L "$CLAUDE_DIR" ] && [ "$CLAUDE_DIR" != "/" ]; then
         if [ "$(ls -A "$CLAUDE_DIR" 2>/dev/null)" ]; then
             echo "  ℹ️  Docker 持久化：mv ~/.claude → ~/.config/claude"
             mkdir -p "$CONFIG_CLAUDE"
@@ -329,7 +329,7 @@ echo ""
 # 1. 生成 config.yaml
 # ═══════════════════════════════════
 echo "── 步骤 1: 生成 .devflow/config.yaml ──"
-REPO_URL=$(cd "$TARGET" && git remote get-url origin 2>/dev/null || echo "git@github.com:user/${PROJECT}.git")
+REPO_URL=$(cd "$TARGET" 2>/dev/null && git remote get-url origin 2>/dev/null || echo "git@github.com:user/${PROJECT}.git")
 
 maybe_mkdir "$TARGET/.devflow"
 
@@ -451,7 +451,7 @@ if [ "$FRONTEND" = true ] && [ "$NO_SKILLS" = false ]; then
         # CC 版本兼容性检查
         if [ -f "$SKILLS_SRC/.version" ] && [ "$DRY_RUN" = false ]; then
             CACHED_CC=$(jq -r '.cc_version' "$SKILLS_SRC/.version" 2>/dev/null || echo "")
-            LOCAL_CC=$(claude --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "")
+            LOCAL_CC=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
             if [ -n "$CACHED_CC" ] && [ -n "$LOCAL_CC" ]; then
                 CACHED_MAJOR="${CACHED_CC%%.*}"; LOCAL_MAJOR="${LOCAL_CC%%.*}"
                 if [ "$CACHED_MAJOR" != "$LOCAL_MAJOR" ]; then
