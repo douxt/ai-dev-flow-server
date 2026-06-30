@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**/*.md)",
+      "Read(**/*.py)",
+      "Read(**/*.sh)",
+      "Read(**/*.json)",
+      "Read(**/*.txt)",
+      "Read(**/*.yml)",
+      "Read(**/*.yaml)",
+      "Read(**/*.toml)",
+      "Read(**/*.cfg)",
+      "Read(**/*.conf)",
+      "Read(**/*.ini)",
+      "Read(~/.claude/review-rubrics/**)",
+      "Write(.review-*)"
+    ],
+    "deny": [
+      "Write(**/secret.json)",
+      "Write(**/.env*)",
+      "Write(~/.ssh/**)",
+      "Write(~/.gitee_token)"
+    ]
+  }
+}
