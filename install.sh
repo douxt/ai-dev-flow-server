@@ -311,6 +311,8 @@ if [ "$UPDATE_MODE" = true ]; then
     CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
     [ ! -f "$CLAUDE_MD" ] && CLAUDE_MD="$TARGET/CLAUDE.md"
     if [ -f "$CLAUDE_MD" ] && grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
+        # 先规范化旧标记为新格式
+        sed -i 's/<!-- ⚠️ 以下由 ai-dev-flow-server install.sh 自动追加 -->/<!-- ai-dev-flow-server -->/g' "$CLAUDE_MD"
         if [ "$ROLE" = "agent-b" ]; then
             ROLE_TMPL="$SOURCE/templates/roles/agent-b/CLAUDE.md.append"
         else
