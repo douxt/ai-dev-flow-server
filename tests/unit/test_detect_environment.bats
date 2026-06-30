@@ -50,5 +50,9 @@ setup() {
 @test "HAS_CRON=true when crontab available" {
     touch /.dockerenv
     detect_environment
-    [ "$HAS_CRON" = true ]
+    if command -v crontab >/dev/null 2>&1; then
+        [ "$HAS_CRON" = true ]
+    else
+        [ "$HAS_CRON" = false ]
+    fi
 }
