@@ -1,0 +1,4 @@
+FROM bats/bats:latest
+RUN apk add --no-cache git jq
+WORKDIR /code
+ENTRYPOINT ["bats"]
