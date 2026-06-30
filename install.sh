@@ -293,6 +293,43 @@ if [ "$UPDATE_MODE" = true ]; then
     done
 
     dry_run "mkdir -p $TARGET/logs"
+
+    # 更新 devflow 脚本 + 角色模板
+    echo "  更新 devflow 角色管理 ..."
+    dry_run "mkdir -p $TARGET/.devflow/scripts $TARGET/.devflow/templates/roles/agent-b"
+    deploy_file "$SOURCE/scripts/devflow" "$TARGET/.devflow/scripts/devflow"
+    deploy_file "$SOURCE/templates/CLAUDE.md.base.append" "$TARGET/.devflow/templates/CLAUDE.md.base.append"
+    deploy_file "$SOURCE/templates/roles/owner.append" "$TARGET/.devflow/templates/roles/owner.append"
+    deploy_file "$SOURCE/templates/roles/developer.append" "$TARGET/.devflow/templates/roles/developer.append"
+    deploy_file "$SOURCE/templates/roles/agent-b/CLAUDE.md.append" "$TARGET/.devflow/templates/roles/agent-b/CLAUDE.md.append"
+    deploy_file "$SOURCE/templates/roles/agent-b/AGENTS.md" "$TARGET/.devflow/templates/roles/agent-b/AGENTS.md"
+    dry_run "chmod +x $TARGET/.devflow/scripts/devflow"
+    mkdir -p "$CLAUDE_HOME/.local/bin"
+    ln -sf "$TARGET/.devflow/scripts/devflow" "$CLAUDE_HOME/.local/bin/devflow" 2>/dev/null || true
+
+    # 更新 CLAUDE.md 角色段（role 变更时）
+    CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
+    [ ! -f "$CLAUDE_MD" ] && CLAUDE_MD="$TARGET/CLAUDE.md"
+    if [ -f "$CLAUDE_MD" ] && grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
+        if [ "$ROLE" = "agent-b" ]; then
+            ROLE_TMPL="$SOURCE/templates/roles/agent-b/CLAUDE.md.append"
+        else
+            ROLE_TMPL="$SOURCE/templates/roles/${ROLE}.append"
+        fi
+        BASE_TMPL="$SOURCE/templates/CLAUDE.md.base.append"
+        if [ -f "$BASE_TMPL" ] && [ -f "$ROLE_TMPL" ]; then
+            COMBINED_FILE="${CLAUDE_MD}.devflow-combined"
+            cat "$BASE_TMPL" "$ROLE_TMPL" > "$COMBINED_FILE"
+            sed -i "s/__PROJECT__/${PROJECT}/g" "$COMBINED_FILE"
+            TMP_MD="${CLAUDE_MD}.devflow-tmp"
+            sed '/<!-- ai-dev-flow-server -->/,/<!-- ai-dev-flow-server end -->/d' "$CLAUDE_MD" > "$TMP_MD"
+            cat "$COMBINED_FILE" >> "$TMP_MD"
+            rm -f "$COMBINED_FILE"
+            mv "$TMP_MD" "$CLAUDE_MD"
+            echo "  ✅ CLAUDE.md 角色段已更新为 $ROLE"
+        fi
+    fi
+
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
     exit 0
 fi
