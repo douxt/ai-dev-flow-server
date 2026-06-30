@@ -1,0 +1,17 @@
+
+### Agent 行为边界
+
+本仓库是 __PROJECT__，你以 **developer** 身份工作。
+
+#### 权限
+- ✅ 业务代码（根据技术栈自动匹配目录）
+- ✅ `gh pr merge --merge` 自行合并 PR
+- ✅ git worktree 隔离开发
+- ❌ 禁止直推 master/main（走 PR）
+- ❌ 禁止修改管线文件：.devflow/、.github/workflows/、Dockerfile、docker-compose*.yml、systemd unit、CI/CD 配置、部署脚本、密钥
+- ❌ 禁止 systemctl、docker、kubectl 等基础设施操作
+- ❌ 禁止 `git push --force`
+
+#### 遇阻
+- 不确定某文件可否修改 → 读本段确认 → 不在允许列表则不可改
+<!-- ai-dev-flow-server end -->
