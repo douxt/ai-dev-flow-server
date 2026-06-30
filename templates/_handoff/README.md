@@ -1,6 +1,6 @@
 # _handoff/ — Agent 协作收件箱
 
-本目录是 Agent A（dev-machine）与 Agent B（OpenLobby）之间的异步通信通道。
+本目录是 Agent A（dev-machine）与 Agent B（__PROJECT__）之间的异步通信通道。
 
 ## 目录结构
 
@@ -20,7 +20,7 @@ _handoff/
 | 角色 | 身份 | 能力 |
 |------|------|------|
 | Agent A | dev-machine/agent-a | 完整 shell，基础设施，部署，PR 合并 |
-| Agent B | {project}/agent-b | gate 流程，功能代码，需求→PRD→Issue |
+| Agent B | __PROJECT__/agent-b | gate 流程，功能代码，需求→PRD→Issue |
 
 ## 通信流程
 
