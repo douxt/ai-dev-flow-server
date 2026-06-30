@@ -110,6 +110,30 @@ if [ "$FRONTEND" = true ]; then
         echo "  ⚠️  skills/ 不存在"
     fi
 
+    # 1b2. 移除 gate skills（frontend + full）
+    echo "1b2. 移除 gate skills..."
+    GATE_SKILLS="gate-1-grill gate-2-prd gate-3-issues gate-4-review gate-5-prep gate-6-afk gate-preflight"
+    if [ -d "$SKILLS_DIR" ]; then
+        for s in $GATE_SKILLS; do
+            if [ -d "$SKILLS_DIR/$s" ]; then
+                dry_run "rm -rf $SKILLS_DIR/$s"
+                [ "$DRY_RUN" = false ] && rm -rf "$SKILLS_DIR/$s"
+            fi
+        done
+        echo "  ✅ gate skills 已移除"
+    fi
+
+    # 1b3. 移除 gate-checklists（frontend + full）
+    echo "1b3. 移除 gate-checklists..."
+    GC_DIR="$CLAUDE_HOME/.claude/gate-checklists"
+    if [ -d "$GC_DIR" ]; then
+        dry_run "rm -rf $GC_DIR"
+        [ "$DRY_RUN" = false ] && rm -rf "$GC_DIR"
+        echo "  ✅ gate-checklists 已移除"
+    else
+        echo "  ⚠️  gate-checklists/ 不存在"
+    fi
+
     # 1c. 移除 CC config（settings + hooks）— frontend + full
     echo "1c. 移除 CC config..."
     # settings.local.json — 仅当含 devflow 占位符标记时删除（安全策略：不删用户自定义配置）

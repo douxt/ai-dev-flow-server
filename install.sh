@@ -245,6 +245,16 @@ if [ "$UPDATE_MODE" = true ]; then
             [[ "$skill_name" == .* ]] && continue
             dry_run "cp -rL $skill_dir $CLAUDE_HOME/.claude/skills/$skill_name"
         done
+
+        echo "  更新 gate skills + checklists ..."
+        for gs in "$SOURCE/skills/"*/; do
+            [ -d "$gs" ] || continue
+            gs_name=$(basename "$gs")
+            dry_run "cp -rL $gs $CLAUDE_HOME/.claude/skills/$gs_name"
+        done
+        for gc in "$SOURCE/gate-checklists/"*.md; do
+            [ -f "$gc" ] && deploy_file "$gc" "$CLAUDE_HOME/.claude/gate-checklists/$(basename "$gc")"
+        done
     fi
 
     echo "  更新 issue 模板 ..."
@@ -537,6 +547,30 @@ if [ "$FRONTEND" = true ]; then
         done
         echo "  ✅ $count 个 gate 脚本已安装"
     fi
+
+    # gate-checklists
+    echo "── 步骤 2b: 复制 gate-checklists/ ──"
+    maybe_cp_dir "$SOURCE/gate-checklists" "$CLAUDE_HOME/.claude/gate-checklists"
+
+    # gate skills（skills/ 下 7 个 gate skill）
+    echo "── 步骤 2c: 安装 gate skills ──"
+    if [ -d "$SOURCE/skills" ]; then
+        dry_run "mkdir -p $CLAUDE_HOME/.claude/skills"
+        for skill_dir in "$SOURCE/skills/"*/; do
+            [ -d "$skill_dir" ] || continue
+            skill_name=$(basename "$skill_dir")
+            skill_dst="$CLAUDE_HOME/.claude/skills/$skill_name"
+            if [ "$DRY_RUN" = true ]; then
+                echo "  [DRY-RUN] cp -r $skill_name/ → $skill_dst"
+            elif [ -d "$skill_dst" ] && [ "$FORCE" != true ]; then
+                echo "  ⚠️  gate-skill/$skill_name 已存在，跳过"
+            else
+                [ "$FORCE" = true ] && rm -rf "$skill_dst"
+                cp -rL "$skill_dir" "$skill_dst"
+                echo "  ✅ gate-skill/$skill_name"
+            fi
+        done
+    fi
     echo ""
 fi
 
@@ -726,7 +760,8 @@ fi
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
 if [ "$FRONTEND" = true ]; then
     echo "  [ ] .gate-state — Gate 状态追踪"
-    echo "  [ ] ~/.claude/skills/ — 15 个 CC skill"
+    echo "  [ ] ~/.claude/skills/ — 15 个 CC skill + 7 个 gate skill"
+    echo "  [ ] ~/.claude/gate-checklists/ — 6 个 gate 清单"
     echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
 fi
 if [ "$BACKEND" = true ]; then
