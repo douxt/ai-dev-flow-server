@@ -149,7 +149,7 @@ esac
 if [ "$UPDATE_MODE" = true ]; then
     CONFIG_YAML="$TARGET/.devflow/config.yaml"
     if [ -f "$CONFIG_YAML" ]; then
-        STORED_MODE=$(grep -E '^\s*mode:\s*\S+' "$CONFIG_YAML" 2>/dev/null | sed 's/.*mode:\s*//' || echo "")
+        STORED_MODE=$(grep -E '^[[:space:]]*mode:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*mode:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
         if [ -n "$STORED_MODE" ] && [ "$MODE" = "full" ]; then
             MODE="$STORED_MODE"
             FRONTEND=false; BACKEND=false
@@ -220,6 +220,31 @@ if [ "$UPDATE_MODE" = true ]; then
         for js in "$SOURCE/workflows/"*.js; do
             [ -f "$js" ] && deploy_file "$js" "$CLAUDE_HOME/.claude/workflows/$(basename "$js")"
         done
+
+        echo "  更新 CC config ..."
+        if [ -f "$SOURCE/config-templates/default/settings.json" ]; then
+            CLAUDE_DIR="$CLAUDE_HOME/.claude"
+            dry_run "mkdir -p $CLAUDE_DIR/hooks"
+            sed -e "s|__PKG_MGR__|${PKG_MGR}|g" \
+                -e "s|__TEST_CMD__|${TEST_CMD}|g" \
+                -e "s|__LINT_CMD__|${LINT_CMD}|g" \
+                -e "s|__WORKSPACE__|${TARGET}|g" \
+                -e "s|__CLAUDE_HOME__|${CLAUDE_DIR}|g" \
+                "$SOURCE/config-templates/default/settings.json" > "$CLAUDE_DIR/settings.local.json"
+        fi
+        deploy_file "$SOURCE/config-templates/default/CLAUDE.md" "$CLAUDE_HOME/.claude/CLAUDE.md"
+        for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
+            [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
+        done
+
+        echo "  更新 CC skills ..."
+        dry_run "mkdir -p $CLAUDE_HOME/.claude/skills"
+        for skill_dir in "$SOURCE/skills-cache/"*/; do
+            [ -d "$skill_dir" ] || continue
+            skill_name=$(basename "$skill_dir")
+            [[ "$skill_name" == .* ]] && continue
+            dry_run "cp -rL $skill_dir $CLAUDE_HOME/.claude/skills/$skill_name"
+        done
     fi
 
     echo "  更新 issue 模板 ..."
@@ -279,7 +304,7 @@ if [ "$IS_DOCKER" = true ]; then
         if [ "$(ls -A "$CLAUDE_DIR" 2>/dev/null)" ]; then
             echo "  ℹ️  Docker 持久化：mv ~/.claude → ~/.config/claude"
             mkdir -p "$CONFIG_CLAUDE"
-            cp -r "$CLAUDE_DIR"/* "$CONFIG_CLAUDE/" 2>/dev/null || true
+            (shopt -s dotglob 2>/dev/null; cp -r "$CLAUDE_DIR"/* "$CONFIG_CLAUDE/" 2>/dev/null || true)
             rm -rf "$CLAUDE_DIR"
         else rm -rf "$CLAUDE_DIR"; fi
     fi
@@ -352,6 +377,9 @@ tech_stack:
   package_manager: ${PKG_MGR}
   test_command: ${TEST_CMD}
   lint_command: ${LINT_CMD}
+DEVCONFIG
+    if [ "$BACKEND" = true ]; then
+        cat >> "$TARGET/.devflow/config.yaml" << DEVCONFIG
 
 dispatch:
   branch_prefix: ai/
@@ -366,6 +394,7 @@ notify:
   telegram_chat_id: "<从 MAF-Hub config/telegram.json 复制>"
   telegram_bot_token: "<同上>"
 DEVCONFIG
+    fi
     echo "  ✅ .devflow/config.yaml 已生成（请手动填写 telegram 配置）"
 fi
 echo ""
@@ -393,12 +422,16 @@ if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
             -e "s|__WORKSPACE__|${TARGET}|g" \
             -e "s|__CLAUDE_HOME__|${CLAUDE_DIR}|g" \
             "$SETTINGS_SRC" > "$SETTINGS_DST"
-        if jq . "$SETTINGS_DST" >/dev/null 2>&1; then
-            echo "  ✅ settings.local.json（占位符已替换）"
+        if command -v jq >/dev/null 2>&1; then
+            if jq . "$SETTINGS_DST" >/dev/null 2>&1; then
+                echo "  ✅ settings.local.json（占位符已替换）"
+            else
+                echo "  ❌ settings.local.json JSON 语法错误，已回滚"
+                cp "$SETTINGS_SRC" "$SETTINGS_DST.bak" 2>/dev/null || true
+                rm -f "$SETTINGS_DST"
+            fi
         else
-            echo "  ❌ settings.local.json JSON 语法错误，已回滚"
-            cp "$SETTINGS_SRC" "$SETTINGS_DST.bak" 2>/dev/null || true
-            rm -f "$SETTINGS_DST"
+            echo "  ⚠️  jq 未安装，跳过 JSON 校验；settings.local.json 已写入"
         fi
     else
         echo "  ⚠️  config-templates/default/settings.json 不存在，跳过"
@@ -560,7 +593,7 @@ if [ "$BACKEND" = true ]; then
     maybe_cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/notify.py"
     maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
     maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
-    [ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" 2>/dev/null || true
+    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
 
     # .archon/workflows/
     echo "── 步骤 5b: 注册 Archon workflow ──"

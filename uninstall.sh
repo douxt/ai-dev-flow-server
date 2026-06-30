@@ -114,7 +114,7 @@ if [ "$FRONTEND" = true ]; then
     echo "1c. 移除 CC config..."
     # settings.local.json — 仅当含 devflow 占位符标记时删除（安全策略：不删用户自定义配置）
     SETTINGS_FILE="$CLAUDE_HOME/.claude/settings.local.json"
-    if [ -f "$SETTINGS_FILE" ] && grep -q '__WORKSPACE__\|__PKG_MGR__\|__CLAUDE_HOME__' "$SETTINGS_FILE" 2>/dev/null; then
+    if [ -f "$SETTINGS_FILE" ] && grep -q '"ai-dev-flow-server"' "$SETTINGS_FILE" 2>/dev/null; then
         dry_run "rm -f $SETTINGS_FILE"
         [ "$DRY_RUN" = false ] && rm -f "$SETTINGS_FILE"
         echo "  ✅ settings.local.json 已移除"

@@ -33,5 +33,6 @@
     ]
   },
   "effortLevel": "max",
-  "model": "sonnet"
+  "model": "sonnet",
+  "_generated_by": "ai-dev-flow-server"
 }
