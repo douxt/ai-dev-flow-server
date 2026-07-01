@@ -137,12 +137,10 @@ nodes:
       git add "$ISSUE_FILE" 2>/dev/null
       git commit -m "review: $(basename "$ISSUE_FILE" .md) — 待审批" 2>/dev/null || true
       git push -u origin "$BRANCH" 2>/dev/null || true
-      git stash push -m "mark-in-review-auto" --quiet 2>/dev/null || true
       for i in 1 2 3; do
-        if git pull --rebase --quiet && git push --quiet; then break; fi
+        if git pull --rebase --autostash --quiet && git push --quiet; then break; fi
         sleep $((i * 5))
       done
-      git stash pop --quiet 2>/dev/null || true
       exit 0
 
   - id: auto-merge
@@ -176,10 +174,8 @@ nodes:
       sed -i 's/^status: in_review$/status: done/' "$ISSUE_FILE"
       git add "$ISSUE_FILE" 2>/dev/null
       git commit -m "done: $(basename "$ISSUE_FILE" .md) — auto-merged" 2>/dev/null || true
-      git stash push -m "auto-merge-auto" --quiet 2>/dev/null || true
-      git pull --rebase --quiet 2>/dev/null || true
+      git pull --rebase --autostash --quiet 2>/dev/null || true
       git push 2>/dev/null || true
-      git stash pop --quiet 2>/dev/null || true
       echo "AUTO_MERGE_DONE: $PR_URL"
 
   - id: write-summary
