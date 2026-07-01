@@ -55,7 +55,7 @@ fi
 
 CHANGED=false
 
-# 1. in_progress >6h 无 git 活动 → 回收
+# 1. in_progress >6h 无 git 活动 → 回收（但 Archon 活跃时跳过）
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
@@ -65,6 +65,11 @@ while IFS= read -r f; do
         NOW=$(date +%s)
         HOURS=$(( (NOW - LAST_COMMIT) / 3600 ))
         if [ "$HOURS" -gt 6 ]; then
+            # 有活跃 Archon 进程 → 不回收（新的 archon/task-* 分支在干活）
+            pgrep -f "archon workflow run" >/dev/null 2>&1 && continue
+            # 有 archon/ 分支或 worktree 与此 issue 匹配 → 不回收
+            if git -C "$WORKSPACE" branch -a | grep -qE "archon/task-"; then continue; fi
+            if git -C "$WORKSPACE" worktree list --porcelain 2>/dev/null | grep -qE "archon/task-"; then continue; fi
             log "RECLAIM: #${ISSUE_NUM} in_progress >6h 无活动 (${HOURS}h)，回收为 ready"
             sed -i "s/^status: in_progress$/status: ready/" "$f"
             CHANGED=true
