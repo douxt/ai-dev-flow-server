@@ -6,7 +6,7 @@
 |------|------|
 | [business/](business/) | DevFlow 业务文档（PRD + README） |
 | [design/](design/) | 设计文档（Gate 设计 + AFK 迭代史） |
-| [references/](references/) | 参考文档（Archon 最佳实践 + CLI 参考 + bash-firewall + Gate 排查） |
+| [references/](references/) | 参考文档（Archon 最佳实践 + CLI 参考 + bash-firewall + Gate 排查 + NAS 运维） |
 | [plans/](plans/) | 早期设计计划（迁移自 ~/.claude/plans/，历史参考） |
 
 ## 当前版本
