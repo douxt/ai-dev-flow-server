@@ -2,20 +2,48 @@
 # reconciler.sh — 通用状态修复器（服务器版）
 # 由 systemd timer 每 15 分钟触发。检测卡住/孤儿 issue。
 # 用法: bash reconciler.sh <项目路径>
+# 隔离策略: git worktree add origin/main --detach（替代旧版 stash 模式）
 set -euo pipefail
 
 WORKSPACE="${1:-$(pwd)}"
-ISSUES_DIR="$WORKSPACE/issues"
 SCRIPTS_DIR="$WORKSPACE/.devflow/scripts"
 LOG_FILE="$WORKSPACE/logs/reconcile.log"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
-cd "$WORKSPACE"
+# 原子锁（防并发 reconcile）
+LOCKDIR="$WORKSPACE/.reconcile.lock"
+mkdir "$LOCKDIR" 2>/dev/null || { log "SKIP: 已有 reconcile 在运行"; exit 0; }
+
+# 统一清理（lock + worktree，覆盖所有退出路径）
+cleanup_exit() {
+    rmdir "$LOCKDIR" 2>/dev/null || true
+    if [ -n "${RECONCILE_WT:-}" ] && [ -d "$RECONCILE_WT" ]; then
+        cd "$WORKSPACE" 2>/dev/null || true
+        git worktree remove "$RECONCILE_WT" --force 2>/dev/null || true
+    fi
+    git worktree prune 2>/dev/null || true
+}
+trap cleanup_exit EXIT INT TERM
+
+# git fetch 替代 git pull
+git fetch origin 2>/dev/null || { log "FATAL: git fetch 失败"; exit 1; }
+
+# 创建临时 worktree
+RECONCILE_WT=$(mktemp -d /tmp/reconcile-XXXXXX) && rmdir "$RECONCILE_WT" || {
+    log "FATAL: 无法创建临时目录"
+    exit 1
+}
+git worktree add "$RECONCILE_WT" origin/main --detach 2>/dev/null || {
+    log "FATAL: worktree 创建失败"
+    exit 1
+}
+cd "$RECONCILE_WT"
+ISSUES_DIR="$RECONCILE_WT/issues"
 
 # index.lock 时效检测（防僵尸 lock 阻塞所有 git 操作）
-LOCK=".git/index.lock"
+LOCK="$WORKSPACE/.git/index.lock"
 if [ -f "$LOCK" ]; then
   AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
   if [ "$AGE" -gt 300 ]; then
@@ -24,13 +52,6 @@ if [ -f "$LOCK" ]; then
     log "WARN: index.lock active (${AGE}s) — git locked"; exit 1
   fi
 fi
-
-# stash 防御 — pull 前清理 dirty state（EXIT 时自动 pop）
-cleanup_stash() { git stash pop --quiet 2>/dev/null || true; }
-trap cleanup_stash EXIT
-git stash push -m "reconciler-$(date +%s)" --quiet 2>/dev/null || true
-
-git pull --rebase --quiet 2>/dev/null || log "WARN: git pull 失败"
 
 CHANGED=false
 
@@ -66,8 +87,6 @@ while IFS= read -r f; do
 done < <(grep -rl "^status: failed$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
 
 # 0. 清理已合并的 ai/ 分支 + 超过 7 天的 archon/ 废弃分支
-# ai/ 分支用 -d（安全删除，仅合并后删除）；archon/task- 分支用 -D（强制删除，因 Archon worktree
-# 分支通常未 merge 到 main 但已废弃。7 天门禁 + git 拒绝活动 worktree 的分支删除提供保护）
 AGE_7DAYS=604800
 git branch --merged main 2>/dev/null | grep '  ai/' | xargs -r git branch -d 2>/dev/null || true
 git branch 2>/dev/null | grep 'archon/task-' | while read br; do
@@ -81,17 +100,14 @@ while IFS= read -r f; do
     [ -z "$f" ] && continue
     ISSUE_NUM=$(basename "$f" | cut -d- -f1)
 
-    # grace period: issue 被标记 in_progress <5min → 跳过
     ISSUE_MTIME=$(stat -c %Y "$f" 2>/dev/null || echo 0)
     NOW=$(date +%s)
     AGE_SEC=$((NOW - ISSUE_MTIME))
     [ "$AGE_SEC" -lt 300 ] && continue
 
-    # 有活跃进程 → 跳过
     pgrep -f "dispatch.sh.*$(basename "$WORKSPACE")" >/dev/null 2>&1 && continue
     pgrep -f "archon workflow run" >/dev/null 2>&1 && continue
 
-    # 有匹配分支/worktree → 跳过（git -C 锚定工作目录）
     if git -C "$WORKSPACE" branch -a | grep -qE "(ai|archon)/[^/]*(${ISSUE_NUM}|task-auto-execute)($|[^0-9])"; then continue; fi
     if git -C "$WORKSPACE" worktree list --porcelain 2>/dev/null | grep -qE "(^|[-/])${ISSUE_NUM}($|[^0-9])"; then continue; fi
 
@@ -103,7 +119,6 @@ done < <(grep -rl "^status: in_progress$" "$ISSUES_DIR" --include="*.md" 2>/dev/
 # 4. backlog 依赖全部 done → 自动标 ready
 while IFS= read -r f; do
     [ -z "$f" ] && continue
-    # 提取 blocked_by 列表
     BLOCKED_BY=$(grep "^blocked_by:" "$f" | sed 's/.*\[\(.*\)\].*/\1/' | tr ',' '\n' | sed 's/^ *"//;s/" *$//;s/^ *//;s/ *$//' | grep -v "^$\|^\[\]$" || true)
     [ -z "$BLOCKED_BY" ] && continue
     ALL_DONE=true
@@ -148,7 +163,7 @@ done < <(grep -rl "^status: in_review$" "$ISSUES_DIR" --include="*.md" 2>/dev/nu
 if [ "$CHANGED" = true ]; then
     git add "$ISSUES_DIR" 2>/dev/null || true
     git commit -m "reconcile: 状态修复 ($(date +%Y-%m-%d))" 2>/dev/null || true
-    git push 2>/dev/null || log "WARN: push 失败"
+    git push origin HEAD:main 2>/dev/null || log "WARN: push 失败"
     log "RECONCILE: 状态修复完成"
 else
     log "RECONCILE: 无需修复"
