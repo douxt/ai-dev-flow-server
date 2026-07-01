@@ -60,6 +60,30 @@ detect_environment() {
     if command -v crontab >/dev/null 2>&1; then HAS_CRON=true; fi
 }
 
+merge_settings_local() {
+    local existing="$CLAUDE_HOME/.claude/settings.local.json"
+    local template="$SOURCE/config-templates/default/settings.json"
+    if [ ! -f "$existing" ]; then
+        sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__WORKSPACE__|$WORKSPACE|g" "$template" > "$existing"
+        return
+    fi
+    local processed
+    processed=$(mktemp)
+    sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__WORKSPACE__|$WORKSPACE|g" "$template" > "$processed"
+    cp "$existing" "$existing.bak"
+    local merged
+    merged=$(mktemp)
+    if jq -s '.[0] * .[1]' "$existing" "$processed" > "$merged" 2>/dev/null && jq . "$merged" > /dev/null 2>&1; then
+        mv "$merged" "$existing"
+        rm -f "$existing.bak" "$processed"
+        echo "[update] settings.local.json merged"
+    else
+        echo "[update] settings.local.json merge FAILED — keeping original"
+        mv "$existing.bak" "$existing"
+        rm -f "$merged" "$processed"
+    fi
+}
+
 # ── source guard（source 时到此为止，函数已全部定义）──
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
@@ -213,6 +237,10 @@ if [ "$UPDATE_MODE" = true ]; then
     deploy_file() {
         local src="$1" dst="$2"
         [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
+        if [ -L "$dst" ]; then
+            echo "[update] skip $(basename "$dst") — managed by claude-config (symlink)"
+            return 0
+        fi
         dry_run "mkdir -p $(dirname "$dst")"
         dry_run "cp -f $src $dst"
         return 0
@@ -249,12 +277,7 @@ if [ "$UPDATE_MODE" = true ]; then
         if [ -f "$SOURCE/config-templates/default/settings.json" ]; then
             CLAUDE_DIR="$CLAUDE_HOME/.claude"
             dry_run "mkdir -p $CLAUDE_DIR/hooks"
-            sed -e "s|__PKG_MGR__|${PKG_MGR}|g" \
-                -e "s|__TEST_CMD__|${TEST_CMD}|g" \
-                -e "s|__LINT_CMD__|${LINT_CMD}|g" \
-                -e "s|__WORKSPACE__|${TARGET}|g" \
-                -e "s|__CLAUDE_HOME__|${CLAUDE_DIR}|g" \
-                "$SOURCE/config-templates/default/settings.json" > "$CLAUDE_DIR/settings.local.json"
+            merge_settings_local
         fi
         deploy_file "$SOURCE/config-templates/default/CLAUDE.md" "$CLAUDE_HOME/.claude/CLAUDE.md"
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
