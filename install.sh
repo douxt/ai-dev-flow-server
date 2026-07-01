@@ -469,7 +469,7 @@ review:
   constitution_check: true
 
 notify:
-  telegram_chat_id: "<从 MAF-Hub config/telegram.json 复制>"
+  telegram_chat_id: "<从项目 config/telegram.json 复制>"
   telegram_bot_token: "<同上>"
 DEVCONFIG
     fi

@@ -1,0 +1,1 @@
+- [pipeline-deploy-lessons.md](pipeline-deploy-lessons.md) — openlobby 部署踩坑 11 条 — root 属主阻塞 / stash pop 冲突 / 锁竞态 / 旧版 install 缺文件 / pre-push 误拦 delete

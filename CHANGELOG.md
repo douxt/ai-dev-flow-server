@@ -161,7 +161,7 @@ bash /tmp/devflow/install.sh ~/my-project --mode frontend
 
 ```bash
 # 容器内（coder 用户，$HOME=/home/coder）
-bash install.sh ~/project/MAF-Hub --mode frontend --home /home/coder
+bash install.sh ~/my-project --mode frontend --home /home/coder
 ```
 
 ### 场景 3：VPS 后端节点
