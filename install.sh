@@ -71,6 +71,7 @@ merge_settings_local() {
     local processed
     processed=$(mktemp)
     sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__LINT_CMD__|$LINT_CMD|g; s|__WORKSPACE__|$WORKSPACE|g; s|__CLAUDE_HOME__|$claude_dir|g" "$template" > "$processed"
+    rm -f "$existing.bak"
     cp "$existing" "$existing.bak"
     local merged
     merged=$(mktemp)
