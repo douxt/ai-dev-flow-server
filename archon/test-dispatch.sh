@@ -193,7 +193,11 @@ if [ $SKIP -eq 0 ]; then
 else
     rm -f "$MOCK_ISSUE"
     cd "$WORKSPACE"
-    git reset --hard HEAD~1 2>/dev/null || true
+    # 仅撤销测试 mock 提交，不影响其他改动
+    if git log -1 --format="%s" 2>/dev/null | grep -q "mock issue for dispatch"; then
+        git reset --soft HEAD~1 2>/dev/null || true
+    fi
+    git reset HEAD -- "$MOCK_ISSUE" 2>/dev/null || true
 fi
 assert "mock issue 已清理" "[ ! -f $MOCK_ISSUE ]"
 
@@ -204,8 +208,9 @@ echo ""
 echo "=== Phase 4: 故障模式测试 ==="
 echo ""
 
-# 4a: git fetch 失败
+# 4a: git fetch 失败（先清理上一次 dispatch 的锁）
 echo "--- 4a: git fetch 失败 ---"
+rmdir "$WORKSPACE/.dispatch.lock" 2>/dev/null || true
 ORIG_REMOTE=$(git -C "$WORKSPACE" remote get-url origin 2>/dev/null || echo "")
 if [ -n "$ORIG_REMOTE" ]; then
     git -C "$WORKSPACE" remote set-url origin /nonexistent/repo 2>/dev/null || true
