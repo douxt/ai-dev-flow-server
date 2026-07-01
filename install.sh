@@ -292,6 +292,13 @@ if [ "$UPDATE_MODE" = true ]; then
             dry_run "mkdir -p $CLAUDE_DIR/hooks"
             merge_settings_local
         fi
+        # 项目级 settings.local.json symlink → 全局（保证 Claude Code 项目内可读到 env）
+        if [ "$DRY_RUN" = false ]; then
+            TGT_SETTINGS="$TARGET/.claude/settings.local.json"
+            GLOBAL_SETTINGS="$CLAUDE_HOME/.claude/settings.local.json"
+            mkdir -p "$TARGET/.claude"
+            [ ! -e "$TGT_SETTINGS" ] && ln -sf "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
+        fi
         deploy_file "$SOURCE/config-templates/default/CLAUDE.md" "$CLAUDE_HOME/.claude/CLAUDE.md"
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
             [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
@@ -549,6 +556,14 @@ if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
         fi
     else
         echo "  ⚠️  config-templates/default/settings.json 不存在，跳过"
+    fi
+
+    # 项目级 settings.local.json symlink → 全局（保证 Claude Code 项目内可读到 env）
+    if [ "$DRY_RUN" = false ]; then
+        TGT_SETTINGS="$TARGET/.claude/settings.local.json"
+        GLOBAL_SETTINGS="$CLAUDE_DIR/settings.local.json"
+        mkdir -p "$TARGET/.claude"
+        [ ! -e "$TGT_SETTINGS" ] && ln -sf "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
     fi
 
     # CLAUDE.md 全局规则
