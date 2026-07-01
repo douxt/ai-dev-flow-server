@@ -128,7 +128,9 @@ while IFS= read -r f; do
     [ -z "$BLOCKED_BY" ] && continue
     ALL_DONE=true
     for dep in $BLOCKED_BY; do
-        DEP_FILE=$(find "$ISSUES_DIR" -name "${dep}-*.md" -exec grep -l "^status: done$" {} \; 2>/dev/null | head -1)
+        [ -z "$dep" ] && continue
+        # 精确匹配 + 前缀匹配（兼容不同 issue 命名格式）
+        DEP_FILE=$(find "$ISSUES_DIR" -maxdepth 1 \( -name "${dep}.md" -o -name "${dep}-*.md" \) -exec grep -l "^status: done$" {} \; 2>/dev/null | head -1)
         [ -z "$DEP_FILE" ] && ALL_DONE=false && break
     done
     if [ "$ALL_DONE" = true ]; then
