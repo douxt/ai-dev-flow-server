@@ -267,6 +267,17 @@ if [ "$UPDATE_MODE" = true ]; then
         [ -f "$md" ] && deploy_file "$md" "$TARGET/.devflow/knowledge/$(basename "$md")"
     done
 
+    # 从 config.yaml 读取 tech_stack 参数（merge_settings_local 需要）
+    if [ -f "$CONFIG_YAML" ]; then
+        [ -z "$PKG_MGR" ] && PKG_MGR=$(grep -E '^[[:space:]]*package_manager:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+        [ -z "$TEST_CMD" ] && TEST_CMD=$(grep -E '^[[:space:]]*test_command:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+        [ -z "$LINT_CMD" ] && LINT_CMD=$(grep -E '^[[:space:]]*lint_command:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+    fi
+    [ -z "$PKG_MGR" ] && PKG_MGR="npm"
+    [ -z "$TEST_CMD" ] && TEST_CMD="npm test"
+    [ -z "$LINT_CMD" ] && LINT_CMD="npm run lint"
+    WORKSPACE="$TARGET"
+
     if [ "$FRONTEND" = true ]; then
         echo "  更新 workflows/ ..."
         dry_run "mkdir -p $CLAUDE_HOME/.claude/workflows"
