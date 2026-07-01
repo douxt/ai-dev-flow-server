@@ -63,13 +63,14 @@ detect_environment() {
 merge_settings_local() {
     local existing="$CLAUDE_HOME/.claude/settings.local.json"
     local template="$SOURCE/config-templates/default/settings.json"
+    local claude_dir="$CLAUDE_HOME/.claude"
     if [ ! -f "$existing" ]; then
-        sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__WORKSPACE__|$WORKSPACE|g" "$template" > "$existing"
+        sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__LINT_CMD__|$LINT_CMD|g; s|__WORKSPACE__|$WORKSPACE|g; s|__CLAUDE_HOME__|$claude_dir|g" "$template" > "$existing"
         return
     fi
     local processed
     processed=$(mktemp)
-    sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__WORKSPACE__|$WORKSPACE|g" "$template" > "$processed"
+    sed "s|__PKG_MGR__|$PKG_MGR|g; s|__TEST_CMD__|$TEST_CMD|g; s|__LINT_CMD__|$LINT_CMD|g; s|__WORKSPACE__|$WORKSPACE|g; s|__CLAUDE_HOME__|$claude_dir|g" "$template" > "$processed"
     cp "$existing" "$existing.bak"
     local merged
     merged=$(mktemp)
