@@ -96,6 +96,17 @@ ensure_symlink() {
     fi
 }
 
+ensure_gitignore() {
+    local gitignore="$TARGET/.gitignore"
+    if [ ! -f "$gitignore" ]; then
+        printf '# Project .gitignore\n.claude/\n' > "$gitignore"
+        echo "  ✅ .gitignore 已创建（含 .claude/）"
+    elif ! grep -qFx '.claude/' "$gitignore" 2>/dev/null; then
+        echo '.claude/' >> "$gitignore"
+        echo "  ✅ .gitignore 已追加 .claude/"
+    fi
+}
+
 install_wt() {
     [ -x "$HOME/.local/bin/wt" ] && return 0
     local repo="https://raw.githubusercontent.com/douxt/wt/v1.1.1"
@@ -182,7 +193,7 @@ fi
 case "$ROLE" in owner|developer|agent-b) ;; *)
     echo "❌ 无效 --role: $ROLE（可选: owner, developer, agent-b）"; exit 1 ;; esac
 
-TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
+TARGET=$(cd "$TARGET" && pwd -P 2>/dev/null || echo "$TARGET")
 SOURCE=$(cd "$(dirname "$0")" && pwd)
 CLAUDE_HOME="${HOME_OVERRIDE:-$HOME}"
 PROJECT=$(basename "$TARGET")
@@ -256,14 +267,19 @@ if [ "$UPDATE_MODE" = true ]; then
     echo "── 更新模式 ──"
     if [ -d "$SOURCE/.git" ]; then
         echo "  git pull ..."
-        cd "$SOURCE" && git pull --rebase --quiet 2>/dev/null || echo "  ⚠️  git pull 失败，继续用当前版本"
+        cd "$SOURCE" || exit 1
+        if ! git pull --rebase origin master 2>&1; then
+            echo "❌ git pull --rebase 失败，请手动解决冲突后重试"
+            echo "   冲突文件: $(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
+            exit 1
+        fi
     fi
 
     install_wt
     deploy_file() {
         local src="$1" dst="$2"
         [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
-        if [ -L "$dst" ]; then
+        if [ -L "$dst" ] && [ -e "$dst" ]; then
             echo "[update] skip $(basename "$dst") — managed by claude-config (symlink)"
             return 0
         fi
@@ -316,6 +332,7 @@ if [ "$UPDATE_MODE" = true ]; then
             dry_run "mkdir -p $CLAUDE_DIR/hooks"
             merge_settings_local
         fi
+        ensure_gitignore
         # 项目级 settings.local.json symlink → 全局（保证 Claude Code 项目内可读到 env）
         if [ "$DRY_RUN" = false ]; then
             TGT_SETTINGS="$TARGET/.claude/settings.local.json"
@@ -323,9 +340,6 @@ if [ "$UPDATE_MODE" = true ]; then
             ensure_symlink "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
         fi
         deploy_file "$SOURCE/config-templates/default/CLAUDE.md" "$CLAUDE_HOME/.claude/CLAUDE.md"
-        for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
-            [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
-        done
 
         echo "  更新 CC skills ..."
         dry_run "mkdir -p $CLAUDE_HOME/.claude/skills"
@@ -346,6 +360,11 @@ if [ "$UPDATE_MODE" = true ]; then
             [ -f "$gc" ] && deploy_file "$gc" "$CLAUDE_HOME/.claude/gate-checklists/$(basename "$gc")"
         done
     fi
+
+    echo "  更新 hooks ..."
+    for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
+        [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
+    done
 
     echo "  更新 issue 模板 ..."
     dry_run "mkdir -p $TARGET/issues"
@@ -583,6 +602,7 @@ if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
         echo "  ⚠️  config-templates/default/settings.json 不存在，跳过"
     fi
 
+    ensure_gitignore
     # 项目级 settings.local.json symlink → 全局（保证 Claude Code 项目内可读到 env）
     if [ "$DRY_RUN" = false ]; then
         TGT_SETTINGS="$TARGET/.claude/settings.local.json"
@@ -602,12 +622,16 @@ if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
         echo "  ✅ ~/.claude/CLAUDE.md（全局 worktree 规则）"
     fi
 
-    # 4 个 hook
+    echo ""
+fi
+
+# 4 个 hook（安全基础设施，所有 mode 都部署）
+if [ "$NO_CONFIG" = false ]; then
     if [ -d "$SOURCE/config-templates/default/hooks" ]; then
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
             [ -f "$hook" ] || continue
             hook_name=$(basename "$hook")
-            hook_dst="$CLAUDE_DIR/hooks/$hook_name"
+            hook_dst="$CLAUDE_HOME/.claude/hooks/$hook_name"
             if [ "$DRY_RUN" = true ]; then
                 echo "  [DRY-RUN] cp $hook_name → $hook_dst"
             elif [ -f "$hook_dst" ] && [ "$FORCE" != true ]; then
