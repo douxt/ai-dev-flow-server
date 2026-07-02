@@ -147,6 +147,46 @@ nodes:
     depends_on: [mark-in-review]
     bash: |
       set -euo pipefail
+      ISSUE_FILE="$ARGUMENTS"
+      ISSUE_SLUG=$(basename "$ISSUE_FILE" .md)
+      ISSUE_NUM=$(echo "$ISSUE_SLUG" | cut -d- -f1)
+      MAIN=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d" " -f2)
+
+      # 优雅降级：gh CLI 不可用 → 写 handoff 委托人工合并
+      if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+        HANDOFF_DIR="$MAIN/_handoff/outbox/agent-b"
+        mkdir -p "$HANDOFF_DIR"
+        PROJECT_NAME=$(grep "^project:" "$MAIN/.devflow/config.yaml" 2>/dev/null | awk '{print $2}' || echo "unknown")
+        PR_URL=$(grep -oP 'pr:\s*\["?\Khttps://[^"\] ]+' "$ISSUE_FILE" 2>/dev/null | head -1 || echo "N/A")
+        cat > "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md" <<HANDOFF
+---
+from: dispatch/agent-b
+to: openlobby/agent-a
+project: "${PROJECT_NAME}"
+type: manual_merge
+status: pending
+created: $(date -Iseconds)
+---
+
+## 需要手动合并的 PR
+
+- Issue: #${ISSUE_NUM} ${ISSUE_SLUG}
+- PR: ${PR_URL}
+- 原因: gh CLI 未配置，自动合并不可用
+- 操作: 在 GitHub 网页手动 merge 后，reconciler Section 5 会自动把 status → done
+HANDOFF
+        git add "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md" 2>/dev/null || true
+        sed -i 's/^status: in_review$/status: waiting-approval/' "$ISSUE_FILE"
+        git add "$ISSUE_FILE" 2>/dev/null || true
+        git commit -m "handoff: manual merge -- ${ISSUE_SLUG}" 2>/dev/null || true
+        for i in 1 2 3; do
+          if git pull --rebase --autostash --quiet && git push --quiet; then break; fi
+          sleep $((i * 5))
+        done
+        echo "HANDOFF_DELEGATE: merge-by-human — GH CLI not configured"
+        exit 0
+      fi
+
       BRANCH=$(git rev-parse --abbrev-ref HEAD)
       PR_URL=$(gh pr list --head "$BRANCH" --repo douxt/openlobby --state open --json url --jq '.[0].url' 2>/dev/null || echo "")
       if [ -z "$PR_URL" ]; then

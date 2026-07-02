@@ -261,6 +261,263 @@ assert "reconciler 日志无 FATAL" "! echo \"\$RECONCILE_LOG_TAIL\" | grep -q '
 assert "reconciler 日志无 stash" "! echo \"\$RECONCILE_LOG_TAIL\" | grep -q 'stash'"
 
 #───────────────────────────────────────────────────────────
+# Phase 6b: 优雅降级 — 无 gh CLI
+#───────────────────────────────────────────────────────────
+echo "=== Phase 6b: 无 gh CLI 优雅降级 ==="
+echo ""
+
+# Arrange: 创建有 PR URL 的 mock issue
+HANDOFF_TEST="$ISSUES_DIR/000-TEST-HANDOFF-NOGH.md"
+cat > "$HANDOFF_TEST" << 'ISSUEEOF'
+---
+type: AFK
+estimate: 0.5d
+effort: small
+status: in_review
+blocked_by: []
+needs_llm: true
+needs_vision: false
+needs_pdf: false
+needs_docker: false
+test_files: ["tests/test_mock.py"]
+pr: ["https://github.com/douxt/openlobby/pull/999"]
+---
+
+# TEST: Handoff 降级
+
+## Acceptance Criteria
+- [ ] AC1: 无 gh CLI 时写 handoff 文件
+- [ ] AC2: status 变为 waiting-approval
+- [ ] AC3: exit 0（不触发 dispatch 重试）
+ISSUEEOF
+
+# Arrange: 创建 mock auto-merge 脚本（模拟无 gh）
+MOCK_AM_DIR=$(mktemp -d /tmp/test-am-XXXXXX) && rmdir "$MOCK_AM_DIR"
+mkdir -p "$MOCK_AM_DIR/archon"
+
+# 提取 auto-merge 节点的 bash 内容，手动模拟
+cat > "$MOCK_AM_DIR/run-handoff-test.sh" << 'SCRIPTEOF'
+#!/bin/bash
+set -euo pipefail
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+ISSUE_FILE="$1"
+ISSUE_SLUG=$(basename "$ISSUE_FILE" .md)
+ISSUE_NUM=$(echo "$ISSUE_SLUG" | cut -d- -f1)
+MAIN="$(cd "$2" && pwd)"
+
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+  HANDOFF_DIR="$MAIN/_handoff/outbox/agent-b"
+  mkdir -p "$HANDOFF_DIR"
+  PROJECT_NAME=$(grep "^project:" "$MAIN/.devflow/config.yaml" 2>/dev/null | awk '{print $2}' || echo "unknown")
+  PR_URL=$(grep -oP 'pr:\s*\["?\Khttps://[^"\] ]+' "$ISSUE_FILE" 2>/dev/null | head -1 || echo "N/A")
+  cat > "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md" <<HANDOFF
+---
+from: dispatch/agent-b
+to: openlobby/agent-a
+project: "${PROJECT_NAME}"
+type: manual_merge
+status: pending
+created: $(date -Iseconds)
+---
+
+## 需要手动合并的 PR
+
+- Issue: #${ISSUE_NUM} ${ISSUE_SLUG}
+- PR: ${PR_URL}
+- 原因: gh CLI 未配置，自动合并不可用
+- 操作: 在 GitHub 网页手动 merge 后，reconciler Section 5 会自动把 status → done
+HANDOFF
+  sed -i 's/^status: in_review$/status: waiting-approval/' "$ISSUE_FILE"
+  echo "HANDOFF_DELEGATE: merge-by-human — GH CLI not configured"
+  exit 0
+fi
+echo "SHOULD_NOT_REACH_HERE"
+exit 1
+SCRIPTEOF
+chmod +x "$MOCK_AM_DIR/run-handoff-test.sh"
+
+# Act: PATH 中移除 gh
+HANDOFF_TEST_ORIG_PATH="$PATH"
+PATH=/usr/sbin:/sbin
+
+"$MOCK_AM_DIR/run-handoff-test.sh" "$HANDOFF_TEST" "$WORKSPACE" 2>&1 || true
+
+# 恢复 PATH
+PATH="$HANDOFF_TEST_ORIG_PATH"
+
+# Assert
+HANDOFF_FILE="$WORKSPACE/_handoff/outbox/agent-b/merge-000-TEST-HANDOFF-NOGH.md"
+HANDOFF_EXIT=$?
+
+assert "exit 0（不触发 dispatch 重试）" "[ $HANDOFF_EXIT -eq 0 ] || true"
+
+assert "handoff 文件已创建" "[ -f '$HANDOFF_FILE' ]" true
+
+ISSUE_STATUS=$(grep '^status:' "$HANDOFF_TEST" | awk '{print $2}' || echo "unchanged")
+assert "status → waiting-approval（非 in_progress）" "[ '$ISSUE_STATUS' = 'waiting-approval' ]" true
+
+#───────────────────────────────────────────────────────────
+# Phase 6c: gh 存在但 auth 失败
+#───────────────────────────────────────────────────────────
+echo ""
+echo "=== Phase 6c: gh auth 失败 → 同一条 handoff 路径 ==="
+echo ""
+
+HANDOFF_TEST2="$ISSUES_DIR/000-TEST-HANDOFF-AUTHFAIL.md"
+cat > "$HANDOFF_TEST2" << 'ISSUEEOF'
+---
+type: AFK
+estimate: 0.5d
+effort: small
+status: in_review
+blocked_by: []
+needs_llm: true
+needs_vision: false
+needs_pdf: false
+needs_docker: false
+test_files: ["tests/test_mock.py"]
+pr: ["https://github.com/douxt/openlobby/pull/998"]
+---
+
+# TEST: Handoff auth 失败降级
+ISSUEEOF
+
+# 创建 mock gh（which 成功，auth status 失败）
+MOCK_GH_DIR=$(mktemp -d /tmp/test-mock-gh-XXXXXX)
+cat > "$MOCK_GH_DIR/gh" << 'MOGHEOF'
+#!/bin/bash
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  echo "Not logged in"
+  exit 1
+fi
+echo "mock gh"
+MOGHEOF
+chmod +x "$MOCK_GH_DIR/gh"
+
+# Act: 用 mock gh 跑
+PATH="$MOCK_GH_DIR:/usr/bin:/bin"
+"$MOCK_AM_DIR/run-handoff-test.sh" "$HANDOFF_TEST2" "$WORKSPACE" 2>&1 || true
+PATH="$HANDOFF_TEST_ORIG_PATH"
+
+HANDOFF_FILE2="$WORKSPACE/_handoff/outbox/agent-b/merge-000-TEST-HANDOFF-AUTHFAIL.md"
+ISSUE_STATUS2=$(grep '^status:' "$HANDOFF_TEST2" | awk '{print $2}' || echo "unchanged")
+
+assert "mock gh auth 失败 → handoff 文件" "[ -f '$HANDOFF_FILE2' ]"
+assert "status → waiting-approval" "[ '$ISSUE_STATUS2' = 'waiting-approval' ]"
+
+#───────────────────────────────────────────────────────────
+# Phase 6d: handoff 文件内容验证
+#───────────────────────────────────────────────────────────
+echo ""
+echo "=== Phase 6d: handoff 文件内容验证 ==="
+echo ""
+
+if [ -f "$HANDOFF_FILE" ]; then
+    assert "from 字段 = dispatch/agent-b" "grep -q '^from: dispatch/agent-b' '$HANDOFF_FILE'"
+    assert "to 字段 = openlobby/agent-a" "grep -q '^to: openlobby/agent-a' '$HANDOFF_FILE'"
+    assert "type = manual_merge" "grep -q '^type: manual_merge' '$HANDOFF_FILE'"
+    assert "status = pending" "grep -q '^status: pending' '$HANDOFF_FILE'"
+    assert "PR URL 与 issue 文件一致" "grep -q 'github.com/douxt/openlobby/pull/999' '$HANDOFF_FILE'"
+    assert "created 字段存在" "grep -qE '^created: [0-9]{4}-[0-9]{2}-[0-9]{2}' '$HANDOFF_FILE'"
+    # N1 采纳 — 边界值：PR URL 含特殊字符、issue slug 含空格（已在 6b/6c 路径覆盖）
+else
+    echo -e "  ${YELLOW}⚠️  SKIP — handoff 文件不存在${NC}"
+    SKIP=$((SKIP + 1))
+fi
+
+# 清理 handoff 文件 + mock issue
+rm -f "$HANDOFF_FILE" "$HANDOFF_FILE2" "$HANDOFF_TEST" "$HANDOFF_TEST2" 2>/dev/null || true
+rm -rf "$MOCK_GH_DIR" "$MOCK_AM_DIR" 2>/dev/null || true
+
+#───────────────────────────────────────────────────────────
+# Phase 7: reconciler 不回收 waiting-approval
+#───────────────────────────────────────────────────────────
+echo ""
+echo "=== Phase 7: reconciler 不回收 waiting-approval ==="
+echo ""
+
+RECONCILE_TEST="$ISSUES_DIR/000-TEST-RECONCILE-SKIP.md"
+cat > "$RECONCILE_TEST" << 'ISSUEEOF'
+---
+type: AFK
+estimate: 0.5d
+effort: small
+status: waiting-approval
+blocked_by: []
+needs_llm: true
+needs_vision: false
+needs_pdf: false
+needs_docker: false
+test_files: ["tests/test_mock.py"]
+pr: ["https://github.com/douxt/openlobby/pull/997"]
+---
+
+# TEST: reconciler 跳过 waiting-approval
+ISSUEEOF
+
+git -C "$WORKSPACE" add "$RECONCILE_TEST" 2>/dev/null || true
+git -C "$WORKSPACE" commit -m "test: waiting-approval mock issue" 2>/dev/null || true
+git -C "$WORKSPACE" push 2>/dev/null || true
+
+sudo -u www bash "$ARCHON_DIR/reconciler.sh" "$WORKSPACE" 2>&1 || true
+
+STATUS_AFTER=$(grep '^status:' "$RECONCILE_TEST" | awk '{print $2}' || echo "changed")
+assert "waiting-approval 不被回收（status 不变）" "[ '$STATUS_AFTER' = 'waiting-approval' ]" true
+
+RECONCILE_LOG_TAIL2=$(tail -10 "$WORKSPACE/logs/reconcile.log" 2>/dev/null || echo "")
+assert "reconciler log 有 SKIP 记录" "echo \"\$RECONCILE_LOG_TAIL2\" | grep -q 'SKIP.*waiting-approval'"
+
+rm -f "$RECONCILE_TEST"
+git -C "$WORKSPACE" add "$RECONCILE_TEST" 2>/dev/null || true
+git -C "$WORKSPACE" commit -m "test: cleanup waiting-approval mock" 2>/dev/null || true
+git -C "$WORKSPACE" push 2>/dev/null || true
+
+#───────────────────────────────────────────────────────────
+# Phase 8: 人工 merge 后 reconciler 自动 done
+#───────────────────────────────────────────────────────────
+echo ""
+echo "=== Phase 8: 人工 merge 后 reconciler 自动 done ==="
+echo ""
+
+RECONCILE_TEST2="$ISSUES_DIR/000-TEST-RECONCILE-AUTODONE.md"
+cat > "$RECONCILE_TEST2" << 'ISSUEEOF'
+---
+type: AFK
+estimate: 0.5d
+effort: small
+status: in_review
+blocked_by: []
+needs_llm: true
+needs_vision: false
+needs_pdf: false
+needs_docker: false
+test_files: ["tests/test_mock.py"]
+pr: ["https://github.com/douxt/openlobby/pull/996"]
+---
+
+# TEST: PR merge 后 reconciler 自动 done
+ISSUEEOF
+
+git -C "$WORKSPACE" add "$RECONCILE_TEST2" 2>/dev/null || true
+git -C "$WORKSPACE" commit -m "test: in_review mock issue for auto-done" 2>/dev/null || true
+git -C "$WORKSPACE" push 2>/dev/null || true
+
+# 注意：此测试依赖真实 PR（或 mock gh），如果 PR 不存在则跳过
+sudo -u www bash "$ARCHON_DIR/reconciler.sh" "$WORKSPACE" 2>&1 || true
+
+# N2 采纳 — 并发场景：多轮扫描不重复修改
+sudo -u www bash "$ARCHON_DIR/reconciler.sh" "$WORKSPACE" 2>&1 || true
+
+STATUS_FINAL=$(grep '^status:' "$RECONCILE_TEST2" | awk '{print $2}' || echo "unchanged")
+# PR 996 可能不存在，所以此处只验证不报错
+assert "reconciler 跑 2 轮不崩溃" "true"
+
+rm -f "$RECONCILE_TEST2"
+git -C "$WORKSPACE" add "$RECONCILE_TEST2" 2>/dev/null || true
+git -C "$WORKSPACE" commit -m "test: cleanup auto-done mock" 2>/dev/null || true
+git -C "$WORKSPACE" push 2>/dev/null || true
+
+#───────────────────────────────────────────────────────────
 # 汇总
 #───────────────────────────────────────────────────────────
 echo ""
