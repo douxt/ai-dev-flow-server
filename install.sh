@@ -96,6 +96,19 @@ ensure_symlink() {
     fi
 }
 
+install_wt() {
+    [ -x "$HOME/.local/bin/wt" ] && return 0
+    local repo="https://raw.githubusercontent.com/douxt/wt/v1.1.1"
+    local fallback="https://gitee.com/cybxcoder/wt/raw/v1.1.1"
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL "$repo/wt" -o "$HOME/.local/bin/wt" \
+      || curl -fsSL "$fallback/wt" -o "$HOME/.local/bin/wt" \
+      || { echo "  ⚠️ wt 下载失败，跳过（可用 git worktree 代替）"; return 1; }
+    chmod +x "$HOME/.local/bin/wt"
+    [ ! -f "$HOME/.wtconfig" ] && printf 'WT_ROOT=$HOME/wt\n' > "$HOME/.wtconfig"
+    echo "  ✅ wt v1.1.1 安装完成"
+}
+
 # ── source guard（source 时到此为止，函数已全部定义）──
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
@@ -246,6 +259,7 @@ if [ "$UPDATE_MODE" = true ]; then
         cd "$SOURCE" && git pull --rebase --quiet 2>/dev/null || echo "  ⚠️  git pull 失败，继续用当前版本"
     fi
 
+    install_wt
     deploy_file() {
         local src="$1" dst="$2"
         [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
@@ -528,6 +542,8 @@ DEVCONFIG
     echo "  ✅ .devflow/config.yaml 已生成（请手动填写 telegram 配置）"
 fi
 echo ""
+
+install_wt
 
 # ═══════════════════════════════════
 # A. 安装 config（frontend + full）
