@@ -86,6 +86,16 @@ merge_settings_local() {
     fi
 }
 
+# 确保 $2 是指向 $1 的正确 symlink（断链/普通文件/不存在 均自动修复）
+ensure_symlink() {
+    local src="$1" dst="$2"
+    if [ ! -L "$dst" ] || [ "$(readlink -f "$dst" 2>/dev/null)" != "$src" ]; then
+        mkdir -p "$(dirname "$dst")"
+        ln -sf "$src" "$dst"
+        echo "  ✅ $(basename "$dst") → 全局 symlink"
+    fi
+}
+
 # ── source guard（source 时到此为止，函数已全部定义）──
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
@@ -296,8 +306,7 @@ if [ "$UPDATE_MODE" = true ]; then
         if [ "$DRY_RUN" = false ]; then
             TGT_SETTINGS="$TARGET/.claude/settings.local.json"
             GLOBAL_SETTINGS="$CLAUDE_HOME/.claude/settings.local.json"
-            mkdir -p "$TARGET/.claude"
-            [ ! -e "$TGT_SETTINGS" ] && ln -sf "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
+            ensure_symlink "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
         fi
         deploy_file "$SOURCE/config-templates/default/CLAUDE.md" "$CLAUDE_HOME/.claude/CLAUDE.md"
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
@@ -562,8 +571,7 @@ if [ "$FRONTEND" = true ] && [ "$NO_CONFIG" = false ]; then
     if [ "$DRY_RUN" = false ]; then
         TGT_SETTINGS="$TARGET/.claude/settings.local.json"
         GLOBAL_SETTINGS="$CLAUDE_DIR/settings.local.json"
-        mkdir -p "$TARGET/.claude"
-        [ ! -e "$TGT_SETTINGS" ] && ln -sf "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
+        ensure_symlink "$GLOBAL_SETTINGS" "$TGT_SETTINGS"
     fi
 
     # CLAUDE.md 全局规则
