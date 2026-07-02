@@ -55,6 +55,13 @@ fi
 
 CHANGED=false
 
+# 0. 等待人工审批 → 跳过（不修改状态，不 push）
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    ISSUE_NUM=$(basename "$f" | cut -d- -f1)
+    log "SKIP: #${ISSUE_NUM} awaiting human approval (waiting-approval)"
+done < <(grep -rl "^status: waiting-approval$" "$ISSUES_DIR" --include="*.md" 2>/dev/null || true)
+
 # 1. in_progress >6h 无 git 活动 → 回收（但 Archon 活跃时跳过）
 while IFS= read -r f; do
     [ -z "$f" ] && continue
