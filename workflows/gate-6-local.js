@@ -1,12 +1,11 @@
 export const meta = {
   name: 'gate-6-local',
-  description: 'Gate 6: 本地调度 — DAG 解析 → CC 会话并行 fan-out → 验证合并',
+  description: 'Gate 6: 本地调度 — DAG 解析 → 并行 fan-out → 推送分支待人工审查',
   phases: [
     { title: '检查前置', detail: '验证 Gate 5 已 passed' },
     { title: 'DAG解析', detail: '扫描 issues/ → 构建依赖图 → 拓扑排序' },
     { title: '执行调度', detail: '按 DAG 层级并行派发 agent（worktree 隔离）' },
-    { title: '验证合并', detail: '验证每个分支测试通过 → 合并到 master' },
-    { title: '汇总', detail: '统计结果，更新 gate-6 状态' },
+    { title: '汇总', detail: '统计结果，更新 gate-6，引导 Gate 7' },
   ],
 }
 
@@ -98,47 +97,30 @@ for (const level of (dag.levels || [])) {
   }
 }
 
-phase('验证合并')
-log('逐个验证分支测试结果，通过后合并...')
-
-let mergeFails = 0
-for (const b of doneBranches) {
-  const mergeResult = await agent(`合并分支 ${b.branch}（issue ${b.issue_id}）：
-
-1. git fetch origin ${b.branch}
-2. git diff origin/master...origin/${b.branch} --stat 确认改动量合理
-3. 从 config.yaml 读取 test_command，运行测试
-4. 全部通过 → git merge origin/${b.branch} --no-ff && git push origin master
-5. 失败 → 报告原因，不合并
-
-输出: {"branch": "${b.branch}", "merged": true/false, "reason": "..."}`, {
-    label: `合并-${b.issue_id}`,
-    phase: '验证合并',
-  })
-
-  const m = JSON.parse((mergeResult || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
-  if (m.merged) {
-    log(`  ✅ ${b.issue_id} 已合并到 master`)
-  } else {
-    mergeFails++
-    log(`  ❌ ${b.issue_id} 合并失败: ${m.reason || '未知'}`)
-  }
-}
-
 phase('汇总')
-const okCount = doneBranches.length - mergeFails
+const branchList = doneBranches.map(b => `  - ${b.branch} (issue ${b.issue_id})`).join('\n')
+
 await agent(`更新 gate-state：
 - gate-6 的 status 改为 "passed"
-- 汇总：${doneBranches.length} push / ${okCount} merge / ${failCount + mergeFails} fail
+- 汇总：${doneBranches.length} 个分支已 push / ${failCount} 个失败
 
 同步更新 issue frontmatter：
-- 已合并 → status: done
-- 已 push 未合并 → status: in_review（进入 Gate 7 人工审查）
+- 已 push → status: in_review，追加 branch: <分支名>
 - 失败 → status: failed
+
+列出所有分支供 Gate 7 审查：
+${branchList}
 
 输出最终汇总。`, { label: '更新Gate6状态' })
 
 if (dag.hitl_issues?.length) {
   log(`⚠️ ${dag.hitl_issues.length} 个 HITL issue 未处理：${dag.hitl_issues.join(', ')}`)
 }
-log(`✅ Gate 6: ${doneBranches.length} push, ${okCount} merge, ${failCount + mergeFails} fail → Gate 7`)
+log(`✅ Gate 6: ${doneBranches.length} push, ${failCount} fail`)
+log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+log('📋 Gate 7 人工审查（由你执行）：')
+log('   1. 逐分支对照 AC 审查代码')
+log('   2. 确认测试真实、无越界文件')
+log('   3. 通过后手动 git merge 到 master')
+log('   4. issue status 改为 done')
+log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
