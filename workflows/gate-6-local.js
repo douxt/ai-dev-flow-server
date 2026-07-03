@@ -1,10 +1,10 @@
 export const meta = {
   name: 'gate-6-local',
-  description: 'Gate 6: 本地调度 — DAG 解析 → 并行 fan-out → 推送分支待人工审查',
+  description: 'Gate 6: 本地调度 — DAG 层级间串行，层内逐 issue 调度（worktree 隔离）',
   phases: [
     { title: '检查前置', detail: '验证 Gate 5 已 passed' },
     { title: 'DAG解析', detail: '扫描 issues/ → 构建依赖图 → 拓扑排序' },
-    { title: '执行调度', detail: '按 DAG 层级并行派发 agent（worktree 隔离）' },
+    { title: '执行调度', detail: '按 DAG 层级串行 + 层内逐 issue 派发 agent' },
     { title: '汇总', detail: '统计结果，更新 gate-6，引导 Gate 7' },
   ],
 }
@@ -47,6 +47,7 @@ if (!dag.levels || dag.levels.length === 0) {
 }
 
 phase('执行调度')
+// 层间串行（依赖约束），层内也串行（避同文件冲突 — 实战验证：两个 issue 改同一文件相邻区域时 git auto-merge 可能成功但逻辑冲突风险高）
 const doneBranches = []
 let failCount = 0
 
@@ -54,51 +55,63 @@ for (const level of (dag.levels || [])) {
   const issueList = level.issues || []
   if (issueList.length === 0) continue
 
-  log(`📦 Level ${level.level}: ${issueList.length} 个 issue 并行调度...`)
+  log(`📦 Level ${level.level}: ${issueList.length} 个 issue 串行调度...`)
 
-  const levelResults = await parallel(
-    issueList.map(issue => () =>
-      agent(`在隔离 worktree 中实现以下 issue。
+  for (const issue of issueList) {
+    log(`  ▶ ${issue.id}: ${issue.file}`)
+
+    const raw = await agent(`在隔离 worktree 中实现以下 issue。
 
 **Issue 文件**: ${issue.file}
 **Issue ID**: ${issue.id}
 
 ## 步骤
 1. 读取 issue 文件，理解全部 AC
-2. TDD：先写测试，再实现（严格只实现 AC，禁止扩范围、顺手重构）
+2. TDD：先写测试，再实现
+   - 严格只实现 AC 列出的内容，禁止扩范围、禁止顺手重构、禁止改无关文件
 3. 每个逻辑模块独立 git commit
 4. 执行 test_command 确认测试全绿
-5. push 分支到 origin：ai/${issue.id}-<简短描述>
-6. 更新 issue frontmatter：status: in_review，记录分支名
+5. 门禁自检：
+   - [ ] test_command 全量绿（旧测试+新测试，0 失败）
+   - [ ] git diff --stat origin/master 文件清单与 Issue Scope 一致
+   - [ ] 无 .bak 残留文件
+6. push 分支到 origin：ai/${issue.id}-<简短描述>
+7. 更新 issue frontmatter：status: in_review，追加 branch: <分支名>
 
 ## 红线
 - 只在 worktree 内修改，禁止碰 master/main
 - 遇到阻塞立即报告，不猜测
 
-输出 JSON: {"status": "ok|fail", "branch": "ai/NNN-desc", "issue_id": "${issue.id}", "summary": "简述"}`, {
-        isolation: 'worktree',
-        label: `issue-${issue.id}`,
-        phase: '执行调度',
-      }).then(raw => {
-        const json = JSON.parse((raw || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
-        return { issue_id: issue.id, ...json }
-      }).catch(err => ({ issue_id: issue.id, status: 'error', branch: '', summary: err.message }))
-    )
-  )
+## 完成信号
+结束时输出：
+\`\`\`
+✅ Issue ${issue.id} 完成
+改动文件: <清单>
+测试: <N passed, 0 failed>
+分支: ai/${issue.id}-<描述>
+\`\`\`
 
-  for (const r of levelResults.filter(Boolean)) {
-    if (r.status === 'ok') {
-      doneBranches.push(r)
-      log(`  ${r.issue_id}: ✅ ${r.branch}`)
+同时输出 JSON: {"status": "ok|fail", "branch": "ai/NNN-desc", "issue_id": "${issue.id}", "files_changed": [...], "tests_passed": N, "summary": "简述"}`, {
+      isolation: 'worktree',
+      label: `issue-${issue.id}`,
+      phase: '执行调度',
+    }).then(raw => {
+      const json = JSON.parse((raw || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
+      return { issue_id: issue.id, ...json }
+    }).catch(err => ({ issue_id: issue.id, status: 'error', branch: '', summary: err.message }))
+
+    if (raw.status === 'ok') {
+      doneBranches.push(raw)
+      log(`    ✅ ${raw.branch} | ${raw.files_changed?.length || '?'} files | ${raw.tests_passed || '?'} tests`)
     } else {
       failCount++
-      log(`  ${r.issue_id}: ❌ ${r.summary || r.status}`)
+      log(`    ❌ ${raw.summary || raw.status}`)
     }
   }
 }
 
 phase('汇总')
-const branchList = doneBranches.map(b => `  - ${b.branch} (issue ${b.issue_id})`).join('\n')
+const branchList = doneBranches.map(b => `  - ${b.branch} (issue ${b.issue_id}) | ${b.files_changed?.length || '?'} files | ${b.tests_passed || '?'} tests`).join('\n')
 
 await agent(`更新 gate-state：
 - gate-6 的 status 改为 "passed"
@@ -118,9 +131,9 @@ if (dag.hitl_issues?.length) {
 }
 log(`✅ Gate 6: ${doneBranches.length} push, ${failCount} fail`)
 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-log('📋 Gate 7 人工审查（由你执行）：')
-log('   1. 逐分支对照 AC 审查代码')
-log('   2. 确认测试真实、无越界文件')
-log('   3. 通过后手动 git merge 到 master')
+log('📋 Gate 7 人工审查（逐分支）：')
+log('   1. git diff origin/master...origin/<分支> --stat 核对 Scope')
+log('   2. 对照 AC 审查代码，确认测试真实性')
+log('   3. 通过后手动 git merge --no-ff 到 master')
 log('   4. issue status 改为 done')
 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
