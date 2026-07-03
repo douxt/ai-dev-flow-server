@@ -1,10 +1,11 @@
 export const meta = {
   name: 'gate-6-local',
-  description: 'Gate 6: 本地调度 — DAG 解析 → CC 会话并行 fan-out → 状态追踪',
+  description: 'Gate 6: 本地调度 — DAG 解析 → CC 会话并行 fan-out → 验证合并',
   phases: [
     { title: '检查前置', detail: '验证 Gate 5 已 passed' },
     { title: 'DAG解析', detail: '扫描 issues/ → 构建依赖图 → 拓扑排序' },
     { title: '执行调度', detail: '按 DAG 层级并行派发 agent（worktree 隔离）' },
+    { title: '验证合并', detail: '验证每个分支测试通过 → 合并到 master' },
     { title: '汇总', detail: '统计结果，更新 gate-6 状态' },
   ],
 }
@@ -47,65 +48,97 @@ if (!dag.levels || dag.levels.length === 0) {
 }
 
 phase('执行调度')
-const allResults = []
-let failedCount = 0
+const doneBranches = []
+let failCount = 0
 
 for (const level of (dag.levels || [])) {
   const issueList = level.issues || []
   if (issueList.length === 0) continue
 
-  log(`📦 Level ${level.level}: ${issueList.length} 个 issue 并行调度中...`)
+  log(`📦 Level ${level.level}: ${issueList.length} 个 issue 并行调度...`)
 
   const levelResults = await parallel(
     issueList.map(issue => () =>
-      agent(`你是软件工程师。请实现以下 issue：
+      agent(`在隔离 worktree 中实现以下 issue。
 
 **Issue 文件**: ${issue.file}
 **Issue ID**: ${issue.id}
 
-## 要求
+## 步骤
 1. 读取 issue 文件，理解全部 AC
-2. TDD：先写测试，再实现
-3. 严格只实现 AC 列出的内容，禁止扩范围、禁止顺手重构
-4. 每个逻辑模块独立 git commit
-5. 实现完成后验证：测试全绿、AC 全部满足
-6. 完成时更新 issue 文件 frontmatter 的 status 为 done
+2. TDD：先写测试，再实现（严格只实现 AC，禁止扩范围、顺手重构）
+3. 每个逻辑模块独立 git commit
+4. 执行 test_command 确认测试全绿
+5. push 分支到 origin：ai/${issue.id}-<简短描述>
+6. 更新 issue frontmatter：status: in_review，记录分支名
 
-## 约束
-- 使用 git worktree 隔离开发（已自动配置）
-- 不修改 issue 文件本身（除了 status 字段）
-- 遇到阻塞问题立即报告，不自行猜测`, {
+## 红线
+- 只在 worktree 内修改，禁止碰 master/main
+- 遇到阻塞立即报告，不猜测
+
+输出 JSON: {"status": "ok|fail", "branch": "ai/NNN-desc", "issue_id": "${issue.id}", "summary": "简述"}`, {
         isolation: 'worktree',
         label: `issue-${issue.id}`,
         phase: '执行调度',
-      }).then(result => ({ issue_id: issue.id, result }))
-      .catch(err => ({ issue_id: issue.id, result: `ERROR: ${err.message}` }))
+      }).then(raw => {
+        const json = JSON.parse((raw || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
+        return { issue_id: issue.id, ...json }
+      }).catch(err => ({ issue_id: issue.id, status: 'error', branch: '', summary: err.message }))
     )
   )
 
   for (const r of levelResults.filter(Boolean)) {
-    allResults.push(r)
-    if (r.result?.includes('ERROR') || r.result?.includes('FAIL')) failedCount++
-    log(`  ${r.issue_id}: ${r.result?.includes('ERROR') ? '❌ 失败' : '✅ 完成'}`)
+    if (r.status === 'ok') {
+      doneBranches.push(r)
+      log(`  ${r.issue_id}: ✅ ${r.branch}`)
+    } else {
+      failCount++
+      log(`  ${r.issue_id}: ❌ ${r.summary || r.status}`)
+    }
+  }
+}
+
+phase('验证合并')
+log('逐个验证分支测试结果，通过后合并...')
+
+let mergeFails = 0
+for (const b of doneBranches) {
+  const mergeResult = await agent(`合并分支 ${b.branch}（issue ${b.issue_id}）：
+
+1. git fetch origin ${b.branch}
+2. git diff origin/master...origin/${b.branch} --stat 确认改动量合理
+3. 从 config.yaml 读取 test_command，运行测试
+4. 全部通过 → git merge origin/${b.branch} --no-ff && git push origin master
+5. 失败 → 报告原因，不合并
+
+输出: {"branch": "${b.branch}", "merged": true/false, "reason": "..."}`, {
+    label: `合并-${b.issue_id}`,
+    phase: '验证合并',
+  })
+
+  const m = JSON.parse((mergeResult || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
+  if (m.merged) {
+    log(`  ✅ ${b.issue_id} 已合并到 master`)
+  } else {
+    mergeFails++
+    log(`  ❌ ${b.issue_id} 合并失败: ${m.reason || '未知'}`)
   }
 }
 
 phase('汇总')
-const doneCount = allResults.length - failedCount
-log(`调度完成：${doneCount} 成功 / ${failedCount} 失败 / ${dag.total_afk || 0} 总计`)
-
-if (dag.hitl_issues?.length) {
-  log(`⚠️ ${dag.hitl_issues.length} 个 HITL issue 未处理：${dag.hitl_issues.join(', ')}`)
-  log('请手动在 CC 交互会话中逐个实现 HITL issue。')
-}
-
+const okCount = doneBranches.length - mergeFails
 await agent(`更新 gate-state：
-- 将 gate-6 的 status 改为 "passed"
-- 记录调度结果：${doneCount} done, ${failedCount} failed
+- gate-6 的 status 改为 "passed"
+- 汇总：${doneBranches.length} push / ${okCount} merge / ${failCount + mergeFails} fail
+
+同步更新 issue frontmatter：
+- 已合并 → status: done
+- 已 push 未合并 → status: in_review（进入 Gate 7 人工审查）
+- 失败 → status: failed
 
 输出最终汇总。`, { label: '更新Gate6状态' })
 
-if (failedCount > 0) {
-  log(`❌ ${failedCount} 个 issue 失败，请检查日志后手动处理或重试。`)
+if (dag.hitl_issues?.length) {
+  log(`⚠️ ${dag.hitl_issues.length} 个 HITL issue 未处理：${dag.hitl_issues.join(', ')}`)
 }
-log('✅ Gate 6 本地调度完成，进入 Gate 7 人工审查。')
+log(`✅ Gate 6: ${doneBranches.length} push, ${okCount} merge, ${failCount + mergeFails} fail → Gate 7`)
