@@ -14,6 +14,15 @@ phase('检查前置')
 await agent(`Read .gate-state，确认 gate-4.status === "passed"。
 如果 gate-4 不是 passed，输出 "❌ Gate 4 未通过，请先执行 /gate-4-review" 并停止。`, { label: '检查前置Gate' })
 
+const strategyCheck = await agent(`Read .devflow/config.yaml，提取 scheduling.strategy。
+如果不存在：mode: frontend → "local_session"，否则 → "remote"。
+输出策略名即可。`, { label: '读调度策略' })
+
+if ((strategyCheck || '').trim().includes('local')) {
+  log('⚠️ 当前项目调度策略为本地模式，请使用 /gate-5-local 代替。')
+  log('本 Gate (gate-5-prep) 仅适用于远程 AFK 模式。')
+}
+
 phase('环境检查')
 log('检查 .devflow/ 目录完整性...')
 

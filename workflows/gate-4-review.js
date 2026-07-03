@@ -43,7 +43,18 @@ const result = await agent(`逐条检查 Gate 4 出口标准：
 
 const parsed = JSON.parse(result.match(/\{[\s\S]*\}/)?.[0] || '{}')
 if (parsed.verdict === 'PASSED') {
-  log('✅ Gate 4 通过，可以进入 /gate-5-prep')
+  log('✅ Gate 4 通过')
+
+  const strategyHint = await agent(`Read .devflow/config.yaml，提取 scheduling.strategy。
+如果不存在：mode: frontend → "local_session"，否则 → "remote"。
+输出策略名即可。`, { label: '读调度策略' })
+
+  const strategy = (strategyHint || '').trim()
+  if (strategy.includes('local')) {
+    log(`📋 调度策略: ${strategy} — 下一步请执行 /gate-5-local（本地环境准备）`)
+  } else {
+    log(`📋 调度策略: ${strategy} — 下一步请执行 /gate-5-prep（远程环境准备）`)
+  }
 } else if (parsed.verdict === 'BLOCKED') {
   log('❌ Gate 4 不通过，已回退到 Gate 3（.gate-state 中 gate-3 和 gate-4 均已设为 blocked）')
   log('请按评审意见重拆 Issue 后重新 /gate-3-issues')
