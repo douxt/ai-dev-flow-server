@@ -47,7 +47,21 @@ archon --version
 archon workflow list   # 应列出可用工作流
 ```
 
-### 2. Python 包
+### 2. C/C++ 编译工具链 + SQLite（cuotiben 错题本需要）
+
+```bash
+apt-get install -y build-essential libsqlite3-dev sqlite3
+```
+
+| 包 | 用途 |
+|---|---|
+| `build-essential` | gcc + g++ + make，编译 better-sqlite3 原生模块 |
+| `libsqlite3-dev` | SQLite 开发头文件 |
+| `sqlite3` | SQLite CLI 调试工具 |
+
+> 两个项目（ai-dev-flow-server + cuotiben）共享同一容器，依赖需一起装。
+
+### 3. Python 包
 
 ```bash
 pip3 install pyyaml requests
@@ -163,6 +177,7 @@ echo "=== 全部检查完成 ==="
 |--------|------|------|
 | P0 | Archon CLI | 管线核心，无此不可运行 |
 | P0 | pyyaml + requests | 宪法检查 + 通知依赖 |
+| P0 | build-essential + libsqlite3-dev + sqlite3 | cuotiben 编译 better-sqlite3 |
 | P1 | ANTHROPIC_* 环境变量 | Claude CLI 调 LLM 需要 |
 | P2 | cron / supervisor | 替代 systemd timer |
 | P3 | less / jq | 调试工具 |
