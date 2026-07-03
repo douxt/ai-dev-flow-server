@@ -29,4 +29,22 @@ RUN mkdir -p /home/coder/.config && \
     ln -sf /home/coder/.config/npmrc    /home/coder/.npmrc && \
     ln -sf /home/coder/.config/claude.json /home/coder/.claude.json
 
+# ====== AFK 管线依赖（2026-07-03）======
+# Bun — Archon 运行时前提
+RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+
+# P2: cron（systemd 替代，jq 已在上方装过）
+RUN apt-get update && apt-get install -y --no-install-recommends cron && \
+    rm -rf /var/lib/apt/lists/*
+
+# P0: Python 包
+RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-frontmatter
+
+# P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
+RUN curl -fsSL https://archon.diy/install | bash
+
+# P3: Archon 工作目录
+RUN mkdir -p /opt/archon/workspaces /tmp/archon-worktrees && \
+    chown -R coder:coder /opt/archon /tmp/archon-worktrees
+
 USER coder
