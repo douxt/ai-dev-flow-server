@@ -1,4 +1,5 @@
 ---
+pr: ["https://github.com/douxt/ai-dev-flow-server/pull/13"]
 type: AFK
 estimate: 0.5d
 effort: small
@@ -10,6 +11,7 @@ needs_pdf: false
 needs_docker: false
 test_files: ["archon/test-dispatch.sh"]
 ---
+pr: ["https://github.com/douxt/ai-dev-flow-server/pull/13"]
 
 # TEST: cron 自动调度验证
 
