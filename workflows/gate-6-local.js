@@ -1,10 +1,11 @@
 export const meta = {
   name: 'gate-6-local',
-  description: 'Gate 6: 本地调度 — DAG 层级间串行，层内逐 issue 调度（worktree 隔离）',
+  description: 'Gate 6: 本地调度 — DAG 解析 → 串行派发 agent（单/双仓库 + wt/fallback）',
   phases: [
     { title: '检查前置', detail: '验证 Gate 5 已 passed' },
+    { title: '读关联项目', detail: '从 config.yaml 读取 linked_projects' },
     { title: 'DAG解析', detail: '扫描 issues/ → 构建依赖图 → 拓扑排序' },
-    { title: '执行调度', detail: '按 DAG 层级串行 + 层内逐 issue 派发 agent' },
+    { title: '执行调度', detail: '按 DAG 层级串行 + 逐 issue 派发 agent' },
     { title: '汇总', detail: '统计结果，更新 gate-6，引导 Gate 7' },
   ],
 }
@@ -12,6 +13,68 @@ export const meta = {
 phase('检查前置')
 await agent(`Read .gate-state，确认 gate-5.status === "passed"。
 如果 gate-5 不是 passed，输出 "❌ Gate 5 未通过，请先执行 /gate-5-local" 并停止。`, { label: '检查前置Gate' })
+
+phase('读关联项目')
+const linkedResult = await agent(`Read .devflow/config.yaml，提取 linked_projects 数组（如存在）。
+每项含 name/path/repo_url。不存在则返回空数组。
+
+同时检查 wt 命令是否可用（which wt 2>/dev/null && echo "wt" || echo "git"）。
+
+输出 JSON: {
+  "linked_projects": [{"name": "...", "path": "...", "repo_url": "..."}],
+  "dual_repo": true/false,
+  "wt_available": true/false
+}`, { label: '读关联项目' })
+
+const linkInfo = JSON.parse(linkedResult.match(/\{[\s\S]*\}/)?.[0] || '{}')
+const linkedRepos = linkInfo.linked_projects || []
+const dualRepo = linkedRepos.length > 0
+const useWt = linkInfo.wt_available
+
+if (dualRepo) {
+  log(`🔗 关联项目: ${linkedRepos.map(r => r.name).join(', ')} | 工具: ${useWt ? 'wt' : 'git worktree'}`)
+}
+
+// 构建双仓库工作流指令
+const repoInstructions = dualRepo ? `
+## 双仓库工作流（${useWt ? 'wt 工具' : 'git worktree 原生'}）
+
+本 issue 涉及主仓库 + ${linkedRepos.length} 个关联项目：
+${linkedRepos.map(r => `  - ${r.name}: ${r.path}`).join('\n')}
+
+### 工作区创建
+${useWt ? `\`\`\`bash
+bash ~/bin/wt create top-down-issue-${'${issueId}'}
+\`\`\`
+（自动在 UMES3 和 ${linkedRepos.map(r => r.name).join('、')} 创建配对 worktree）` : `\`\`\`bash
+# 主仓库
+git worktree add .claude/worktrees/top-down-issue-${'${issueId}'} -b top-down-issue-${'${issueId}'}
+${linkedRepos.map(r => `# ${r.name}
+git -C ${r.path} worktree add .claude/worktrees/top-down-issue-${'${issueId}'} -b top-down-issue-${'${issueId}'}
+`).join('')}\`\`\``}
+
+### 提交
+${useWt ? `\`\`\`bash
+bash ~/bin/wt commit top-down-issue-${'${issueId}'} "feat: <说明>"
+\`\`\`` : `\`\`\`bash
+# 主仓库
+git -C .claude/worktrees/top-down-issue-${'${issueId}'} add ... && git -C .claude/worktrees/top-down-issue-${'${issueId}'} commit -m "..."
+${linkedRepos.map(r => `# ${r.name}
+git -C ${r.path}/.claude/worktrees/top-down-issue-${'${issueId}'} add ... && git -C ${r.path}/.claude/worktrees/top-down-issue-${'${issueId}'} commit -m "..."
+`).join('')}\`\`\``}
+
+### 清理
+${useWt ? `\`\`\`bash
+bash ~/bin/wt cleanup top-down-issue-${'${issueId}'}
+\`\`\`` : `\`\`\`bash
+# 主仓库
+git worktree remove .claude/worktrees/top-down-issue-${'${issueId}'} && git branch -D top-down-issue-${'${issueId}'}
+${linkedRepos.map(r => `# ${r.name}
+git -C ${r.path} worktree remove .claude/worktrees/top-down-issue-${'${issueId}'} && git -C ${r.path} branch -D top-down-issue-${'${issueId}'}
+`).join('')}\`\`\``}
+
+> 禁止直接 git commit，必须用 ${useWt ? 'wt commit' : 'git -C <worktree> commit'}。
+` : '';
 
 phase('DAG解析')
 log('扫描 issues/ → 解析 blocked_by → 构建依赖 DAG...')
@@ -47,7 +110,6 @@ if (!dag.levels || dag.levels.length === 0) {
 }
 
 phase('执行调度')
-// 层间串行（依赖约束），层内也串行（避同文件冲突 — 实战验证：两个 issue 改同一文件相邻区域时 git auto-merge 可能成功但逻辑冲突风险高）
 const doneBranches = []
 let failCount = 0
 
@@ -60,38 +122,42 @@ for (const level of (dag.levels || [])) {
   for (const issue of issueList) {
     log(`  ▶ ${issue.id}: ${issue.file}`)
 
+    const repoBlock = dualRepo ? repoInstructions.replace(/\$\{issueId\}/g, issue.id) : ''
+
     const raw = await agent(`在隔离 worktree 中实现以下 issue。
 
 **Issue 文件**: ${issue.file}
 **Issue ID**: ${issue.id}
+${dualRepo ? `\n**仓库模式**: 双仓库（主仓库 + ${linkedRepos.map(r => r.name).join('、')}）` : ''}
 
 ## 步骤
 1. 读取 issue 文件，理解全部 AC
 2. TDD：先写测试，再实现
    - 严格只实现 AC 列出的内容，禁止扩范围、禁止顺手重构、禁止改无关文件
-3. 每个逻辑模块独立 git commit
+3. 每个逻辑模块独立 commit${dualRepo ? '（主仓库和关联项目分别提交）' : ''}
 4. 执行 test_command 确认测试全绿
 5. 门禁自检：
    - [ ] test_command 全量绿（旧测试+新测试，0 失败）
    - [ ] git diff --stat origin/master 文件清单与 Issue Scope 一致
    - [ ] 无 .bak 残留文件
-6. push 分支到 origin：ai/${issue.id}-<简短描述>
+6. push 分支到 origin：ai/${issue.id}-<简短描述>${dualRepo ? '（所有仓库均需 push）' : ''}
 7. 更新 issue frontmatter：status: in_review，追加 branch: <分支名>
-
+${dualRepo ? repoBlock : ''}
 ## 红线
 - 只在 worktree 内修改，禁止碰 master/main
+${dualRepo ? '- 关联项目在各自的 worktree 内修改，禁止直接改原始目录' : ''}
 - 遇到阻塞立即报告，不猜测
 
 ## 完成信号
 结束时输出：
 \`\`\`
 ✅ Issue ${issue.id} 完成
-改动文件: <清单>
+改动文件: <清单>${dualRepo ? '\n关联项目改动: <清单>' : ''}
 测试: <N passed, 0 failed>
 分支: ai/${issue.id}-<描述>
 \`\`\`
 
-同时输出 JSON: {"status": "ok|fail", "branch": "ai/NNN-desc", "issue_id": "${issue.id}", "files_changed": [...], "tests_passed": N, "summary": "简述"}`, {
+同时输出 JSON: {"status": "ok|fail", "branch": "ai/NNN-desc", "issue_id": "${issue.id}", "files_changed": [...], ${dualRepo ? '"linked_files_changed": [...], ' : ''}"tests_passed": N, "summary": "简述"}`, {
       isolation: 'worktree',
       label: `issue-${issue.id}`,
       phase: '执行调度',
@@ -116,6 +182,7 @@ const branchList = doneBranches.map(b => `  - ${b.branch} (issue ${b.issue_id}) 
 await agent(`更新 gate-state：
 - gate-6 的 status 改为 "passed"
 - 汇总：${doneBranches.length} 个分支已 push / ${failCount} 个失败
+${dualRepo ? `- 仓库模式: 双仓库（${linkedRepos.map(r => r.name).join('、')}），${useWt ? 'wt' : 'git worktree'} 管理` : ''}
 
 同步更新 issue frontmatter：
 - 已 push → status: in_review，追加 branch: <分支名>
@@ -136,4 +203,8 @@ log('   1. git diff origin/master...origin/<分支> --stat 核对 Scope')
 log('   2. 对照 AC 审查代码，确认测试真实性')
 log('   3. 通过后手动 git merge --no-ff 到 master')
 log('   4. issue status 改为 done')
+if (dualRepo) {
+  log('   5. 关联项目分支同样审查后合并')
+  log(`   6. ${useWt ? 'wt cleanup <任务名>' : 'git worktree remove + git branch -D'} 清理`)
+}
 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
