@@ -48,11 +48,9 @@ FETCH_ERR=$(git fetch origin 2>&1 1>/dev/null) || {
     exit 1
 }
 
-# 创建临时 worktree（从 origin/main detached）
-DISPATCH_WT=$(mktemp -d /tmp/dispatch-XXXXXX) && rmdir "$DISPATCH_WT" || {
-    log "FATAL: 无法创建临时目录"
-    exit 1
-}
+# 创建临时 worktree（从 origin/main detached，固定路径防 Archon 路径缓存失效）
+DISPATCH_WT="/tmp/dispatch-scanner"
+rm -rf "$DISPATCH_WT" 2>/dev/null || true
 git worktree add "$DISPATCH_WT" origin/main --detach 2>/dev/null || {
     log "FATAL: worktree 创建失败"
     python3 "$SCRIPTS_DIR/notify.py" status 2>/dev/null <<< "⛔ worktree 创建失败" || true
@@ -71,6 +69,13 @@ if [ -n "$ARCHON_REMOTE" ]; then
     if [ -n "$ARCHON_USER" ] && [ -n "$ARCHON_REPO" ]; then
         ARCHON_WS="$HOME/.archon/workspaces/$ARCHON_USER/$ARCHON_REPO"
         rm -f "$ARCHON_WS/source" 2>/dev/null || true
+        # 清理 Archon 数据库中旧 cwd（防路径缓存失效）
+        python3 -c "
+import sqlite3
+db = sqlite3.connect('$HOME/.archon/archon.db')
+db.execute('DELETE FROM remote_agent_codebases')
+db.commit()
+" 2>/dev/null || true
     fi
 fi
 
