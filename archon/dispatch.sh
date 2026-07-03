@@ -63,10 +63,11 @@ ISSUES_DIR="$DISPATCH_WT/issues"
 
 # Archon workspace 去冲突：dispatch 用临时 worktree，Archon 注册了旧路径 → 下次报错
 # 删除 stale source symlink，让 Archon 重新注册到当前 worktree 路径；结束后一并清理
+ARCHON_WS="$HOME/.archon/workspaces/unknown/default"
 ARCHON_REMOTE=$(git -C "$WORKSPACE" remote get-url origin 2>/dev/null || true)
 if [ -n "$ARCHON_REMOTE" ]; then
-    ARCHON_USER=$(echo "$ARCHON_REMOTE" | grep -oP '(?<=:)[^/]+(?=/)' || true)
-    ARCHON_REPO=$(echo "$ARCHON_REMOTE" | grep -oP '[^/]+\.git$' | sed 's/\.git$//' || true)
+    ARCHON_USER=$(echo "$ARCHON_REMOTE" | grep -oP '(?<=:)[^/]+(?=/)' || echo "$ARCHON_REMOTE" | grep -oP 'github\.com/\K[^/]+' || true)
+    ARCHON_REPO=$(echo "$ARCHON_REMOTE" | grep -oP '[^/]+(?=\.git$)' || echo "$ARCHON_REMOTE" | sed 's|.*/||; s|\.git$||' || true)
     if [ -n "$ARCHON_USER" ] && [ -n "$ARCHON_REPO" ]; then
         ARCHON_WS="$HOME/.archon/workspaces/$ARCHON_USER/$ARCHON_REPO"
         rm -f "$ARCHON_WS/source" 2>/dev/null || true
