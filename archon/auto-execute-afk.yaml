@@ -158,23 +158,23 @@ nodes:
         mkdir -p "$HANDOFF_DIR"
         PROJECT_NAME=$(grep "^project:" "$MAIN/.devflow/config.yaml" 2>/dev/null | awk '{print $2}' || echo "unknown")
         PR_URL=$(grep -oP 'pr:\s*\["?\Khttps://[^"\] ]+' "$ISSUE_FILE" 2>/dev/null | head -1 || echo "N/A")
-        cat > "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md" <<HANDOFF
----
-from: dispatch/agent-b
-to: openlobby/agent-a
-project: "${PROJECT_NAME}"
-type: manual_merge
-status: pending
-created: $(date -Iseconds)
----
-
-## 需要手动合并的 PR
-
-- Issue: #${ISSUE_NUM} ${ISSUE_SLUG}
-- PR: ${PR_URL}
-- 原因: gh CLI 未配置，自动合并不可用
-- 操作: 在 GitHub 网页手动 merge 后，reconciler Section 5 会自动把 status → done
-HANDOFF
+        {
+          echo "---"
+          echo "from: dispatch/agent-b"
+          echo "to: openlobby/agent-a"
+          echo "project: ${PROJECT_NAME}"
+          echo "type: manual_merge"
+          echo "status: pending"
+          echo "created: $(date -Iseconds)"
+          echo "---"
+          echo ""
+          echo "## 需要手动合并的 PR"
+          echo ""
+          echo "- Issue: #${ISSUE_NUM} ${ISSUE_SLUG}"
+          echo "- PR: ${PR_URL}"
+          echo "- 原因: gh CLI 未配置，自动合并不可用"
+          echo "- 操作: 在 GitHub 网页手动 merge 后，reconciler Section 5 会自动把 status → done"
+        } > "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md"
         git add "$HANDOFF_DIR/merge-${ISSUE_SLUG}.md" 2>/dev/null || true
         sed -i 's/^status: in_review$/status: waiting-approval/' "$ISSUE_FILE"
         git add "$ISSUE_FILE" 2>/dev/null || true
