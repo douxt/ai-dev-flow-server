@@ -40,6 +40,10 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
 # P0: Python 包
 RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-frontmatter
 
+# youtube-kb 开发依赖（2026-07-04）
+RUN pip3 install --no-cache-dir --break-system-packages \
+    yt-dlp openai google-auth-oauthlib google-api-python-client
+
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 RUN curl -fsSL https://archon.diy/install | bash
 
