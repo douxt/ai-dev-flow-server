@@ -199,9 +199,9 @@ if (dag.hitl_issues?.length) {
 log(`✅ Gate 6: ${doneBranches.length} push, ${failCount} fail`)
 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 log('📋 Gate 7 人工审查（逐分支）：')
-log('   1. git diff origin/master...origin/<分支> --stat 核对 Scope')
+log('   1. git diff origin/main...origin/<分支> --stat 核对 Scope')
 log('   2. 对照 AC 审查代码，确认测试真实性')
-log('   3. 通过后手动 git merge --no-ff 到 master')
+log('   3. 通过后手动 git merge --no-ff 到 main')
 log('   4. issue status 改为 done')
 if (dualRepo) {
   log('   5. 关联项目分支同样审查后合并')

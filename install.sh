@@ -268,7 +268,7 @@ if [ "$UPDATE_MODE" = true ]; then
     if [ -d "$SOURCE/.git" ]; then
         echo "  git pull ..."
         cd "$SOURCE" || exit 1
-        if ! git pull --rebase origin master 2>&1; then
+        if ! git pull --rebase origin main 2>&1; then
             echo "❌ git pull --rebase 失败，请手动解决冲突后重试"
             echo "   冲突文件: $(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
             exit 1
