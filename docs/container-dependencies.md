@@ -183,3 +183,54 @@ curl -s http://localhost:8420/health 2>/dev/null && echo "archon serve: ✅" || 
 
 echo "=== 全部检查完成 ==="
 ```
+
+---
+
+# youtube-kb — YouTube 字幕收集 + AI 总结
+
+> NAS Docker 常驻，扫描播放列表 → 下载字幕 → DeepSeek 总结 → Markdown 文档。
+> 仓库：[douxt/youtube-kb](https://github.com/douxt/youtube-kb)
+
+## Pip 包
+
+```bash
+pip install --no-cache-dir \
+    yt-dlp \
+    openai \
+    google-auth-oauthlib \
+    google-api-python-client \
+    pyyaml
+```
+
+| 包 | 用途 |
+|---|---|
+| `yt-dlp` | YouTube 字幕下载 |
+| `openai` | DeepSeek API 调用（OpenAI 兼容 SDK） |
+| `google-auth-oauthlib` | Google OAuth 2.0 认证 |
+| `google-api-python-client` | YouTube Data API v3 |
+| `pyyaml` | 配置文件解析 |
+
+## 系统依赖
+
+零。基础镜像 `python:3.12-slim-bookworm`，无 apt-get 安装。
+
+## 环境变量
+
+```bash
+DEEPSEEK_API_KEY=sk-xxx
+PROXY_URL=socks5://user:pass@192.168.x.1:1080
+LOG_LEVEL=INFO        # 调试时改为 DEBUG
+```
+
+## 数据挂载
+
+```yaml
+volumes:
+  - ./data:/data                    # 字幕 + 文档 + SQLite + token
+  - ./client_secret.json:/app/client_secret.json:ro
+  - ./config.yaml:/app/config.yaml:ro
+```
+
+## 端口
+
+无需暴露端口，纯后台常驻进程。
