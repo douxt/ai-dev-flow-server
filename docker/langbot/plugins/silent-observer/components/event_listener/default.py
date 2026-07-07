@@ -65,11 +65,34 @@ class DefaultEventListener(EventListener):
                     if hasattr(node, 'message_chain') and self._has_at(node.message_chain):
                         return True
         return False
+
+    def _buffer_key(self, session_name: str) -> str:
         return f'buffer:{session_name}'
+
+    def _extract_text(self, message_chain) -> str:
+        parts = []
+        for c in message_chain:
+            if c.type == 'Plain':
+                parts.append(c.text)
+            elif c.type == 'At':
+                parts.append(f'@{c.display or c.target}')
+            elif c.type == 'Quote' and hasattr(c, 'origin'):
+                inner = self._extract_text(c.origin)
+                parts.append(f'[转发] {inner}')
+            elif c.type == 'Forward' and hasattr(c, 'node_list'):
+                for node in c.node_list:
+                    inner = self._extract_text(node.message_chain) if hasattr(node, 'message_chain') else ''
+                    sender = getattr(node, 'sender_name', '')
+                    parts.append(f'[转发 {sender}] {inner}')
+            elif c.type == 'Image':
+                parts.append('[图片]')
+            elif c.type == 'Face':
+                parts.append(str(c))
+        return ' '.join(parts)
 
     async def _save_message(self, event):
         key = self._buffer_key(f'{event.launcher_type}_{event.launcher_id}')
-        text = getattr(event, 'text_message', '') or str(event.message_chain)
+        text = getattr(event, 'text_message', '') or self._extract_text(event.message_chain)
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
