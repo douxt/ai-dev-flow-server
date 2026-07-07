@@ -50,9 +50,17 @@ class DefaultEventListener(EventListener):
         key = self._buffer_key(f'{event.launcher_type}_{event.launcher_id}')
         try:
             raw = await self.plugin.get_plugin_storage(key)
-            data = json.loads(raw.decode('utf-8'))
-        except Exception:
-            data = {'messages': []}
+            if isinstance(raw, str):
+                data = json.loads(raw)
+            else:
+                data = json.loads(raw.decode('utf-8'))
+        except Exception as e:
+            err = str(e)
+            if 'not found' in err.lower():
+                data = {'messages': []}
+            else:
+                print(f'[silent] buffer read error: {key} {err}', file=sys.stderr, flush=True)
+                return
         text = getattr(event, 'text_message', '') or str(event.message_chain)
         sender = getattr(event.message_event, 'sender', None)
         if sender:
@@ -70,7 +78,11 @@ class DefaultEventListener(EventListener):
         })
         if len(data['messages']) > self.history_count * 2:
             data['messages'] = data['messages'][-self.history_count:]
-        await self.plugin.set_plugin_storage(key, json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        try:
+            await self.plugin.set_plugin_storage(key, json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            print(f'[silent] buffer write error: {key} {e}', file=sys.stderr, flush=True)
+            return
         count = len(data['messages'])
         print(f'[silent] buffer write: {key} total={count}', file=sys.stderr, flush=True)
 
@@ -78,7 +90,10 @@ class DefaultEventListener(EventListener):
         key = self._buffer_key(session_name)
         try:
             raw = await self.plugin.get_plugin_storage(key)
-            data = json.loads(raw.decode('utf-8'))
+            if isinstance(raw, str):
+                data = json.loads(raw)
+            else:
+                data = json.loads(raw.decode('utf-8'))
             return data.get('messages', [])[-self.history_count:]
         except Exception:
             return []
