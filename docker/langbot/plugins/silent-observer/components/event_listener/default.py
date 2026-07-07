@@ -25,6 +25,17 @@ class DefaultEventListener(EventListener):
                 trigger = 'at' if is_at else 'random'
                 print(f'[silent] gate: allowed ({trigger})', file=sys.stderr, flush=True)
 
+        @self.handler(events.NormalMessageResponded)
+        async def save_reply(ctx: context.EventContext):
+            sender = getattr(ctx.event, 'sender_id', 'unknown')
+            text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
+            await self._append_to_buffer(
+                key=self._buffer_key(f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'),
+                sender_id=str(sender), sender_name='机器豆', text=text,
+                sender_title='', sender_role='BOT',
+            )
+            print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
+
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
@@ -48,6 +59,23 @@ class DefaultEventListener(EventListener):
 
     async def _save_message(self, event):
         key = self._buffer_key(f'{event.launcher_type}_{event.launcher_id}')
+        text = getattr(event, 'text_message', '') or str(event.message_chain)
+        sender = getattr(event.message_event, 'sender', None)
+        if sender:
+            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
+            sender_title = getattr(sender, 'special_title', '') or ''
+            sender_role = str(getattr(sender, 'permission', '')) if hasattr(sender, 'permission') else ''
+        else:
+            sender_name = str(event.sender_id)
+            sender_title = ''
+            sender_role = ''
+        await self._append_to_buffer(
+            key=key, sender_id=str(event.sender_id),
+            sender_name=sender_name, text=text,
+            sender_title=sender_title, sender_role=sender_role,
+        )
+
+    async def _append_to_buffer(self, key, sender_id, sender_name, text, sender_title='', sender_role=''):
         try:
             raw = await self.plugin.get_plugin_storage(key)
             if isinstance(raw, str):
@@ -61,18 +89,11 @@ class DefaultEventListener(EventListener):
             else:
                 print(f'[silent] buffer read error: {key} {err}', file=sys.stderr, flush=True)
                 return
-        text = getattr(event, 'text_message', '') or str(event.message_chain)
-        sender = getattr(event.message_event, 'sender', None)
-        if sender:
-            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
-            sender_title = getattr(sender, 'special_title', '') or ''
-            sender_role = str(getattr(sender, 'permission', '')) if hasattr(sender, 'permission') else ''
-        else:
-            sender_name = str(event.sender_id)
-            sender_title = ''
-            sender_role = ''
+        # filter noise: pure @ markers and unknown component types
+        if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
+            return
         data['messages'].append({
-            'sender_name': sender_name, 'sender_id': str(event.sender_id),
+            'sender_name': sender_name, 'sender_id': sender_id,
             'sender_title': sender_title, 'sender_role': sender_role,
             'text': text, 'time': datetime.now().strftime('%m-%d %H:%M'),
         })
