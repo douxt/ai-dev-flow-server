@@ -16,8 +16,7 @@ class DefaultEventListener(EventListener):
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
             await self._save_message(ctx.event)
-            is_at = any(c.type == 'At' and str(c.target) == self.bot_qq
-                        for c in ctx.event.message_chain)
+            is_at = self._has_at(ctx.event.message_chain)
             if not is_at and random.random() >= self.prob:
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
@@ -54,7 +53,18 @@ class DefaultEventListener(EventListener):
             ctx.event.prompt.insert(0, provider_message.Message(role='system', content=header))
             print(f'[silent] inject: {len(msgs)} messages for {ctx.event.session_name}', file=sys.stderr, flush=True)
 
-    def _buffer_key(self, session_name: str) -> str:
+    def _has_at(self, message_chain) -> bool:
+        for c in message_chain:
+            if c.type == 'At' and str(c.target) == self.bot_qq:
+                return True
+            if c.type == 'Quote' and hasattr(c, 'origin'):
+                if self._has_at(c.origin):
+                    return True
+            if c.type == 'Forward' and hasattr(c, 'node_list'):
+                for node in c.node_list:
+                    if hasattr(node, 'message_chain') and self._has_at(node.message_chain):
+                        return True
+        return False
         return f'buffer:{session_name}'
 
     async def _save_message(self, event):
