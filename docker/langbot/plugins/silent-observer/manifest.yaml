@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: dou
+  name: langbot-silent-observer
+  version: 0.1.0
+  label:
+    en_US: Silent Observer
+    zh_Hans: 静默观察者
+  description:
+    en_US: Memory-first silent observer with history buffer injection.
+    zh_Hans: 记忆优先静默观察者，缓冲群聊历史，触发时注入上下文。
+spec:
+  config:
+    - name: bot_qq
+      type: string
+      label:
+        en_US: Bot QQ Number
+        zh_Hans: 机器人QQ号
+      description:
+        en_US: Used to detect @mentions targeting the bot
+        zh_Hans: 用于判断是否被@提及
+      required: true
+    - name: reply_probability
+      type: float
+      label:
+        en_US: Reply Probability
+        zh_Hans: 主动插话概率
+      description:
+        en_US: Reply probability for non-@ messages. 0=never, 1=always.
+        zh_Hans: 非@消息的回复概率，0=永不插话，1=每条都回复
+      default: 0.01
+      required: false
+    - name: history_count
+      type: integer
+      label:
+        en_US: History Count
+        zh_Hans: 历史消息条数
+      description:
+        en_US: Number of recent messages to inject into prompt when triggered.
+        zh_Hans: 触发时注入 prompt 的最近消息条数
+      default: 20
+      required: false
+  components:
+    EventListener:
+      fromDirs:
+        - path: components/event_listener/
+execution:
+  python:
+    path: main.py
+    attr: Plugin
