@@ -42,10 +42,13 @@ class DefaultEventListener(EventListener):
             trigger_info = self._last_trigger.pop(session_key, ('at', -1))
             trigger, _ = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
             if trigger == 'random':
-                ctx.prevent_default()
-                ctx.event.reply_message_chain = platform_message.MessageChain([
-                    platform_message.Plain(text=text)
-                ])
+                try:
+                    ctx.prevent_default()
+                    from langbot_plugin.api.entities.platform_message import MessageChain, Plain
+                    ctx.event.reply_message_chain = MessageChain([Plain(text=text)])
+                    print(f'[silent] quote stripped for random reply', file=sys.stderr, flush=True)
+                except Exception as e:
+                    print(f'[silent] quote strip failed: {e}', file=sys.stderr, flush=True)
             print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
         @self.handler(events.PromptPreProcessing)
