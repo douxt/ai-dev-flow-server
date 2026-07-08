@@ -70,7 +70,7 @@ class DefaultEventListener(EventListener):
                 header = f'【随机插话模式】你未被@，以下为近期群聊记录。可以自由评论任何有趣内容，不拘泥于最后一条。\n' + '\n'.join(lines) + f'\n\n【共{len(msgs)}条】'
             else:
                 header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + '\n\n请回顾历史，提取重要信息，然后回复@你的那条消息。】'
-            ctx.event.prompt.insert(0, provider_message.Message(role='system', content=header))
+            ctx.event.prompt.append(provider_message.Message(role='system', content=header))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
     def _has_at(self, message_chain) -> bool:
