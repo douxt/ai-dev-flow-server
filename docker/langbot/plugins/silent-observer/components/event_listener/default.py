@@ -3,6 +3,7 @@ from datetime import datetime
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import events, context
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
+from langbot_plugin.api.entities import platform_message
 
 class DefaultEventListener(EventListener):
     async def initialize(self):
@@ -31,18 +32,27 @@ class DefaultEventListener(EventListener):
         async def save_reply(ctx: context.EventContext):
             sender = getattr(ctx.event, 'sender_id', 'unknown')
             text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
+            session_key = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             await self._append_to_buffer(
-                key=self._buffer_key(f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'),
+                key=self._buffer_key(session_key),
                 sender_id=str(sender), sender_name='机器豆', text=text,
                 sender_title='', sender_role='BOT',
             )
+            # for random triggers: strip quote-origin
+            trigger_info = self._last_trigger.pop(session_key, ('at', -1))
+            trigger, _ = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
+            if trigger == 'random':
+                ctx.prevent_default()
+                ctx.event.reply_message_chain = platform_message.MessageChain([
+                    platform_message.Plain(text=text)
+                ])
             print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
-            trigger_info = self._last_trigger.pop(ctx.event.session_name, ('at', -1))
+            trigger_info = self._last_trigger.get(ctx.event.session_name, ('at', -1))
             trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
             lines = []
             for m in msgs:
