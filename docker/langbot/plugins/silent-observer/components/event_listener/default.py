@@ -71,6 +71,7 @@ class DefaultEventListener(EventListener):
                     elif role and role not in ('Permission.MEMBER', 'MEMBER'):
                         label += f'({role})'
                     lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
+                ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
                 ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
