@@ -73,7 +73,7 @@ class DefaultEventListener(EventListener):
     def _buffer_key(self, session_name: str) -> str:
         return f'buffer:{session_name}'
 
-    def _extract_text(self, message_chain) -> str:
+    def _extract_text(self, message_chain, max_length=300) -> str:
         if message_chain is None:
             return ''
         parts = []
@@ -86,11 +86,11 @@ class DefaultEventListener(EventListener):
             elif t == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    parts.append(f'[转发] {self._extract_text(origin)}')
+                    parts.append(f'[转发] {self._extract_text(origin, max_length)}')
             elif t == 'Forward':
-                for node in getattr(c, 'node_list', []) or []:
+                for node in (getattr(c, 'node_list', []) or [])[:5]:
                     mc = getattr(node, 'message_chain', None)
-                    inner = self._extract_text(mc) if mc is not None else ''
+                    inner = self._extract_text(mc, max_length) if mc is not None else ''
                     sender = getattr(node, 'sender_name', '')
                     parts.append(f'[转发 {sender}] {inner}')
             elif t == 'Source':
@@ -101,6 +101,8 @@ class DefaultEventListener(EventListener):
                 parts.append(str(c))
             else:
                 parts.append(f'[{t}]')
+            if len(' '.join(parts)) > max_length:
+                return ' '.join(parts)[:max_length] + '...[截断]'
         return ' '.join(parts)
 
     async def _save_message(self, event):
