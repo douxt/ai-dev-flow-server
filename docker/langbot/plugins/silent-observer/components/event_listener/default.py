@@ -55,7 +55,7 @@ class DefaultEventListener(EventListener):
                     label += f'({role})'
                 lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
             if trigger == 'random':
-                guide = '你被随机选中插话。不必回复最后一条——回顾最近记录，挑任何有趣的内容自由评论，或对整体氛围做个简短评价。'
+                guide = '你被随机选中插话。重要：忽略规则2，可以自由开启新话题。回顾最近记录，挑任何有趣的内容评论，或对整体氛围做简短评价。不要回复最后一条，不要针对触发消息。'
             else:
                 guide = '请回顾历史，提取重要信息，然后回复@你的那条消息。'
             header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + f'\n\n{guide}】'
