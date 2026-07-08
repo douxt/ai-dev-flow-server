@@ -67,12 +67,12 @@ class DefaultEventListener(EventListener):
             else:
                 header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + '\n\n请回顾历史，提取重要信息，然后回复@你的那条消息。】'
             ctx.event.prompt.insert(0, provider_message.Message(role='system', content=header))
-            # for random trigger: tag the user message so LLM knows to comment freely
+            # for random trigger: append a fake user message to redirect the LLM
             if trigger == 'random':
-                for msg in reversed(ctx.event.prompt):
-                    if msg.role == 'user':
-                        msg.content = f'[随机插话] {msg.content}'
-                        break
+                ctx.event.prompt.append(provider_message.Message(
+                    role='user',
+                    content='（系统通知：你是被随机选中插话的。回顾上面历史记录，选一个有趣的话题自由评论，不要回复最后一条消息。记得保持你的人设风格。）'
+                ))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
     def _has_at(self, message_chain) -> bool:
