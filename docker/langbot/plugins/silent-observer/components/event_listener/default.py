@@ -16,7 +16,7 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
-            await self._save_message(ctx.event)
+            saved_count = await self._save_message(ctx.event)
             is_at = self._has_at(ctx.event.message_chain)
             if not is_at and random.random() >= self.prob:
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
@@ -24,7 +24,7 @@ class DefaultEventListener(EventListener):
             else:
                 trigger = 'at' if is_at else 'random'
                 key = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
-                self._last_trigger[key] = trigger
+                self._last_trigger[key] = (trigger, saved_count or 0)
                 print(f'[silent] gate: allowed ({trigger})', file=sys.stderr, flush=True)
 
         @self.handler(events.NormalMessageResponded)
@@ -42,7 +42,8 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
-            trigger = self._last_trigger.pop(ctx.event.session_name, 'at')
+            trigger_info = self._last_trigger.pop(ctx.event.session_name, ('at', -1))
+            trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
@@ -54,7 +55,13 @@ class DefaultEventListener(EventListener):
                     label += f'({role})'
                 lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
             if trigger == 'random':
-                msgs = msgs[:-1]  # 去掉最后一条（触发消息），让LLM自然看前面的内容
+                if saved_idx and saved_idx > 0:
+                    # reload full buffer to get accurate positioning
+                    full_msgs = await self._load_buffer(ctx.event.session_name, 0)
+                    if full_msgs:
+                        msgs = [m for i, m in enumerate(full_msgs) if i < saved_idx - 1]
+                if not msgs:
+                    msgs = []  # 如果没有历史，至少给空数组
                 lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
                 header = f'【你被随机选中插话。回顾最近记录，挑任何有趣的内容自由评论。】\n' + '\n'.join(lines) + f'\n\n【共{len(msgs)}条】'
             else:
@@ -132,11 +139,12 @@ class DefaultEventListener(EventListener):
             sender_name = str(event.sender_id)
             sender_title = ''
             sender_role = ''
-        await self._append_to_buffer(
+        count = await self._append_to_buffer(
             key=key, sender_id=str(event.sender_id),
             sender_name=sender_name, text=text,
             sender_title=sender_title, sender_role=sender_role,
         )
+        return count
 
     async def _append_to_buffer(self, key, sender_id, sender_name, text, sender_title='', sender_role=''):
         try:
@@ -172,8 +180,11 @@ class DefaultEventListener(EventListener):
             return
         count = len(data['messages'])
         print(f'[silent] buffer write: {key} total={count}', file=sys.stderr, flush=True)
+        return count
 
-    async def _load_buffer(self, session_name: str) -> list:
+    async def _load_buffer(self, session_name: str, count: int = None) -> list:
+        if count is None:
+            count = self.history_count
         key = self._buffer_key(session_name)
         try:
             raw = await self.plugin.get_plugin_storage(key)
@@ -181,6 +192,9 @@ class DefaultEventListener(EventListener):
                 data = json.loads(raw)
             else:
                 data = json.loads(raw.decode('utf-8'))
-            return data.get('messages', [])[-self.history_count:]
+            msgs = data.get('messages', [])
+            if count == 0:
+                return msgs
+            return msgs[-count:]
         except Exception:
             return []
