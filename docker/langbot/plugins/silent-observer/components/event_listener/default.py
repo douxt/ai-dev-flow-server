@@ -76,8 +76,6 @@ class DefaultEventListener(EventListener):
     def _extract_text(self, message_chain, max_length=300) -> str:
         if message_chain is None:
             return ''
-        types = [c.type for c in message_chain]
-        print(f'[silent] extract: types={types}', file=sys.stderr, flush=True)
         parts = []
         for c in message_chain:
             t = c.type
@@ -88,16 +86,19 @@ class DefaultEventListener(EventListener):
             elif t == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    parts.append(f'[转发] {self._extract_text(origin, max_length)}')
+                    parts.append(f'[引用] {self._extract_text(origin, max_length)}')
             elif t == 'Forward':
                 nodes = getattr(c, 'node_list', []) or []
-                print(f'[silent] Forward: {len(nodes)} nodes', file=sys.stderr, flush=True)
-                for i, node in enumerate(nodes[:5]):
-                    mc = getattr(node, 'message_chain', None)
-                    inner = self._extract_text(mc, max_length) if mc is not None else ''
-                    sender = getattr(node, 'sender_name', '')
-                    parts.append(f'[转发 {sender}] {inner}')
-                    print(f'[silent]   node[{i}]: sender={sender} mc={type(mc).__name__ if mc else None} inner_len={len(inner)}', file=sys.stderr, flush=True)
+                if nodes:
+                    for i, node in enumerate(nodes[:5]):
+                        mc = getattr(node, 'message_chain', None)
+                        inner = self._extract_text(mc, max_length) if mc is not None else ''
+                        sender = getattr(node, 'sender_name', '')
+                        parts.append(f'[合并转发 {sender}] {inner}')
+                    if len(nodes) > 5:
+                        parts.append(f'[共{len(nodes)}条,仅展示前5条]')
+                else:
+                    parts.append('[合并转发:无内容]')
             elif t == 'Source':
                 pass
             elif t == 'Image':
