@@ -138,6 +138,9 @@ class DefaultEventListener(EventListener):
         # filter noise: pure @ markers and unknown component types
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return
+        # truncate huge text (base64 garbage from old napcat versions, etc.)
+        if len(text) > 500:
+            text = text[:300] + '...[truncated]...' + text[-100:]
         data['messages'].append({
             'sender_name': sender_name, 'sender_id': sender_id,
             'sender_title': sender_title, 'sender_role': sender_role,
