@@ -46,7 +46,8 @@ class DefaultEventListener(EventListener):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
             trigger_info = self._last_trigger.pop(self._buffer_key(ctx.event.session_name), ('at', -1))
-            trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
+            # trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
+            trigger, saved_idx = 'random', -1  # TEMP: force random to verify injection
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
