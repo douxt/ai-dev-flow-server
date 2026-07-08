@@ -46,8 +46,7 @@ class DefaultEventListener(EventListener):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
             trigger_info = self._last_trigger.pop(self._buffer_key(ctx.event.session_name), ('at', -1))
-            # trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
-            trigger, saved_idx = 'random', -1  # TEMP: force random to verify injection
+            trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
@@ -60,16 +59,15 @@ class DefaultEventListener(EventListener):
                 lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
             if trigger == 'random':
                 if saved_idx and saved_idx > 0:
-                    # reload full buffer to get accurate positioning
                     full_msgs = await self._load_buffer(ctx.event.session_name, 0)
                     if full_msgs:
                         msgs = [m for i, m in enumerate(full_msgs) if i < saved_idx - 1]
                 if not msgs:
-                    msgs = []  # 如果没有历史，至少给空数组
+                    msgs = []
                 lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
-                header = f'【随机插话模式】你未被@，以下为近期群聊记录。可以自由评论任何有趣内容，不拘泥于最后一条。\n' + '\n'.join(lines) + f'\n\n【共{len(msgs)}条】'
+                header = f'[随机插话]\n【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
             else:
-                header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + '\n\n请回顾历史，提取重要信息，然后回复@你的那条消息。】'
+                header = f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
             ctx.event.prompt.append(provider_message.Message(role='system', content=header))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
