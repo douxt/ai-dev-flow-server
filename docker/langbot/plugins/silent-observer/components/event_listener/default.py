@@ -44,29 +44,32 @@ class DefaultEventListener(EventListener):
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
-            if not msgs: return
             trigger_info = self._last_trigger.pop(self._buffer_key(ctx.event.session_name), ('at', -1))
             trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
-            lines = []
-            for m in msgs:
-                name = m.get('sender_name', '?')
-                title = m.get('sender_title', '')
-                role = m.get('sender_role', '')
-                label = name
-                if title: label += f'[{title}]'
-                elif role and role not in ('Permission.MEMBER', 'MEMBER'):
-                    label += f'({role})'
-                lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
             if trigger == 'random':
                 if saved_idx and saved_idx > 0:
                     full_msgs = await self._load_buffer(ctx.event.session_name, 0)
                     if full_msgs:
                         msgs = [m for i, m in enumerate(full_msgs) if i < saved_idx - 1]
-                if not msgs:
+                    else:
+                        msgs = []
+                elif not msgs:
                     msgs = []
                 lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
                 header = f'[随机插话]\n【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
             else:
+                if not msgs:
+                    msgs = []
+                lines = []
+                for m in msgs:
+                    name = m.get('sender_name', '?')
+                    title = m.get('sender_title', '')
+                    role = m.get('sender_role', '')
+                    label = name
+                    if title: label += f'[{title}]'
+                    elif role and role not in ('Permission.MEMBER', 'MEMBER'):
+                        label += f'({role})'
+                    lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
                 header = f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
             ctx.event.prompt.append(provider_message.Message(role='system', content=header))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
