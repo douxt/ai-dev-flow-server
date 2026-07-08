@@ -54,15 +54,19 @@ class DefaultEventListener(EventListener):
             print(f'[silent] inject: {len(msgs)} messages for {ctx.event.session_name}', file=sys.stderr, flush=True)
 
     def _has_at(self, message_chain) -> bool:
+        if message_chain is None:
+            return False
         for c in message_chain:
-            if c.type == 'At' and str(c.target) == self.bot_qq:
+            if c.type == 'At' and str(getattr(c, 'target', '')) == self.bot_qq:
                 return True
-            if c.type == 'Quote' and hasattr(c, 'origin'):
-                if self._has_at(c.origin):
+            if c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None and self._has_at(origin):
                     return True
-            if c.type == 'Forward' and hasattr(c, 'node_list'):
-                for node in c.node_list:
-                    if hasattr(node, 'message_chain') and self._has_at(node.message_chain):
+            if c.type == 'Forward':
+                for node in getattr(c, 'node_list', []) or []:
+                    mc = getattr(node, 'message_chain', None)
+                    if mc is not None and self._has_at(mc):
                         return True
         return False
 
@@ -70,24 +74,31 @@ class DefaultEventListener(EventListener):
         return f'buffer:{session_name}'
 
     def _extract_text(self, message_chain) -> str:
+        if message_chain is None:
+            return ''
         parts = []
         for c in message_chain:
-            if c.type == 'Plain':
-                parts.append(c.text)
-            elif c.type == 'At':
-                parts.append(f'@{c.display or c.target}')
-            elif c.type == 'Quote' and hasattr(c, 'origin'):
-                inner = self._extract_text(c.origin)
-                parts.append(f'[转发] {inner}')
-            elif c.type == 'Forward' and hasattr(c, 'node_list'):
-                for node in c.node_list:
-                    inner = self._extract_text(node.message_chain) if hasattr(node, 'message_chain') else ''
+            t = c.type
+            if t == 'Plain':
+                parts.append(getattr(c, 'text', ''))
+            elif t == 'At':
+                parts.append(f'@{getattr(c, "display", None) or getattr(c, "target", "")}')
+            elif t == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    parts.append(f'[转发] {self._extract_text(origin)}')
+            elif t == 'Forward':
+                for node in getattr(c, 'node_list', []) or []:
+                    mc = getattr(node, 'message_chain', None)
+                    inner = self._extract_text(mc) if mc is not None else ''
                     sender = getattr(node, 'sender_name', '')
                     parts.append(f'[转发 {sender}] {inner}')
-            elif c.type == 'Image':
+            elif t == 'Image':
                 parts.append('[图片]')
-            elif c.type == 'Face':
+            elif t == 'Face':
                 parts.append(str(c))
+            else:
+                parts.append(f'[{t}]')
         return ' '.join(parts)
 
     async def _save_message(self, event):
