@@ -76,6 +76,8 @@ class DefaultEventListener(EventListener):
     def _extract_text(self, message_chain, max_length=300) -> str:
         if message_chain is None:
             return ''
+        types = [c.type for c in message_chain]
+        print(f'[silent] extract: types={types}', file=sys.stderr, flush=True)
         parts = []
         for c in message_chain:
             t = c.type
@@ -88,11 +90,14 @@ class DefaultEventListener(EventListener):
                 if origin is not None:
                     parts.append(f'[转发] {self._extract_text(origin, max_length)}')
             elif t == 'Forward':
-                for node in (getattr(c, 'node_list', []) or [])[:5]:
+                nodes = getattr(c, 'node_list', []) or []
+                print(f'[silent] Forward: {len(nodes)} nodes', file=sys.stderr, flush=True)
+                for i, node in enumerate(nodes[:5]):
                     mc = getattr(node, 'message_chain', None)
                     inner = self._extract_text(mc, max_length) if mc is not None else ''
                     sender = getattr(node, 'sender_name', '')
                     parts.append(f'[转发 {sender}] {inner}')
+                    print(f'[silent]   node[{i}]: sender={sender} mc={type(mc).__name__ if mc else None} inner_len={len(inner)}', file=sys.stderr, flush=True)
             elif t == 'Source':
                 pass
             elif t == 'Image':
