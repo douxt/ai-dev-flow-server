@@ -111,34 +111,9 @@ class DefaultEventListener(EventListener):
                 return ' '.join(parts)[:max_length] + '...[截断]'
         return ' '.join(parts)
 
-    async def _save_debug(self, key, info):
-        try:
-            import json as _json
-            raw = await self.plugin.get_plugin_storage(f'__debug__:{key}')
-            data = _json.loads(raw if isinstance(raw, str) else raw.decode('utf-8')) if raw else []
-        except Exception:
-            data = []
-        data.append(info)
-        if len(data) > 20:
-            data = data[-20:]
-        try:
-            await self.plugin.set_plugin_storage(f'__debug__:{key}', _json.dumps(data, ensure_ascii=False).encode('utf-8'))
-        except Exception:
-            pass
-
     async def _save_message(self, event):
         key = self._buffer_key(f'{event.launcher_type}_{event.launcher_id}')
         text = getattr(event, 'text_message', '') or self._extract_text(event.message_chain)
-        mc_types = [c.type for c in (event.message_chain or [])]
-        raw_text = getattr(event, 'text_message', '')
-        if not text or 'Forward' in mc_types or 'unknown' in str(mc_types).lower():
-            await self._save_debug(event.launcher_id, {
-                'time': str(getattr(event, 'time', '?')),
-                'text_message': raw_text[:200] if raw_text else '',
-                'mc_types': mc_types,
-                'extracted': text[:200],
-                'sender_id': str(event.sender_id),
-            })
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
