@@ -3,7 +3,6 @@ from datetime import datetime
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import events, context
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
-from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Plain
 
 class DefaultEventListener(EventListener):
     async def initialize(self):
@@ -38,12 +37,9 @@ class DefaultEventListener(EventListener):
                 sender_id=str(sender), sender_name='机器豆', text=text,
                 sender_title='', sender_role='BOT',
             )
-            # for random triggers: strip quote-origin
-            trigger_info = self._last_trigger.pop(session_key, ('at', -1))
-            trigger, _ = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
-            if trigger == 'random':
-                ctx.prevent_default()
-                ctx.event.reply_message_chain = MessageChain([Plain(text=text)])
+            # TODO: strip quote-origin for random triggers
+            # prevent_default on NormalMessageResponded breaks send pipeline
+            self._last_trigger.pop(session_key, None)
             print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
         @self.handler(events.PromptPreProcessing)
