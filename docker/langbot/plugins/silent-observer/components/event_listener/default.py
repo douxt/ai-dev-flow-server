@@ -56,7 +56,8 @@ class DefaultEventListener(EventListener):
                 elif not msgs:
                     msgs = []
                 lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
-                header = f'[随机插话]\n【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
+                ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话]'))
+                ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'))
             else:
                 if not msgs:
                     msgs = []
@@ -70,8 +71,7 @@ class DefaultEventListener(EventListener):
                     elif role and role not in ('Permission.MEMBER', 'MEMBER'):
                         label += f'({role})'
                     lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
-                header = f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'
-            ctx.event.prompt.append(provider_message.Message(role='system', content=header))
+                ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'))
             print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
     def _has_at(self, message_chain) -> bool:
