@@ -55,7 +55,9 @@ class DefaultEventListener(EventListener):
                     label += f'({role})'
                 lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
             if trigger == 'random':
-                header = f'【随机插话模式】你未被@，是随机选中。以下群聊记录仅供回顾——挑任意有趣内容自由评论，严禁回复最后一条。\n\n' + '\n'.join(lines) + f'\n\n【共{len(msgs)}条】'
+                msgs = msgs[:-1]  # 去掉最后一条（触发消息），让LLM自然看前面的内容
+                lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
+                header = f'【你被随机选中插话。回顾最近记录，挑任何有趣的内容自由评论。】\n' + '\n'.join(lines) + f'\n\n【共{len(msgs)}条】'
             else:
                 header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + '\n\n请回顾历史，提取重要信息，然后回复@你的那条消息。】'
             ctx.event.prompt.insert(0, provider_message.Message(role='system', content=header))
