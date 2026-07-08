@@ -40,7 +40,10 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
-            trigger = ctx.get_query_var('silent_trigger', 'at')
+            try:
+                trigger = ctx.get_query_var('silent_trigger')
+            except Exception:
+                trigger = 'at'
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
