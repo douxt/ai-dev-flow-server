@@ -23,8 +23,7 @@ class DefaultEventListener(EventListener):
                 ctx.prevent_default()
             else:
                 trigger = 'at' if is_at else 'random'
-                key = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
-                self._last_trigger[key] = (trigger, saved_count or 0)
+                self._last_trigger[self._buffer_key(f'{ctx.event.launcher_type}_{ctx.event.launcher_id}')] = (trigger, saved_count or 0)
                 print(f'[silent] gate: allowed ({trigger})', file=sys.stderr, flush=True)
 
         @self.handler(events.NormalMessageResponded)
@@ -39,14 +38,14 @@ class DefaultEventListener(EventListener):
             )
             # TODO: strip quote-origin for random triggers
             # prevent_default on NormalMessageResponded breaks send pipeline
-            self._last_trigger.pop(session_key, None)
+            self._last_trigger.pop(self._buffer_key(session_key), None)
             print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
-            trigger_info = self._last_trigger.get(ctx.event.session_name, ('at', -1))
+            trigger_info = self._last_trigger.pop(self._buffer_key(ctx.event.session_name), ('at', -1))
             trigger, saved_idx = trigger_info if isinstance(trigger_info, tuple) else (trigger_info, -1)
             lines = []
             for m in msgs:
