@@ -22,6 +22,7 @@ class DefaultEventListener(EventListener):
                 ctx.prevent_default()
             else:
                 trigger = 'at' if is_at else 'random'
+                ctx.set_query_var('silent_trigger', trigger)
                 print(f'[silent] gate: allowed ({trigger})', file=sys.stderr, flush=True)
 
         @self.handler(events.NormalMessageResponded)
@@ -39,6 +40,7 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
+            trigger = ctx.get_query_var('silent_trigger', 'at')
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
@@ -49,9 +51,13 @@ class DefaultEventListener(EventListener):
                 elif role and role not in ('Permission.MEMBER', 'MEMBER'):
                     label += f'({role})'
                 lines.append(f"[{m.get('time','?')}] {label}: {m.get('text','')}")
-            header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + '】'
+            if trigger == 'random':
+                guide = '你被随机选中插话。不必回复最后一条——回顾最近记录，挑任何有趣的内容自由评论，或对整体氛围做个简短评价。'
+            else:
+                guide = '请回顾历史，提取重要信息，然后回复@你的那条消息。'
+            header = f'【群聊最近 {len(msgs)} 条记录\n' + '\n'.join(lines) + f'\n\n{guide}】'
             ctx.event.prompt.insert(0, provider_message.Message(role='system', content=header))
-            print(f'[silent] inject: {len(msgs)} messages for {ctx.event.session_name}', file=sys.stderr, flush=True)
+            print(f'[silent] inject: {len(msgs)} msgs ({trigger})', file=sys.stderr, flush=True)
 
     def _has_at(self, message_chain) -> bool:
         if message_chain is None:
