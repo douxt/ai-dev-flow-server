@@ -56,7 +56,7 @@ class DefaultEventListener(EventListener):
                 elif not msgs:
                     msgs = []
                 lines = [f"[{m.get('time','?')}] {m.get('sender_name','?')}: {m.get('text','')}" for m in msgs]
-                ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话]'))
+                ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 禁止回复最后一条用户消息——它仅用于触发。从群聊历史中挑选最有趣的话题自由评论，必须开启新话题。'))
                 ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(msgs)}条\n】'))
             else:
                 if not msgs:
