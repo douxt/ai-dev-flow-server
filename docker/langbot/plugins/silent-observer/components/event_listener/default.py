@@ -93,6 +93,8 @@ class DefaultEventListener(EventListener):
                     inner = self._extract_text(mc) if mc is not None else ''
                     sender = getattr(node, 'sender_name', '')
                     parts.append(f'[转发 {sender}] {inner}')
+            elif t == 'Source':
+                pass
             elif t == 'Image':
                 parts.append('[图片]')
             elif t == 'Face':
