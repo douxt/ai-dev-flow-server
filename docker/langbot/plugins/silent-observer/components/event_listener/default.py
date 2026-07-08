@@ -11,6 +11,7 @@ class DefaultEventListener(EventListener):
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
         self.history_count = int(config.get('history_count', 20))
+        self._last_trigger = {}  # session_name → 'at'|'random'
         print(f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count}', file=sys.stderr, flush=True)
 
         @self.handler(events.GroupMessageReceived)
@@ -22,7 +23,8 @@ class DefaultEventListener(EventListener):
                 ctx.prevent_default()
             else:
                 trigger = 'at' if is_at else 'random'
-                ctx.set_query_var('silent_trigger', trigger)
+                key = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
+                self._last_trigger[key] = trigger
                 print(f'[silent] gate: allowed ({trigger})', file=sys.stderr, flush=True)
 
         @self.handler(events.NormalMessageResponded)
@@ -40,10 +42,7 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             msgs = await self._load_buffer(ctx.event.session_name)
             if not msgs: return
-            try:
-                trigger = ctx.get_query_var('silent_trigger')
-            except Exception:
-                trigger = 'at'
+            trigger = self._last_trigger.pop(ctx.event.session_name, 'at')
             lines = []
             for m in msgs:
                 name = m.get('sender_name', '?')
