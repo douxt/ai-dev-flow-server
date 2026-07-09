@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Tool
+metadata:
+  name: search_chat_history
+  label:
+    en_US: SearchChatHistory
+    zh_Hans: 搜索群聊历史
+  description:
+    en_US: Actively search the full group chat history archive when auto-injected results are insufficient.
+    zh_Hans: 当自动注入的检索结果不足时，主动搜索全部群聊历史归档。
+
+spec:
+  parameters:
+    type: object
+    properties:
+      query:
+        type: string
+        description: 搜索关键词，支持自然语言描述。
+      top_k:
+        type: integer
+        description: 返回条数，默认5，最大20。
+      sender_name:
+        type: string
+        description: 按发送者名称筛选（可选）。
+      days:
+        type: integer
+        description: 限定最近N天的消息（可选）。
+    required:
+      - query
+
+  llm_prompt: |
+    主动搜索全部群聊历史记录归档。当自动注入的 [群聊历史检索] 和 【】群聊最近记录不足以回答问题时，调用此工具深入检索。
+
+    适用场景：
+    - 用户询问"之前有没有人提过XX"但自动注入结果不完整
+    - 需要查找特定人的发言历史（指定 sender_name）
+    - 需要限定时间范围的话题搜索（指定 days）
+    - 需要比自动注入更多的历史上下文
+
+    参数说明：
+    - query（必填）：自然语言搜索词
+    - top_k（可选）：返回条数，默认5
+    - sender_name（可选）：按发送者名称筛选
+    - days（可选）：限定最近N天
+
+    调用示例：
+    - search_chat_history(query="太空工程师服务器配置")
+    - search_chat_history(query="MFF", sender_name="零", days=30)
+
+execution:
+  python:
+    path: search_chat_history.py
+    attr: SearchChatHistory
