@@ -62,6 +62,15 @@ class SearchChatHistory(Tool):
             from_time = time.time() - days * 86400
             filters.append({"timestamp_unix": {"$gte": from_time}})
 
+        # 调用计数
+        try:
+            with open('/tmp/silent_tool_calls.log', 'a') as f:
+                from datetime import datetime, timezone, timedelta
+                now = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+                f.write(f"[{now}] query={query[:80]} session={session_id} sender={sender_name} days={days}\n")
+        except:
+            pass
+
         logger.info(
             "[silent] search_chat_history: query_id=%s session=%s query=%s sender=%s days=%s",
             query_id, session_id, query[:80], sender_name, days,
@@ -101,4 +110,9 @@ class SearchChatHistory(Tool):
             "[silent] search_chat_history done: query_id=%s result_count=%s",
             query_id, len(lines),
         )
+        try:
+            with open('/tmp/silent_tool_calls.log', 'a') as f:
+                f.write(f"  -> {len(lines)} results\n")
+        except:
+            pass
         return '\n'.join(lines)
