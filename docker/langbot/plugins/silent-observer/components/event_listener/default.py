@@ -82,7 +82,7 @@ class DefaultEventListener(EventListener):
             sender = getattr(ctx.event, 'sender_id', 'unknown')
             text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
             if self.kb_enabled:
-                time_str = _now().strftime('%m-%d %H:%M')
+                time_str = _now().strftime('%Y-%m-%d %H:%M')
                 meta = _build_msg_metadata(session_name, '机器豆', '0', time_str, text, 'BOT', '')
                 doc_id = _build_document_id(session_name, time_str, '0', text)
                 self._run_background(self._store_message(meta, doc_id))
@@ -280,7 +280,7 @@ class DefaultEventListener(EventListener):
         if len(text) > 500:
             text = text[:300] + '...[truncated]...' + text[-100:]
         session_name = f'{event.launcher_type}_{event.launcher_id}'
-        time_str = _now().strftime('%m-%d %H:%M')
+        time_str = _now().strftime('%Y-%m-%d %H:%M')
         doc_id = _build_document_id(session_name, time_str, str(event.sender_id), text)
         if self.kb_enabled:
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
@@ -303,7 +303,7 @@ class DefaultEventListener(EventListener):
             sender_title = ''
             sender_role = ''
         session_name = f'{event.launcher_type}_{event.launcher_id}'
-        time_str = _now().strftime('%m-%d %H:%M')
+        time_str = _now().strftime('%Y-%m-%d %H:%M')
         doc_id = _build_document_id(session_name, time_str, str(event.sender_id), text)
         meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
         await self._store_message(meta, doc_id)
