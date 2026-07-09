@@ -67,10 +67,17 @@ class SearchChatHistory(Tool):
             query_id, session_id, query[:80], sender_name, days,
         )
 
+        # 对标 LTM：invoke_embedding + vector_search 直连 ChromaDB
         try:
-            results = await api.retrieve_knowledge(
-                kb_id=kb_id,
-                query_text=query.strip(),
+            vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query.strip()])
+            qv = vectors[0]
+            import math
+            norm = math.sqrt(sum(v*v for v in qv))
+            if norm > 0:
+                qv = [v / norm for v in qv]
+            raw = await self.plugin.vector_search(
+                collection_id=kb_id,
+                query_vector=qv,
                 top_k=top_k,
                 filters={"$and": filters},
             )
@@ -78,21 +85,17 @@ class SearchChatHistory(Tool):
             logger.error("[silent] search_chat_history error: %s", e)
             return f"Error: retrieval failed: {e}"
 
-        if not results:
+        if not raw:
             return "No matching chat history found."
 
         lines = []
-        for r in results:
-            content_parts = []
-            for ce in r.get('content', []):
-                if isinstance(ce, dict) and ce.get('type') == 'text':
-                    content_parts.append(ce.get('text', ''))
-            text = ' '.join(content_parts)
-            if text:
-                meta = r.get('metadata', {})
-                ts = meta.get('timestamp', '?')
-                sn = meta.get('sender_name', '?')
-                lines.append(f"[{ts}] {sn}: {text}")
+        for r in raw:
+            meta = r.get('metadata', {})
+            ts = meta.get('timestamp', '?')
+            sn = meta.get('sender_name', '?')
+            doc_text = meta.get('text', '') or r.get('document', '')
+            if doc_text:
+                lines.append(f"[{ts}] {sn}: {doc_text}")
 
         logger.info(
             "[silent] search_chat_history done: query_id=%s result_count=%s",

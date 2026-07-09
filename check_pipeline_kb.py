@@ -1,0 +1,12 @@
+import sqlite3, json
+db = sqlite3.connect('/app/data/langbot.db')
+row = db.execute("SELECT uuid, config FROM legacy_pipelines WHERE uuid='dc0ff402-edc3-4dab-8054-d2a855241dea'").fetchone()
+cfg = json.loads(row[1] if isinstance(row[1], str) else row[1].decode('utf-8'))
+ai = cfg.get('ai', {})
+la = ai.get('local-agent', {})
+kbs = la.get('knowledge-bases', [])
+old_kb = la.get('knowledge-base', '')
+print(f'knowledge-bases: {kbs}')
+print(f'knowledge-base (old): {old_kb}')
+print(f'Dou KB id: da7a1cef-f5c3-4b50-9acd-fe0d3bf12cfc')
+print(f'Dou in list: {"da7a1cef-f5c3-4b50-9acd-fe0d3bf12cfc" in kbs}')
