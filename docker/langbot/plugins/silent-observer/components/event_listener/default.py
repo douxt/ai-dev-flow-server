@@ -93,6 +93,8 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
+            now_str = _now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')
+            ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}'))
             items = []
             search_count = 0
             trigger = 'at'
