@@ -285,6 +285,8 @@ class DefaultEventListener(EventListener):
         if self.kb_enabled:
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
             await self._store_message(meta, doc_id)
+            if sender_title or (sender_role and sender_role not in ('Permission.MEMBER', 'MEMBER')):
+                self._run_background(self._backfill_sender(str(event.sender_id), sender_name, sender_title, sender_role))
         return doc_id
 
     async def _save_and_store(self, event):
@@ -320,6 +322,52 @@ class DefaultEventListener(EventListener):
             )
         except Exception as e:
             print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
+
+    async def _backfill_sender(self, sender_id, new_name, title, role):
+        """回填历史消息中该 sender_id 的裸名，替换为含群名片/头衔的名字"""
+        label = new_name
+        if title:
+            label += f'[{title}]'
+        elif role and role not in ('Permission.MEMBER', 'MEMBER'):
+            label += f'({role})'
+        try:
+            raw = await self.plugin.vector_list(
+                self.kb_id,
+                filters={"$and": [{"sender_id": sender_id}, {"type": "chat_history"}]},
+                limit=200, offset=0,
+            )
+            items = raw.get('items', []) if isinstance(raw, dict) else []
+        except Exception as e:
+            print(f'[silent] backfill query error: {e}', file=sys.stderr, flush=True)
+            return
+
+        ids_to_update = []
+        metas_to_update = []
+        for item in items:
+            meta = item.get('metadata', {})
+            old_name = meta.get('sender_name', '')
+            if old_name == label:
+                continue
+            if '[' in old_name or '(' in old_name:
+                continue  # 已有群名片信息
+            old_text = meta.get('text', '')
+            new_text = f"[{meta.get('timestamp', '?')}] {label}: {old_text.split(']: ', 1)[-1] if ']: ' in old_text else old_text}"
+            meta['sender_name'] = label
+            meta['text'] = new_text
+            ids_to_update.append(item.get('id'))
+            metas_to_update.append(meta)
+
+        if ids_to_update:
+            try:
+                await self.plugin.vector_upsert(
+                    collection_id=self.kb_id,
+                    ids=ids_to_update,
+                    metadata=metas_to_update,
+                    documents=[m['text'] for m in metas_to_update],
+                )
+                print(f'[silent] backfill: {sender_id} → {label} ({len(ids_to_update)} 条)', file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f'[silent] backfill update error: {e}', file=sys.stderr, flush=True)
 
     async def _get_recent_messages(self, api, session_name, limit):
         try:
