@@ -159,3 +159,51 @@ System Prompt + LTM 画像
 - [ ] System prompt 已更新：`read_prompt.py` 确认
 - [ ] 检查 `silent_init.log`：`kb_enabled=True`
 - [ ] 检查 `silent_gate.log`：gate/inject/search 链路完整
+
+---
+
+## 九、2026-07-09 下午：数据导入 + Tool 踩坑
+
+### monitoring_messages 批量导入
+
+LangBot 自带 `monitoring_messages` 表，记录了所有经过流水线的消息（1895 条），比 ChromaDB 原有的 120 条多 15 倍。
+
+- `variables.user_message_text` 直接是纯文本，无需解析 `message_content` JSON 链
+- 用 `pyseekdb.get_default_embedding_function()` 本地生成向量（all-MiniLM-L6-v2, 384 维），不需要 HTTP API
+- 导入结果：太空工程师群 1311 条，测试群 105 条，总计 1416 条
+- 覆盖 6 月 9 日 ~ 7 月 9 日整整一个月
+
+**群名片缺失问题**：monitoring 只有 QQ 昵称，群名片/头衔/权限来自 OneBot 事件的 `sender.member_name`/`special_title`/`permission`。
+- 导入时用 ChromaDB 已有映射表补全
+- 未来：`_backfill_sender()` 自动回填，发现新群名片时更新该 sender_id 的全部历史
+
+### search_chat_history Tool 注册踩坑
+
+**关键 bug**：Tool 需要 `.yaml` 注册文件，光是 `.py` + `__init__.py` 不够。
+
+LangBot 通过 `fromDirs` 扫描目录，参照 LTM 插件的 `recall_memory.yaml` 格式：
+- `spec.parameters` — JSON Schema 定义参数
+- `spec.llm_prompt` — **关键**，告诉 LLM 何时调用、怎么用
+
+**monitoring_tool_calls 不记录插件工具**：LTM 的 recall_memory 工作正常但该表始终为 0。
+插件工具走运行时 WebSocket，不经过 LangBot 内部监控。必须自己打日志。
+
+**首次成功调用**：14:46，LLM 主动连续调了 3 次（`2026年群聊消息`、`2026`、`2026年7月 群聊`）。
+
+### 时间戳修复
+
+- 旧迁移脚本硬编码 `timestamp_unix: 0.0` 导致 69 条记录排序异常
+- 从 `text` 字段解析 `MM-DD HH:MM` + 补年份 2026 → 计算正确 Unix 时间戳 → `col.update()` 批量修复
+- 时间格式统一为 `%Y-%m-%d %H:%M`
+
+### 其他改进
+
+- 提示词注入当前北京时间：`_now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')`
+- 提示词重构：`[记忆库（LTM）]` → `[可用工具]`，加入 `search_chat_history` 说明
+- 检索决策链更新：自动注入 → search_chat_history() → recall_memory()
+- 工具调用计数器：`/tmp/silent_tool_calls.log`
+- 随机插话：`prob=0.1`，`[随机插话]` system prompt + 近因阻断
+
+### WebSocket 断连
+
+重启 langbot 容器时 NapCat WS 会断开 ~30 秒，期间消息丢失。重启顺序：`langbot-plugin` → `langbot` → 等 WS 重连。
