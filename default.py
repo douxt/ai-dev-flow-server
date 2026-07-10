@@ -47,6 +47,7 @@ class DefaultEventListener(EventListener):
         self.vision_model_uuid = str(config.get('vision_model_uuid', ''))
         self.vision_all_messages = bool(config.get('vision_all_messages', False))
         self.vision_daily_limit = int(config.get('vision_daily_limit', 0))
+        self.debug_dump = bool(config.get('debug_dump', False))
         if self.vision_enabled and not self.vision_model_uuid:
             print('[silent] WARNING: vision_enabled=true but vision_model_uuid empty, disabling', file=sys.stderr, flush=True)
             self.vision_enabled = False
@@ -181,8 +182,13 @@ class DefaultEventListener(EventListener):
                 fresh = [(k, v) for k, v in self._image_cache.items() if now_t - v['time'] <= 300]
                 cache_desc = {k: v for k, v in fresh}
 
-                # 只用当前触发消息的图片状态
+                # 优先用当前触发消息的图片状态
                 trigger_img = cache_desc.get(trigger_doc_id) if trigger_doc_id else None
+
+                # 如果当前消息没图，fallback 到最近的缓存图片
+                if not trigger_img and cache_desc:
+                    sorted_cache = sorted(cache_desc.items(), key=lambda x: x[1]['time'], reverse=True)
+                    trigger_img = sorted_cache[0][1]
 
                 # 时间线替换：只替换触发消息对应的行
                 new_lines = []
@@ -204,17 +210,52 @@ class DefaultEventListener(EventListener):
                 else:
                     query_vars = await api.get_query_vars()
                     at_text = str(query_vars.get('user_message_text', '') or '')
+
+                    # 从 prompt 中提取引用内容：找 [@模式] 之前的最后一个 user 消息
+                    quote_text = ''
+                    found_at_mode = False
+                    for pm in reversed(ctx.event.prompt):
+                        if pm.role == 'system' and pm.content and '@模式' in (pm.content or ''):
+                            found_at_mode = True
+                            continue
+                        if found_at_mode and pm.role == 'user' and pm.content:
+                            ct = pm.content
+                            if isinstance(ct, str):
+                                if at_text.strip() and at_text.strip() in ct:
+                                    quote_text = ct.replace(at_text.strip(), '').strip()
+                                else:
+                                    quote_text = ct
+                            elif isinstance(ct, list):
+                                texts = []
+                                for ce in ct:
+                                    if hasattr(ce, 'text') and ce.text:
+                                        texts.append(ce.text)
+                                full_text = ' '.join(texts)
+                                if at_text.strip() and at_text.strip() in full_text:
+                                    quote_text = full_text.replace(at_text.strip(), '').strip()
+                                else:
+                                    quote_text = full_text
+                            break
+
                     # 从时间线提取图片描述 + 当前触发消息的图片状态
                     timeline_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
                     if trigger_img and trigger_img['status'] == 'done':
                         recent_imgs = timeline_imgs + [trigger_img['desc']]
                     elif trigger_img and trigger_img['status'] == 'pending':
                         recent_imgs = timeline_imgs + ['[图片识别中...]']
+                    elif trigger_img and trigger_img['status'] == 'failed':
+                        recent_imgs = timeline_imgs + ['[图片识别失败]']
                     else:
                         recent_imgs = timeline_imgs
+
+                    _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
                     if recent_imgs:
                         img_hint = '\n'.join(f'  {r}' for r in recent_imgs[-5:])
-                        ctx.event.prompt.append(provider_message.Message(role='user', content=f'[最新图片] 以下是当前群聊中最近的图片内容，如果你被问到关于图片的问题，直接据此回答：\n{img_hint}'))
+                        if quote_text:
+                            combined = f'[引用内容] {quote_text}\n[图片内容] {img_hint}\n请结合引用内容和图片内容综合回答。'
+                        else:
+                            combined = f'[最新图片] 以下是当前群聊中最近的图片内容：\n{img_hint}'
+                        ctx.event.prompt.append(provider_message.Message(role='user', content=combined))
                         _log_gate(f'[{session_name}] vision: recent_imgs injected ({len(recent_imgs)} imgs, {len(img_hint)} chars)')
                     else:
                         _log_gate(f'[{session_name}] vision: recent_imgs EMPTY (total timeline lines={len(lines)})')
@@ -326,6 +367,8 @@ class DefaultEventListener(EventListener):
                 if origin is not None and self._has_at(origin):
                     return True
             if c.type == 'Forward':
+                nodes = getattr(c, 'node_list', []) or []
+                _log_gate(f'Forward debug: node_count={len(nodes)}, nodes={nodes}')
                 for node in getattr(c, 'node_list', []) or []:
                     mc = getattr(node, 'message_chain', None)
                     if mc is not None and self._has_at(mc):
@@ -364,14 +407,29 @@ class DefaultEventListener(EventListener):
             elif t == 'Forward':
                 nodes = getattr(c, 'node_list', []) or []
                 if nodes:
+                    # dump Forward 组件真实结构，摸清数据结构
+                    _log_gate(f'Forward debug: node_count={len(nodes)}')
+                    for ni, node in enumerate(nodes[:3]):
+                        node_fields = {k: repr(v)[:100] for k, v in vars(node).items() if not k.startswith('_')} if hasattr(node, '__dict__') else {'raw': str(node)[:200]}
+                        _log_gate(f'  node[{ni}] fields={node_fields}')
                     for ni, node in enumerate(nodes[:5]):
                         mc = getattr(node, 'message_chain', None)
+                        if mc is None:
+                            # 没有 message_chain，dump 节点所有可用字段
+                            node_attrs = dir(node)
+                            _log_gate(f'  node[{ni}] message_chain=None, all_attrs={node_attrs}')
                         inner = await self._extract_text(mc, max_length, image_descriptions={}, depth=depth+1) if mc is not None else ''
                         sender = getattr(node, 'sender_name', '')
-                        parts.append(f'[合并转发 {sender}] {inner}')
+                        if not sender:
+                            sender = str(getattr(node, 'sender_id', getattr(node, 'user_id', '')))
+                        if inner:
+                            parts.append(f'[合并转发 {sender}] {inner}')
+                        else:
+                            parts.append(f'[合并转发 {sender}: 无文本]')
                     if len(nodes) > 5:
                         parts.append(f'[共{len(nodes)}条,仅展示前5条]')
                 else:
+                    _log_gate(f'Forward node_list empty, chain_types={[x.type for x in message_chain]}')
                     parts.append('[合并转发:无内容]')
             elif t == 'Source':
                 pass
@@ -408,6 +466,10 @@ class DefaultEventListener(EventListener):
 
     async def _save_text_only(self, event):
         """只存文本到 KB，不等待识图。gate 触发路径使用。"""
+        # 检测 Forward 消息类型
+        has_forward = any(c.type == 'Forward' for c in (event.message_chain or []))
+        if has_forward:
+            _log_gate(f'_save_text_only: Forward detected in message from {event.sender_id}')
         text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
         sender = getattr(event.message_event, 'sender', None)
         if sender:
@@ -420,6 +482,10 @@ class DefaultEventListener(EventListener):
             sender_role = ''
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return None
+        # Forward 兜底：提取结果为纯占位时，补充转发来源信息
+        if has_forward and (not text.strip() or text.strip() in ('[合并转发:无内容]',)):
+            fc_count = sum(1 for c in event.message_chain if c.type == 'Forward')
+            text = f'[合并转发消息-共{fc_count}个]'
         if len(text) > 500:
             text = text[:300] + '...[truncated]...' + text[-100:]
         session_name = f'{event.launcher_type}_{event.launcher_id}'
