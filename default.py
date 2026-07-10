@@ -179,20 +179,23 @@ class DefaultEventListener(EventListener):
                 # 用 _image_cache 替换时间线中的 [图片] 占位
                 now_t = time.time()
                 fresh = [(k, v) for k, v in self._image_cache.items() if now_t - v['time'] <= 300]
-                if fresh:
-                    cache_desc = {k: v for k, v in fresh}
-                    new_lines = []
-                    for line in lines:
-                        if '[图片]' in line:
-                            for did, entry in cache_desc.items():
-                                if entry['status'] == 'done':
-                                    line = line.replace('[图片]', entry['desc'], 1)
-                                elif entry['status'] == 'pending':
-                                    line = line.replace('[图片]', '[图片识别中...]', 1)
-                                elif entry['status'] == 'failed':
-                                    line = line.replace('[图片]', '[图片(识别失败)]', 1)
-                        new_lines.append(line)
-                    lines = new_lines
+                cache_desc = {k: v for k, v in fresh}
+
+                # 只用当前触发消息的图片状态
+                trigger_img = cache_desc.get(trigger_doc_id) if trigger_doc_id else None
+
+                # 时间线替换：只替换触发消息对应的行
+                new_lines = []
+                for line in lines:
+                    if trigger_img:
+                        if trigger_img['status'] == 'done':
+                            line = line.replace('[图片]', trigger_img['desc'], 1)
+                        elif trigger_img['status'] == 'pending':
+                            line = line.replace('[图片]', '[图片识别中...]', 1)
+                        elif trigger_img['status'] == 'failed':
+                            line = line.replace('[图片]', '[图片(识别失败)]', 1)
+                    new_lines.append(line)
+                lines = new_lines
 
                 if trigger == 'random':
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
@@ -201,11 +204,14 @@ class DefaultEventListener(EventListener):
                 else:
                     query_vars = await api.get_query_vars()
                     at_text = str(query_vars.get('user_message_text', '') or '')
-                    # 从时间线和 _image_cache 中提取图片
-                    recent_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
-                    if not recent_imgs:
-                        fresh_done = [v for v in cache_desc.values() if v['status'] == 'done']
-                        recent_imgs = [v['desc'] for v in fresh_done[-5:]]
+                    # 从时间线提取图片描述 + 当前触发消息的图片状态
+                    timeline_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
+                    if trigger_img and trigger_img['status'] == 'done':
+                        recent_imgs = timeline_imgs + [trigger_img['desc']]
+                    elif trigger_img and trigger_img['status'] == 'pending':
+                        recent_imgs = timeline_imgs + ['[图片识别中...]']
+                    else:
+                        recent_imgs = timeline_imgs
                     if recent_imgs:
                         img_hint = '\n'.join(f'  {r}' for r in recent_imgs[-5:])
                         ctx.event.prompt.append(provider_message.Message(role='user', content=f'[最新图片] 以下是当前群聊中最近的图片内容，如果你被问到关于图片的问题，直接据此回答：\n{img_hint}'))
@@ -275,21 +281,18 @@ class DefaultEventListener(EventListener):
                 import traceback
                 with open('/tmp/silent_gate.log', 'a') as f:
                     f.write('[silent] inject ERROR: %s\n%s\n' % (e, traceback.format_exc()))
-            # 从 _image_cache 注入视觉识别结果
+            # 从 _image_cache 注入视觉识别结果（只用当前触发消息）
             try:
-                now_t2 = time.time()
-                fresh_cache = [(k, v) for k, v in self._image_cache.items() if now_t2 - v['time'] <= 300 and v['status'] == 'done']
-                if fresh_cache:
-                    desc_lines = []
-                    for _, entry in sorted(fresh_cache, key=lambda x: x[1]['time'], reverse=True)[:5]:
-                        if entry['desc'] and entry['desc'] != '[图片]':
-                            desc_lines.append(f'  {entry["desc"]}')
-                    if desc_lines:
-                        ctx.event.prompt.append(provider_message.Message(
-                            role='user',
-                            content='[系统通知-视觉识别] 以上消息中的图片经AI识别，内容如下——这是你眼睛看到的结果，直接据此回答：\n' + '\n'.join(desc_lines)
-                        ))
-                        _log_gate(f'[{session_name}] vision: system_msg injected ({len(desc_lines)} images)')
+                trigger_entry = cache_desc.get(trigger_doc_id) if trigger_doc_id else None
+                desc_lines = []
+                if trigger_entry and trigger_entry['status'] == 'done' and trigger_entry['desc'] != '[图片]':
+                    desc_lines.append(f'  {trigger_entry["desc"]}')
+                if desc_lines:
+                    ctx.event.prompt.append(provider_message.Message(
+                        role='user',
+                        content='[系统通知-视觉识别] 以上消息中的图片经AI识别，内容如下——这是你眼睛看到的结果，直接据此回答：\n' + '\n'.join(desc_lines)
+                    ))
+                    _log_gate(f'[{session_name}] vision: system_msg injected ({len(desc_lines)} images)')
             except Exception as e:
                 import traceback
                 _log_gate(f'[{session_name}] vision: inject error {type(e).__name__}: {e}\n{traceback.format_exc()[:300]}')
