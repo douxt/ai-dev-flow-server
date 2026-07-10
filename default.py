@@ -231,9 +231,9 @@ class DefaultEventListener(EventListener):
                     if recent_imgs:
                         img_hint = '\n'.join(f'  {r}' for r in recent_imgs[-5:])
                         if quote_text:
-                            combined = f'[引用内容] {quote_text}\n[图片内容] {img_hint}\n请结合引用内容和图片内容综合回答。'
+                            combined = f'[引用内容] {quote_text}\n[群聊图片] {img_hint}\n请综合分析，包括引用的文字和群内图片的相关信息。'
                         else:
-                            combined = f'[最新图片] 以下是当前群聊中最近的图片内容：\n{img_hint}'
+                            combined = f'[群聊上下文] 以下是群内最近的图片内容描述：\n{img_hint}'
                         ctx.event.prompt.append(provider_message.Message(role='user', content=combined))
                         _log_gate(f'[{session_name}] vision: recent_imgs injected ({len(recent_imgs)} imgs, {len(img_hint)} chars)')
                     else:
