@@ -87,13 +87,15 @@ class DefaultEventListener(EventListener):
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
+            # 提取引用文本（从 message_chain 的 Quote 组件）
+            quote_text = await self._extract_quote(ctx.event.message_chain)
             if is_trigger and self.kb_enabled:
                 doc_id = await self._save_text_only(ctx.event)
                 if doc_id and self.vision_enabled and self._has_image(ctx.event.message_chain):
                     self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
                     self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id)
+                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -104,7 +106,7 @@ class DefaultEventListener(EventListener):
             elif is_trigger:
                 doc_id = await self._save_text_only(ctx.event)
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id)
+                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -147,11 +149,13 @@ class DefaultEventListener(EventListener):
             trigger = 'at'
             try:
                 session_name = ctx.event.session_name
-                trigger_info = self._last_trigger.pop(session_name, ('at', None))
+                trigger_info = self._last_trigger.pop(session_name, ('at', None, ''))
                 if isinstance(trigger_info, tuple):
-                    trigger, trigger_doc_id = trigger_info[0], trigger_info[1] if len(trigger_info) > 1 else None
+                    trigger = trigger_info[0]
+                    trigger_doc_id = trigger_info[1] if len(trigger_info) > 1 else None
+                    quote_text = trigger_info[2] if len(trigger_info) > 2 else ''
                 else:
-                    trigger, trigger_doc_id = trigger_info, None
+                    trigger, trigger_doc_id, quote_text = trigger_info, None, ''
 
                 if not self.kb_enabled or not self.kb_id:
                     return
@@ -457,6 +461,26 @@ class DefaultEventListener(EventListener):
                 if origin is not None:
                     parts.append(f'[引用] {await self._extract_text(origin, 200, depth=1)}')
         return ' '.join(parts).strip()
+
+    async def _extract_quote(self, message_chain) -> str:
+        """从 message_chain 的 Quote 组件提取引用文本"""
+        if message_chain is None:
+            return ''
+        for c in message_chain:
+            if c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    return await self._extract_text(origin, 300, depth=1)
+            elif c.type == 'Forward':
+                # Forward 内查找 Quote
+                nodes = getattr(c, 'node_list', []) or []
+                for node in nodes:
+                    mc = getattr(node, 'message_chain', None)
+                    if mc is not None:
+                        result = await self._extract_quote(mc)
+                        if result:
+                            return result
+        return ''
 
     async def _save_text_only(self, event):
         """只存文本到 KB，不等待识图。gate 触发路径使用。"""
