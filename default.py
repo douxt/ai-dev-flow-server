@@ -407,17 +407,8 @@ class DefaultEventListener(EventListener):
             elif t == 'Forward':
                 nodes = getattr(c, 'node_list', []) or []
                 if nodes:
-                    # dump Forward 组件真实结构，摸清数据结构
-                    _log_gate(f'Forward debug: node_count={len(nodes)}')
-                    for ni, node in enumerate(nodes[:3]):
-                        node_fields = {k: repr(v)[:100] for k, v in vars(node).items() if not k.startswith('_')} if hasattr(node, '__dict__') else {'raw': str(node)[:200]}
-                        _log_gate(f'  node[{ni}] fields={node_fields}')
                     for ni, node in enumerate(nodes[:5]):
                         mc = getattr(node, 'message_chain', None)
-                        if mc is None:
-                            # 没有 message_chain，dump 节点所有可用字段
-                            node_attrs = dir(node)
-                            _log_gate(f'  node[{ni}] message_chain=None, all_attrs={node_attrs}')
                         inner = await self._extract_text(mc, max_length, image_descriptions={}, depth=depth+1) if mc is not None else ''
                         sender = getattr(node, 'sender_name', '')
                         if not sender:
@@ -429,7 +420,6 @@ class DefaultEventListener(EventListener):
                     if len(nodes) > 5:
                         parts.append(f'[共{len(nodes)}条,仅展示前5条]')
                 else:
-                    _log_gate(f'Forward node_list empty, chain_types={[x.type for x in message_chain]}')
                     parts.append('[合并转发:无内容]')
             elif t == 'Source':
                 pass
@@ -466,11 +456,16 @@ class DefaultEventListener(EventListener):
 
     async def _save_text_only(self, event):
         """只存文本到 KB，不等待识图。gate 触发路径使用。"""
-        # 检测 Forward 消息类型
-        has_forward = any(c.type == 'Forward' for c in (event.message_chain or []))
-        if has_forward:
-            _log_gate(f'_save_text_only: Forward detected in message from {event.sender_id}')
-        text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
+        chain_types = [c.type for c in (event.message_chain or [])]
+        # NapCat 收到合并转发时，message_chain 只有 ['Source']，无实际内容
+        # 识别为转发群聊记录，明确标记
+        is_forward_only = chain_types == ['Source']
+        text = ''
+        if is_forward_only:
+            text = '[合并转发群聊记录]'
+            _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
+        else:
+            text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
@@ -482,10 +477,6 @@ class DefaultEventListener(EventListener):
             sender_role = ''
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return None
-        # Forward 兜底：提取结果为纯占位时，补充转发来源信息
-        if has_forward and (not text.strip() or text.strip() in ('[合并转发:无内容]',)):
-            fc_count = sum(1 for c in event.message_chain if c.type == 'Forward')
-            text = f'[合并转发消息-共{fc_count}个]'
         if len(text) > 500:
             text = text[:300] + '...[truncated]...' + text[-100:]
         session_name = f'{event.launcher_type}_{event.launcher_id}'
