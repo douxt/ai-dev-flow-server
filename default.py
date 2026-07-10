@@ -216,26 +216,23 @@ class DefaultEventListener(EventListener):
                     at_text = str(query_vars.get('user_message_text', '') or '')
                     # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
 
-                    # 从时间线提取图片描述 + 当前触发消息的图片状态
+                    # 从时间线提取已完成的图片描述
                     timeline_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
-                    if trigger_img and trigger_img['status'] == 'done':
-                        recent_imgs = timeline_imgs + [trigger_img['desc']]
-                    elif trigger_img and trigger_img['status'] == 'pending':
-                        recent_imgs = timeline_imgs + ['[图片识别中...]']
-                    elif trigger_img and trigger_img['status'] == 'failed':
-                        recent_imgs = timeline_imgs + ['[图片识别失败]']
-                    else:
-                        recent_imgs = timeline_imgs
+                    done_imgs = [trigger_img['desc']] if (trigger_img and trigger_img['status'] == 'done') else []
+                    done_imgs = timeline_imgs + done_imgs
 
                     _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
-                    if recent_imgs:
-                        img_hint = '\n'.join(f'  {r}' for r in recent_imgs[-5:])
+                    if done_imgs:
+                        img_hint = '\n'.join(f'  {r}' for r in done_imgs[-5:])
                         if quote_text:
                             combined = f'[引用内容] {quote_text}\n[群聊图片] {img_hint}\n请综合分析，包括引用的文字和群内图片的相关信息。'
                         else:
                             combined = f'[群聊上下文] 以下是群内最近的图片内容描述：\n{img_hint}'
                         ctx.event.prompt.append(provider_message.Message(role='user', content=combined))
-                        _log_gate(f'[{session_name}] vision: recent_imgs injected ({len(recent_imgs)} imgs, {len(img_hint)} chars)')
+                        _log_gate(f'[{session_name}] vision: recent_imgs injected ({len(done_imgs)} imgs, {len(img_hint)} chars)')
+                    elif quote_text:
+                        ctx.event.prompt.append(provider_message.Message(role='user', content=f'[引用内容] {quote_text}'))
+                        _log_gate(f'[{session_name}] quote only, no images')
                     else:
                         _log_gate(f'[{session_name}] vision: recent_imgs EMPTY (total timeline lines={len(lines)})')
                     if at_text.strip():
