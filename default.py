@@ -445,12 +445,15 @@ class DefaultEventListener(EventListener):
             if c.type == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    # 检查 origin 是否为 Forward (chain=['Source'])
+                    # 检查 origin 是否包含 Forward 组件
                     origin_types = [x.type for x in (origin if hasattr(origin, '__iter__') else [])]
+                    has_fwd = 'Forward' in origin_types
                     if origin_types == ['Source']:
                         return '[合并转发群聊记录]'
                     inner = await self._extract_text(origin, 300, depth=1)
-                    # 如果 origin 是转发但 _extract_text 返回空，也标记
+                    # origin 包含 Forward 时加标记
+                    if has_fwd:
+                        return f'[合并转发] {inner}' if inner else '[合并转发群聊记录]'
                     if not inner and origin_types:
                         return '[合并转发群聊记录]'
                     return inner
