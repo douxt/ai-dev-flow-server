@@ -382,6 +382,10 @@ class DefaultEventListener(EventListener):
             return '[引用链过长]'
         if image_descriptions is None:
             image_descriptions = {}
+        # NapCat 合并转发消息的 message_chain 只有 ['Source']
+        chain_types = [c.type for c in message_chain]
+        if chain_types == ['Source']:
+            return '[合并转发群聊记录]'
         parts = []
         for i, c in enumerate(message_chain):
             t = c.type
