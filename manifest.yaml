@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: dou
+  name: langbot-silent-observer
+  version: 0.1.0
+  label:
+    en_US: Silent Observer
+    zh_Hans: 静默观察者
+  description:
+    en_US: Memory-first silent observer with history buffer injection.
+    zh_Hans: 记忆优先静默观察者，缓冲群聊历史，触发时注入上下文。
+spec:
+  config:
+    - name: bot_qq
+      type: string
+      label:
+        en_US: Bot QQ Number
+        zh_Hans: 机器人QQ号
+      description:
+        en_US: Used to detect @mentions targeting the bot
+        zh_Hans: 用于判断是否被@提及
+      required: true
+    - name: reply_probability
+      type: float
+      label:
+        en_US: Reply Probability
+        zh_Hans: 主动插话概率
+      description:
+        en_US: Reply probability for non-@ messages. 0=never, 1=always.
+        zh_Hans: 非@消息的回复概率，0=永不插话，1=每条都回复
+      default: 0.01
+      required: false
+    - name: history_count
+      type: integer
+      label:
+        en_US: History Count
+        zh_Hans: 历史消息条数
+      description:
+        en_US: Number of recent messages to inject into prompt when triggered.
+        zh_Hans: 触发时注入 prompt 的最近消息条数
+      default: 20
+      required: false
+    - name: kb_id
+      type: string
+      label:
+        en_US: Knowledge Base UUID
+        zh_Hans: 知识库 UUID
+      description:
+        en_US: UUID of the LangRAG knowledge base for chat history archive. Leave empty to disable KB features.
+        zh_Hans: 用于聊天记录归档的 LangRAG 知识库 UUID。留空禁用 KB 功能。
+      default: ""
+      required: false
+    - name: embedding_model_uuid
+      type: string
+      label:
+        en_US: Embedding Model UUID
+        zh_Hans: 嵌入模型 UUID
+      description:
+        en_US: UUID of the embedding model (e.g. seekdb-local). Required if kb_id is set.
+        zh_Hans: 嵌入模型的 UUID（如 seekdb-local）。填写 kb_id 时必填。
+      default: ""
+      required: false
+    - name: vision_enabled
+      type: boolean
+      label:
+        en_US: Enable Vision
+        zh_Hans: 启用视觉识别
+      description:
+        en_US: Enable image recognition via vision model for @triggered/random messages.
+        zh_Hans: 对@/随机触发的消息启用图片识别，将图片转为文字描述存入 KB。
+      default: false
+      required: false
+    - name: vision_model_uuid
+      type: string
+      label:
+        en_US: Vision Model UUID
+        zh_Hans: 视觉模型 UUID
+      description:
+        en_US: UUID of the vision model configured in LangBot (must have vision ability). Required if vision_enabled is true.
+        zh_Hans: LangBot 中已配置的视觉模型 UUID（必须含 vision 能力）。启用 vision_enabled 时必填。
+      default: ""
+      required: false
+    - name: vision_all_messages
+      type: boolean
+      label:
+        en_US: Vision for All Messages
+        zh_Hans: 非触发消息也识图
+      description:
+        zh_Hans: 非@/非随机触发的普通消息也进行图片识别。会增加 API 调用量和费用。
+      default: false
+      required: false
+    - name: vision_max_images
+      type: integer
+      label:
+        en_US: Max Images Per Message
+        zh_Hans: 单条消息最大识图数
+      description:
+        zh_Hans: 单条消息最多识别几张图片。后台异步不阻塞 gate。
+      default: 5
+      required: false
+    - name: timeline_max_chars
+      type: integer
+      label:
+        en_US: Timeline Max Characters
+        zh_Hans: 时间线最大字符数
+      description:
+        zh_Hans: 时间线注入的最大字符数上限，超过则从最旧消息开始丢弃完整消息。
+      default: 2000
+      required: false
+    - name: vision_daily_limit
+      type: integer
+      label:
+        en_US: Daily Vision Limit
+        zh_Hans: 每日识图上限
+      description:
+        zh_Hans: 每日 vision API 调用次数上限（仅限制非触发消息路径）。0=不限。
+      default: 0
+      required: false
+  components:
+    EventListener:
+      fromDirs:
+        - path: components/event_listener/
+    Tool:
+      fromDirs:
+        - path: components/tool/
+execution:
+  python:
+    path: main.py
+    attr: Plugin
