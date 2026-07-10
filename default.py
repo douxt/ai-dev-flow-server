@@ -214,32 +214,7 @@ class DefaultEventListener(EventListener):
                 else:
                     query_vars = await api.get_query_vars()
                     at_text = str(query_vars.get('user_message_text', '') or '')
-
-                    # 从 prompt 中提取引用内容：找 [@模式] 之前的最后一个 user 消息
-                    quote_text = ''
-                    found_at_mode = False
-                    for pm in reversed(ctx.event.prompt):
-                        if pm.role == 'system' and pm.content and '@模式' in (pm.content or ''):
-                            found_at_mode = True
-                            continue
-                        if found_at_mode and pm.role == 'user' and pm.content:
-                            ct = pm.content
-                            if isinstance(ct, str):
-                                if at_text.strip() and at_text.strip() in ct:
-                                    quote_text = ct.replace(at_text.strip(), '').strip()
-                                else:
-                                    quote_text = ct
-                            elif isinstance(ct, list):
-                                texts = []
-                                for ce in ct:
-                                    if hasattr(ce, 'text') and ce.text:
-                                        texts.append(ce.text)
-                                full_text = ' '.join(texts)
-                                if at_text.strip() and at_text.strip() in full_text:
-                                    quote_text = full_text.replace(at_text.strip(), '').strip()
-                                else:
-                                    quote_text = full_text
-                            break
+                    # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
 
                     # 从时间线提取图片描述 + 当前触发消息的图片状态
                     timeline_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
