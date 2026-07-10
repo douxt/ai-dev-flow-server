@@ -91,7 +91,10 @@ class DefaultEventListener(EventListener):
             quote_text = await self._extract_quote(ctx.event.message_chain)
             if is_trigger and self.kb_enabled:
                 doc_id = await self._save_text_only(ctx.event)
-                if doc_id and self.vision_enabled and self._has_image(ctx.event.message_chain):
+                # 不仅检测 message_chain 中的 Image 组件，也检测引用文本中的 [图片] 占位
+                has_img = self._has_image(ctx.event.message_chain)
+                has_img_in_quote = '[图片' in (quote_text or '')
+                if doc_id and self.vision_enabled and (has_img or has_img_in_quote):
                     self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
                     self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
@@ -216,10 +219,12 @@ class DefaultEventListener(EventListener):
                     at_text = str(query_vars.get('user_message_text', '') or '')
                     # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
 
-                    # 从时间线提取已完成的图片描述
+                    # 从时间线提取已完成的图片描述（不依赖内存缓存）
                     timeline_imgs = [l for l in lines if '[图片:' in l or '(图片:' in l]
-                    done_imgs = [trigger_img['desc']] if (trigger_img and trigger_img['status'] == 'done') else []
-                    done_imgs = timeline_imgs + done_imgs
+                    done_imgs = list(timeline_imgs)
+                    # 如果当前触发消息的图片已完成，也加入
+                    if trigger_img and trigger_img['status'] == 'done':
+                        done_imgs.append(trigger_img['desc'])
 
                     _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
                     if done_imgs:
