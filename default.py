@@ -227,16 +227,23 @@ class DefaultEventListener(EventListener):
                         done_imgs.append(trigger_img['desc'])
 
                     _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
+
+                    # 用已完成的图片描述替换 quote_text 中的 [图片] 占位
+                    resolved_quote = quote_text or ''
+                    for desc in done_imgs:
+                        resolved_quote = resolved_quote.replace('[图片]', desc, 1)
+                        resolved_quote = resolved_quote.replace('[图片识别中...]', desc, 1)
+
                     if done_imgs:
                         img_hint = '\n'.join(f'  {r}' for r in done_imgs[-5:])
-                        if quote_text:
-                            combined = f'[引用内容] {quote_text}\n[群聊图片] {img_hint}\n请综合分析，包括引用的文字和群内图片的相关信息。'
+                        if resolved_quote:
+                            combined = f'[引用内容] {resolved_quote}\n[群聊图片] {img_hint}\n请综合分析，包括引用的文字和群内图片的相关信息。'
                         else:
                             combined = f'[群聊上下文] 以下是群内最近的图片内容描述：\n{img_hint}'
                         ctx.event.prompt.append(provider_message.Message(role='user', content=combined))
                         _log_gate(f'[{session_name}] vision: recent_imgs injected ({len(done_imgs)} imgs, {len(img_hint)} chars)')
-                    elif quote_text:
-                        ctx.event.prompt.append(provider_message.Message(role='user', content=f'[引用内容] {quote_text}'))
+                    elif resolved_quote:
+                        ctx.event.prompt.append(provider_message.Message(role='user', content=f'[引用内容] {resolved_quote}'))
                         _log_gate(f'[{session_name}] quote only, no images')
                     else:
                         _log_gate(f'[{session_name}] vision: recent_imgs EMPTY (total timeline lines={len(lines)})')
