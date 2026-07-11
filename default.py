@@ -237,6 +237,8 @@ class DefaultEventListener(EventListener):
                     # 统计引用中的图片总数（含已完成和待完成的）
                     total_imgs = max(resolved_quote.count('🖼️'), quote_text.count('[图片]') + quote_text.count('[图片识别中...]'))
 
+                    done_count = 0
+                    pending_count = 0
                     if done_imgs or total_imgs > 0:
                         if resolved_quote:
                             pending_count = resolved_quote.count('⏳')
@@ -246,6 +248,7 @@ class DefaultEventListener(EventListener):
                                 status_note = f'\n\n⚠️ 共{total_imgs}张图片，{done_count}张已识别，{pending_count}张识别中。识别完成后可以再追问。'
                             combined = f'【转发内容】\n{resolved_quote}\n\n【用户消息】{at_text}{status_note}'
                         else:
+                            done_count = len(done_imgs)
                             img_hint = '\n'.join(f'  {r}' for r in done_imgs[-5:])
                             combined = f'【群聊图片】\n{img_hint}'
                         ctx.event.prompt.append(provider_message.Message(role='user', content=combined))
@@ -278,8 +281,12 @@ class DefaultEventListener(EventListener):
                     if at_text.strip():
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
                         ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                    elif quote_text:
+                        ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你，但引用了消息。你必须优先结合上面引用的内容直接回答（20-50字）。不要回复"在线""收到"等状态确认。'))
+                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        trigger = 'empty_at'
                     else:
-                        ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户只@了你，没有附加文字。结合【】内群聊最近记录，挑选最值得回应的话题简短回复（20-50字）。'))
+                        ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你。你必须从【】内群聊最近记录中挑选一个具体话题直接评论（20-50字）。不要回复"在线""收到"等状态确认，不要打招呼，直接说话题。'))
                         ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
                         trigger = 'empty_at'
 
