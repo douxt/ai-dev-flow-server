@@ -196,10 +196,10 @@ class DefaultEventListener(EventListener):
                     sorted_cache = sorted(cache_desc.items(), key=lambda x: x[1]['time'], reverse=True)
                     trigger_img = sorted_cache[0][1]
 
-                # 时间线替换：只替换触发消息对应的行
+                # 时间线替换：仅替换触发消息对应的行
                 new_lines = []
-                for line in lines:
-                    if trigger_img:
+                for idx, line in enumerate(lines):
+                    if trigger_img and idx < len(items) and items[idx].get('id') == trigger_doc_id:
                         if trigger_img['status'] == 'done':
                             line = line.replace('[图片]', trigger_img['desc'], 1)
                         elif trigger_img['status'] == 'pending':
