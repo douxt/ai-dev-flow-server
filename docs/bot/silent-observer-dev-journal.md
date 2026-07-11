@@ -207,3 +207,275 @@ LangBot 通过 `fromDirs` 扫描目录，参照 LTM 插件的 `recall_memory.yam
 ### WebSocket 断连
 
 重启 langbot 容器时 NapCat WS 会断开 ~30 秒，期间消息丢失。重启顺序：`langbot-plugin` → `langbot` → 等 WS 重连。
+
+---
+
+## 十、2026-07-09 下午/傍晚：视觉识别接入全链路
+
+### 架构
+
+```
+群消息 → gate 检测 Image 组件 → get_bytes() 获取字节码
+→ Pillow 缩图(>5MB/2048px) → base64 → invoke_llm(vision_model)
+→ [图片: 描述] 替换原占位 → 存 KB + 注入 prompt
+```
+
+### 关键踩坑
+
+**1. 图片在 Quote 里，不在顶层**
+QQ 消息链中图片经常嵌套在 Quote 组件的 origin 里。`_has_image` 和 `_collect_images` 必须递归检查 Quote.origin。
+
+**2. KB 存了描述，但 LLM 看不到 — user_message_alter 方式不可靠**
+`_save_message` 把描述存 KB，但 LLM 收到的是 pipeline 原始 message_chain（Quote 内 Image 组件被展开为 `[图片]`，无描述）。
+尝试用 `ctx.event.user_message_alter` 替换消息文本 → LangBot 的 query 对象在 inject 阶段不可用（query=None）。
+**最终方案**：在 prompt 中注入 `[视觉识别]` 系统消息（对标时间线/搜索注入模式）+ 从时间线提取 `[最新图片]` user 消息。
+
+**3. 跨群搜索污染**
+`_search_history` 的 vector/keyword 搜索只用 `type: chat_history` 过滤，没加 `session_id`。A 群的"看图功能没修好"漏到 B 群。加上 `session_id` filter 解决。
+
+**4. LLM 被自己的历史回复困住**
+bot 连续说了十几次"我看不到图片"，这些旧回复被语义搜索命中注入 prompt，LLM 看到自己的旧话就继续复读。
+解决：① 从 KB 批量删除"看不到图片"类 bot 回复 ② system prompt 加破局指令"那是旧版本的问题，已修复"。
+
+**5. 描述格式反复调整**
+- `[图片: xxx]` → bot 有时看到有时忽略
+- `[图片描述: xxx]` → 效果更差
+- `(图片: xxx)` → 被当作普通文本
+- 最终回归 `[图片: xxx]` + `[最新图片]` user 消息注入
+
+**6. fire-and-forget 竞态**
+带图普通消息走 `_save_and_store` 后台任务，vision 处理 1-3s。用户紧接着 @bot 时 inject 先跑了，时间线里还没描述。
+修复：`vision_all_messages=true` 时，带图消息改为 `await _save_and_store()` 同步等。
+
+**7. DeepSeek 模型对视觉的强偏见**
+模型有内部训练偏好认为自己是 text-only，即使上下文有图片描述也会说"看不到"。
+解决方案组合拳：
+- `[视觉识别]` 用 `user` 角色注入（不是 system）
+- `[最新图片]` 直接列出最近 5 张图片描述
+- `[@模式]` 规则中加入"先查看 [最新图片] 和【】"
+- 清理 KB 中旧的不认图回复
+- System prompt 加破局指令
+
+**8. 空 @ 处理**
+纯 @ 无文字时不应追问，应结合最近消息自动回复。
+`[空@模式]` 指示 LLM 从【】挑选话题，拼接最近 3 条消息作为搜索关键词。
+
+**9. langbot 容器 vs langbot-plugin 容器**
+- manifest.yaml 两边都要部署（Web UI 读 langbot，运行时读 langbot-plugin）
+- 新增配置项需要在 DB `plugin_settings.config` JSON 中加字段
+- 仅改 manifest 不更新 DB 配置 → Web UI 不显示新字段
+
+### 耗时统计
+| 模型 | 耗时 | 图片大小 |
+|------|------|---------|
+| qwen3.6-flash | 0.8~2.5s | 15KB~1.8MB |
+| GIF 动图 | ~2s | 20KB~917KB |
+
+### 视觉模型配置
+模型: `qwen3.6-flash` (百炼)，UUID: `61a105e9-6180-45ee-a6f6-a7ec9d713265`
+配置方式: DB 直接写入 `plugin_settings.config.vision_model_uuid`
+
+---
+
+## 十一、2026-07-10：LangBot Pipeline 契约（源码实证）
+
+> 调试"转发+@bot"时，深挖 LangBot 核心源码摸清的注入契约。**以后改 prompt 注入必查此章**。
+> 源码位置：核心 `pkg/pipeline/preproc/preproc.py`、runtime `plugin_connector.py` / `mgr.py`
+
+### PromptPreProcessing 事件：三字段，只有两个能改回
+
+核心构造事件后只读回两个字段：
+```python
+query.prompt.messages = event_ctx.event.default_prompt   # ✅ 系统 prompt
+query.messages        = event_ctx.event.prompt           # ✅ 会话历史
+# user_message 没有读回！
+```
+
+| 字段 | 含义 | 改了是否生效 |
+|------|------|:---:|
+| `default_prompt` | 系统 prompt（人格/规则） | ✅ |
+| `prompt` | 会话历史消息列表 | ✅ |
+| `user_message` | 当前用户消息 | ❌ **核心不读回** |
+
+**铁律**：注入只能进 `default_prompt`(系统) 或 `prompt`(历史)。**改 user_message 无效**——不能靠改它让 bot 看到内容。
+
+### 插件执行顺序 = 加载顺序，无优先级
+
+`emit_event` 顺序遍历所有插件、**共享同一个 event_context**：
+```python
+for plugin in get_plugins(enabled_only=True):   # 无 sort，顺序=加载顺序
+    for listener in plugin.event_listeners:
+        await listener.callback(event_context)   # 后者能看到/改前者的注入
+```
+日志实证加载顺序：**LTM 先，silent-observer 后**。
+→ silent 是最后改 prompt 的插件（之后只有核心加 skill 索引），**注入不会被 LTM 覆盖**。
+
+### 引用/转发的数据来源 = gate 的 message_chain，不是 inject 的 user_message
+
+- inject（PromptPreProcessing）的 `user_message` **不含引用/转发内容**
+- 引用/转发只在 **gate（GroupMessageReceived）的 `ctx.event.message_chain`** 里
+- 两群 pipeline 配置：`combine-quote-message=false`（不展开引用）、`combine-forward-message=true`
+- **踩坑**：一度在 inject 里从 `reversed(prompt)` 找 `[@模式]` 提取引用——错的，因为 `[@模式]` 是自己后面才 append 的，`found_at_mode` 靠历史轮次残留，抓到的是历史对话。正解是在 gate 阶段从 message_chain 提取。
+
+### 合并转发到 bot = 一张截图（关键）
+
+QQ 合并转发**本质是结构化数据**（res_id 索引服务器上的多条原始消息），但 NapCat 默认渲染成一张 JPEG 截图上报。到 bot 手里变成 `{text:用户问题} + {image_url:截图}`，转发里每条消息的文字/图全糊进像素。
+
+- **业界标准解法**：从 forward 消息段提取 res_id → 调 OneBot `get_forward_msg(id)` → 拿结构化 node 列表（每 node 含 sender + 文字/图片段）。NoneBot/AstrBot 都这么做。
+- **反模式**：直接识别转发截图（信息糊成像素、长图必漏、不稳定）。NapCat 社区明确："若只拿到图片，说明未调用 get_forward_msg 解析"。
+- 图片是 `image_url`（http链接）形式，不是 base64。
+- **待验证**：LangBot 插件能否调 OneBot 原生 action（`get_forward_msg`）——决定能否走结构化解法。
+
+### 主模型无 vision 会删图 → 必须自己识图
+
+preproc.py：主模型（DeepSeek，text-only）不支持 vision 时，核心删掉 messages 里所有 image_url。→ silent 必须用独立 vision 模型识图转文字再注入。这是整个 vision 设计的根因。
+
+---
+
+## 十二、2026-07-10：调试工具通道踩坑
+
+### SSH 中间层污染（严重，反复浪费时间）
+
+**现象**：`ssh root@nas 'docker exec ... cat/grep file'` 的**文本输出被中间层"摘要/截断/串扰"**——真实源码被替换成假注释（如 `# ... omitted by reader`）、输出丢成 0 字节、`wc -l` 结果重复打印几十次。导致读源码、查配置反复拿到错误结果（一度把 `combine-forward-message=true` 读成 `false`）。
+
+**根因**：环境里有个中间层对 SSH 明文输出做了 AI 处理/截断。
+
+**绕过办法**（有效）：
+```bash
+# 远端命令只输出纯 base64，不混任何明文
+ssh -nT -o BatchMode=yes root@nas 'docker exec langbot base64 -w0 /path/file' > /tmp/x.b64
+tr -d '\n\r ' < /tmp/x.b64 | base64 -d > /tmp/x.txt   # 本地解码后 Read
+```
+- **纪律**：远端命令**只吐 base64，不混明文**（混了明文会污染 base64 解码）
+- 配置类查询：DB 查询结果也 base64 回传，别信明文 grep
+
+### docker exec 会堆积僵死会话
+
+`ssh ... docker exec ... | 管道` 连续调用会在 NAS 上堆积僵死的 exec 会话，导致后续 docker exec hang（连 `echo hi` 都进不去）。解法：合并成**单次 exec 跑完多条命令**，或重启容器清僵尸。
+
+### 改文件：只用 Edit 工具，禁用脚本正则改中文
+
+**踩坑**：用 `python heredoc` 脚本正则替换 default.py 里的中文字符串，缩进/引号反复出错 → 文件损坏 → 从 NAS 重拉重写，浪费多轮。**铁律**：改代码只用 Edit 工具精确匹配，不用脚本正则改中文串。
+
+---
+
+## 十三、2026-07-10：合并转发消息处理全链路
+
+### NapCat 上报合并转发 = 只有 ['Source']
+
+**现象**：用户转发合并群聊记录到群里，bot 收到的 `message_chain` 只有 `['Source']` 一个组件，没有 Forward、没有 Image、没有 Plain。
+
+**根因**：NapCat 默认将合并转发渲染成截图上报，不保留结构化数据。Forward 组件的 `node_list` 和 `message_chain` 对 bot 不可见。
+
+**解决方案**：
+- 保存转发时：`chain_types == ['Source']` → 存为 `[合并转发群聊记录]`
+- 引用转发时：Quote 的 origin 有渲染后的纯文本预览（含 `[图片]` 占位）
+- 完整结构化需要调 `get_forward_msg(res_id)` API（暂缓）
+
+### 引用转发时 bot 不知道是转发
+
+**现象**：用户引用转发消息 + @bot，bot 把引用内容当成单条本群消息处理，不知道来自转发。
+
+**尝试的方案**：
+1. `_extract_quote` 检测 origin 中是否有 Forward 组件 → ❌ origin 被抹平，没有 Forward
+2. 用 quote_text 去时间线匹配转发记录 → ❌ KB 存的是空标记，渲染文本对不上
+3. 在时间线里加 `[合并转发群聊记录] 包含[图片: xxx]` → ✅ 但最终选了更简单的方案
+
+**最终方案**：在引用消息的 prompt 注入中，用 `_image_cache` 中已完成的图片描述替换 `[图片]` 占位。bot 在引用内容里直接看到完整图文。
+
+### 分支管理教训
+
+**现象**：`vision` 分支有 14 个已完成的视觉修复提交，`fix-vision-block` 有 5 个独立开发的提交，两者从同一个基线分叉、功能大部分重叠但实现不同。
+
+**教训**：
+- 每次开新 worktree 前，先检查是否有相关分支已存在
+- 定期合并主分支到开发分支，避免分叉过大
+- 完成一个功能后立即合并，不要滞留分支
+
+### 系统提示词优化
+
+**问题**：原提示词 `[视觉识别] 标记时，其中的描述就是你看到的内容` + 规则 `先查看 [最新图片]` 让 LLM 过度关注图片，忽略文字内容。
+
+**修复**：
+- "其中的描述就是你看到的内容" → "其中的文字描述直接作为对话信息使用"
+- "先查看 [最新图片]" → "如有【】群聊记录先通读了解话题，如有图片描述也一并参考"
+- 图片 pending 时不注入 prompt，避免 bot 说"识别还在跑"
+
+### Prompt 注入的 broken quote 提取
+
+**现象**：inject handler 用 `reversed(ctx.event.prompt)` 找 `[@模式]` 之前的 user 消息来提取引用文本，但 `[@模式]` 是在这段代码之后才 append 的，所以 `found_at_mode` 永远是 False，`quote_text` 永远是空。
+
+**修复**：在 gate 阶段直接从 `message_chain` 的 Quote 组件提取，存到 `_last_trigger`，inject 阶段直接使用。
+
+### 假数据污染搜索
+
+**现象**：2016 年的测试假数据（宝可梦对话）持续出现在搜索结果中，距离值高达 0.8+，污染真实搜索结果。
+
+**建议**：清理 ChromaDB 中 `timestamp` 为 2016 年的假数据记录。
+
+---
+
+## 十四、2026-07-11：Tailscale WSL 诊断 + 图片全链路修复 + 配置恢复
+
+### Tailscale WSL 双端冲突导致 SSH 无法连接
+
+**现象**：NAS 重启后 SSH 连接全部超时，KEX 握手完成但 `KEX_ECDH_REPLY` 永远不返回。`nc` 能连通 22 端口但 SSH 认证永远卡住。
+
+**根因**：Windows 和 WSL 同时运行 Tailscale。Tailscale 官方明确："If you run Tailscale on both the Windows host and inside WSL 2 at the same time, Tailscale encrypted traffic that flows from WSL 2 over Tailscale on the Windows host will not work due to Tailscale packets not being able to fit in Tailscale packets." — 双重隧道加密导致 SSH KEX 包超过 MTU 被丢弃。
+
+**解决**：WSL 里 `sudo tailscale down`，只用 Windows 的 Tailscale。WSL 流量自然通过 Windows 宿主网卡走 Tailscale 隧道。
+
+**预防**：WSL 里 `sudo systemctl disable tailscaled` 永久禁用。
+
+### SSH 僵死会话填满 sshd 连接池
+
+**现象**：多次 `docker stop/kill` 命令卡住 → 每次在 NAS 上留下僵死的 exec 会话 → sshd 连接池耗尽 → 新 SSH 连接无法认证。
+
+**预防**：
+- 所有 docker exec 加 `timeout 10` 前缀
+- 发现卡住立刻停手，用 DSM 网页操作
+- NAS 上放清理脚本（任务计划）一键恢复
+
+### Docker 路径不固定
+
+**现象**：NAS 重启后 `/usr/local/bin/docker` 消失。
+**实际路径**：`/volume1/@appstore/ContainerManager/usr/bin/docker`
+**教训**：每次命令用全路径或设 `DOCKER` 变量。
+
+### `_image_cache` 只存第一张图片描述
+
+**现象**：4 张图的转发消息，vision 识别了全部 4 张（`ok=4`），但 bot 永远说"只看到第一张"。
+
+**根因**：`_save_with_vision` 只取 `image_descs.values()[0]` 存入 cache，其余图片被丢弃。
+
+**修复**：所有描述 `|` 连接存入 cache，inject 时 `split(' | ')` 拆分。
+
+### `done_count` UnboundLocalError
+
+**现象**：非转发消息 @bot 时报 `cannot access local variable 'done_count'`。
+
+**根因**：`done_count`/`pending_count` 在 `if resolved_quote:` 分支内定义，但 `_log_gate` 在分支外使用。
+
+**修复**：分支前初始化为 0。
+
+### DB 配置写入会覆盖未列出的字段
+
+**现象**：更新 `vision_all_messages` 后，`kb_id`/`embedding_model_uuid`/`vision_model_uuid` 全部丢失。
+
+**根因**：`json.dumps(cfg)` 覆盖整个 config 字段。之前 cfg 只有 3 个 key，读出来改了再写回去，缺失字段没补。
+
+**修复**：用 `config.get()` 的默认值 + 手动补全缺失字段。
+
+**教训**：更新 DB JSON 配置必须**先读全量 → 只在内存改需要改的 → 写回**，绝不用不完整的 dict 覆盖。
+
+### 自动语义搜索引入噪音
+
+**决策**：删除 inject 中的自动语义搜索，改为 LLM 按需调用 `search_chat_history()` 工具。
+
+**理由**：每次 @bot 都自动搜索全量 KB → 不相关历史数据污染 prompt → 两次不同转发内容被混淆。时间线已经提供了最近上下文，bot 需要更多信息时会自主搜索。
+
+### System prompt 缺少工具使用时机
+
+**问题**：`remember()` 和 `update_profile()` 只说明了"是什么"，没说"什么时候用"。
+
+**修复**：加上使用时机 — `remember()` 用于"值得记住的偏好/计划/结论"，`update_profile()` 用于"了解到角色/专业/兴趣时，有把握才更新"。
