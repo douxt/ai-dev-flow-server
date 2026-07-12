@@ -102,7 +102,8 @@ class DefaultEventListener(EventListener):
                     self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
                     self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                if session_name not in self._last_trigger:
+                    self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -113,7 +114,8 @@ class DefaultEventListener(EventListener):
             elif is_trigger:
                 doc_id = await self._save_text_only(ctx.event)
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                if session_name not in self._last_trigger:
+                    self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
