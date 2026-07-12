@@ -214,6 +214,17 @@ class DefaultEventListener(EventListener):
                 if _identified:
                     lines.append(f'📌 [AI识图] 以上含 {_identified} 张已识别图片，请据此回答。')
 
+                # DEBUG: dump prompt for analysis
+                try:
+                    with open('/tmp/silent_prompt_dump.log', 'a') as f:
+                        f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
+                        f.write(f'[1] time: {now_str}\n')
+                        f.write(f'[2] trigger: {trigger}\n')
+                        f.write(f'[3] ai_identified={_identified} ai_pending={_pending}\n')
+                        f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
+                except:
+                    pass
+
                 if trigger == 'random':
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
                     ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
@@ -223,19 +234,6 @@ class DefaultEventListener(EventListener):
                     at_text = str(query_vars.get('user_message_text', '') or '')
                     # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
                     _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
-                    # DEBUG: dump prompt for analysis
-                    try:
-                        with open('/tmp/silent_prompt_dump.log', 'a') as f:
-                            f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
-                            f.write(f'[1] time: {now_str}\n')
-                            f.write(f'[2] trigger: {trigger}\n')
-                            f.write(f'[3] at_text: {at_text[:200] if at_text else "(empty)"}\n')
-                            f.write(f'[4] quote_text: {quote_text[:200] if quote_text else "(empty)"}\n')
-                            f.write(f'[5] ai_identified={_identified} ai_pending={_pending}\n')
-                            f.write(f'[6] mode: {"[@]" if at_text.strip() else "[空@]"}\n')
-                            f.write(f'[7] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
-                    except:
-                        pass
                     if at_text.strip():
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
                         ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
