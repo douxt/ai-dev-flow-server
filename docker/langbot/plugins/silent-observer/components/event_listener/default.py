@@ -168,7 +168,7 @@ class DefaultEventListener(EventListener):
                 )
 
                 # 时间线
-                items = await self._get_recent_messages(api, session_name, self.history_count + 10)
+                items = await self._get_recent_messages(api, session_name, 500)
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
                     if trigger_doc_id:
