@@ -2,6 +2,7 @@ import asyncio, base64, hashlib, io, json, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
+_ROLE_CN = {'OWNER': '群主', 'ADMINISTRATOR': '管理员', 'MEMBER': '成员'}
 
 def _now():
     return datetime.now(BJT)
@@ -413,7 +414,7 @@ class DefaultEventListener(EventListener):
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
             sender_title = getattr(sender, 'special_title', '') or ''
-            sender_role = str(getattr(sender, 'permission', '')) if hasattr(sender, 'permission') else ''
+            sender_role = _norm_role(getattr(sender, 'permission', None))
         else:
             sender_name = str(event.sender_id)
             sender_title = ''
@@ -459,7 +460,7 @@ class DefaultEventListener(EventListener):
             sender = getattr(event.message_event, 'sender', None)
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id) if sender else str(event.sender_id)
             sender_title = getattr(sender, 'special_title', '') or '' if sender else ''
-            sender_role = str(getattr(sender, 'permission', '')) if sender and hasattr(sender, 'permission') else ''
+            sender_role = _norm_role(getattr(sender, 'permission', None)) if sender else ''
             if len(text) > 500:
                 text = text[:300] + '...[truncated]...' + text[-100:]
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
@@ -483,7 +484,7 @@ class DefaultEventListener(EventListener):
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
             sender_title = getattr(sender, 'special_title', '') or ''
-            sender_role = str(getattr(sender, 'permission', '')) if hasattr(sender, 'permission') else ''
+            sender_role = _norm_role(getattr(sender, 'permission', None))
         else:
             sender_name = str(event.sender_id)
             sender_title = ''
@@ -703,8 +704,8 @@ class DefaultEventListener(EventListener):
         label = new_name
         if title:
             label += f'[{title}]'
-        elif role and role not in ('Permission.MEMBER', 'MEMBER'):
-            label += f'({role})'
+        if role and role != 'MEMBER':
+            label += f'({_ROLE_CN.get(role, role)})'
         try:
             raw = await self.plugin.vector_list(
                 self.kb_id,
@@ -982,8 +983,8 @@ def _build_msg_metadata(session_name, sender_name, sender_id, time_str, text, se
     label = sender_name
     if sender_title:
         label += f'[{sender_title}]'
-    if sender_role and sender_role not in ('Permission.MEMBER', 'MEMBER'):
-        label += f'({sender_role})'
+    if sender_role and sender_role != 'MEMBER':
+        label += f'({_ROLE_CN.get(sender_role, sender_role)})'
     return {
         'text': f"[{time_str}] {label}: {text}",
         'sender_name': sender_name,
@@ -1034,6 +1035,14 @@ def _resize_image(bytes_data):
         return buf.getvalue()
     finally:
         img.close()
+
+
+def _norm_role(perm) -> str:
+    if perm is None:
+        return ''
+    if hasattr(perm, 'value'):
+        return perm.value
+    return str(perm)
 
 
 def _clean_description(text):
