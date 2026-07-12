@@ -168,7 +168,7 @@ class DefaultEventListener(EventListener):
                 )
 
                 # 时间线
-                items = await self._get_recent_messages(api, session_name, 500)
+                items = await self._get_recent_messages(api, session_name, 200)
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
                     if trigger_doc_id:
@@ -733,11 +733,20 @@ class DefaultEventListener(EventListener):
 
     async def _get_recent_messages(self, api, session_name, limit):
         try:
+            # 先查总数，再跳到末尾拿最新记录
+            probe = await self.plugin.vector_list(
+                self.kb_id,
+                filters={"$and": [{"session_id": session_name}, {"type": "chat_history"}]},
+                limit=1,
+                offset=0,
+            )
+            total = probe.get('total', 0) if isinstance(probe, dict) else 0
+            offset = max(0, total - limit) if total > 0 else 0
             result = await self.plugin.vector_list(
                 self.kb_id,
                 filters={"$and": [{"session_id": session_name}, {"type": "chat_history"}]},
                 limit=limit,
-                offset=0,
+                offset=offset,
             )
             return result.get('items', []) if isinstance(result, dict) else []
         except Exception as e:
