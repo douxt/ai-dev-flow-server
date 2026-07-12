@@ -701,12 +701,11 @@ class DefaultEventListener(EventListener):
 
     async def _backfill_sender(self, sender_id, new_name, title, role):
         """回填历史消息中该 sender_id 的裸名，替换为含群名片/头衔的名字"""
-        parts = [new_name]
-        if role and role != 'MEMBER':
-            parts.append(_ROLE_CN.get(role, role))
+        label = new_name
         if title:
-            parts.append(title)
-        label = ' | '.join(parts)
+            label += f'[{title}]'
+        if role and role != 'MEMBER':
+            label += f'({_ROLE_CN.get(role, role)})'
         try:
             raw = await self.plugin.vector_list(
                 self.kb_id,
@@ -981,12 +980,11 @@ def _build_document_id(session_name, time_str, sender_id, text):
 
 
 def _build_msg_metadata(session_name, sender_name, sender_id, time_str, text, sender_role, sender_title):
-    parts = [sender_name]
-    if sender_role and sender_role != 'MEMBER':
-        parts.append(_ROLE_CN.get(sender_role, sender_role))
+    label = sender_name
     if sender_title:
-        parts.append(sender_title)
-    label = ' | '.join(parts)
+        label += f'[{sender_title}]'
+    if sender_role and sender_role != 'MEMBER':
+        label += f'({_ROLE_CN.get(sender_role, sender_role)})'
     return {
         'text': f"[{time_str}] {label}: {text}",
         'sender_name': sender_name,
