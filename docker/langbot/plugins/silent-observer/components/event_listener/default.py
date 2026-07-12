@@ -72,6 +72,7 @@ class DefaultEventListener(EventListener):
         self._vision_stats = {'total': 0, 'success': 0, 'fail': 0, 'total_tokens': 0}
         self._image_cache = {}  # doc_id → {status, desc, time}
         self._last_trigger = {}
+        self._lock_set_ts = {}  # session → lock设置时间戳
         self._bg_tasks: set[asyncio.Task] = set()
         self._MAX_BG_TASKS = 50
         # 触发统计
@@ -80,6 +81,7 @@ class DefaultEventListener(EventListener):
         self._lock_skips = 0
         self._inject_random = 0
         self._inject_at = 0
+        self._last_msg_ts = {}  # session → 上一条消息时间戳
         self._stats_start = time.time()
         # 迁移已完成，禁用避免重复
         # if self.kb_enabled:
@@ -113,9 +115,12 @@ class DefaultEventListener(EventListener):
                 locked = session_name in self._last_trigger and not is_at
                 if not locked:
                     self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                    self._lock_set_ts[session_name] = time.time()
                 else:
                     self._lock_skips += 1
+                    self._log_event('lock_skip', session_name, doc_id=doc_id)
                 self._gate_hits += 1
+                self._log_event('hit', session_name, trigger=trigger, locked=str(locked), doc_id=doc_id)
                 gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -129,9 +134,12 @@ class DefaultEventListener(EventListener):
                 locked = session_name in self._last_trigger and not is_at
                 if not locked:
                     self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                    self._lock_set_ts[session_name] = time.time()
                 else:
                     self._lock_skips += 1
+                    self._log_event('lock_skip', session_name, doc_id=doc_id)
                 self._gate_hits += 1
+                self._log_event('hit', session_name, trigger=trigger, locked=str(locked), doc_id=doc_id)
                 gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -148,6 +156,7 @@ class DefaultEventListener(EventListener):
                     elif doc_id:
                         self._run_background(self._save_and_store(ctx.event))
                 self._gate_misses += 1
+                self._log_event('miss', session_name)
                 try:
                     with open('/tmp/silent_gate.log', 'a') as f:
                         f.write(f'[silent] gate: prevented\n')
@@ -246,6 +255,8 @@ class DefaultEventListener(EventListener):
                 except:
                     pass
 
+                lock_dur = time.time() - self._lock_set_ts.pop(session_name, time.time())
+                self._log_event('inject', session_name, trigger=trigger, lock_dur=f'{lock_dur:.1f}s')
                 if trigger == 'random':
                     self._inject_random += 1
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
@@ -311,6 +322,19 @@ class DefaultEventListener(EventListener):
                 except:
                     pass
         asyncio.create_task(stats_report_loop())
+
+    def _log_event(self, kind, session, **kwargs):
+        now = time.time()
+        gap = ''
+        if session in self._last_msg_ts:
+            gap = f' gap={now - self._last_msg_ts[session]:.1f}s'
+        self._last_msg_ts[session] = now
+        extras = ' '.join(f'{k}={v}' for k, v in kwargs.items())
+        try:
+            with open('/tmp/silent_event.log', 'a') as f:
+                f.write(f'{now:.3f} {session} {kind}{gap} {extras}\n')
+        except:
+            pass
 
     def _has_at(self, message_chain) -> bool:
         if message_chain is None:
