@@ -74,6 +74,13 @@ class DefaultEventListener(EventListener):
         self._last_trigger = {}
         self._bg_tasks: set[asyncio.Task] = set()
         self._MAX_BG_TASKS = 50
+        # 触发统计
+        self._gate_hits = 0
+        self._gate_misses = 0
+        self._lock_skips = 0
+        self._inject_random = 0
+        self._inject_at = 0
+        self._stats_start = time.time()
         # 迁移已完成，禁用避免重复
         # if self.kb_enabled:
         #     asyncio.create_task(self._migrate_buffer_if_needed())
@@ -103,8 +110,12 @@ class DefaultEventListener(EventListener):
                     self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
                     self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
-                if session_name not in self._last_trigger or is_at:
+                locked = session_name in self._last_trigger and not is_at
+                if not locked:
                     self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                else:
+                    self._lock_skips += 1
+                self._gate_hits += 1
                 gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -115,8 +126,12 @@ class DefaultEventListener(EventListener):
             elif is_trigger:
                 doc_id = await self._save_text_only(ctx.event)
                 trigger = 'at' if is_at else 'random'
-                if session_name not in self._last_trigger or is_at:
+                locked = session_name in self._last_trigger and not is_at
+                if not locked:
                     self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                else:
+                    self._lock_skips += 1
+                self._gate_hits += 1
                 gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -132,6 +147,7 @@ class DefaultEventListener(EventListener):
                         self._run_background(self._save_with_vision(ctx.event, doc_id))
                     elif doc_id:
                         self._run_background(self._save_and_store(ctx.event))
+                self._gate_misses += 1
                 try:
                     with open('/tmp/silent_gate.log', 'a') as f:
                         f.write(f'[silent] gate: prevented\n')
@@ -231,10 +247,12 @@ class DefaultEventListener(EventListener):
                     pass
 
                 if trigger == 'random':
+                    self._inject_random += 1
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
                     ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
                     ctx.event.prompt.append(provider_message.Message(role='system', content='以上是群聊历史。接下来有一条用户消息——它只是随机触发器，不是你该回复的内容。无视它，用历史中的话题回应。'))
                 else:
+                    self._inject_at += 1
                     query_vars = await api.get_query_vars()
                     at_text = str(query_vars.get('user_message_text', '') or '')
                     # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
@@ -273,6 +291,26 @@ class DefaultEventListener(EventListener):
                     print(f'[silent] cache cleanup: removed {len(stale)} stale entries', file=sys.stderr, flush=True)
         if self.kb_enabled:
             asyncio.create_task(cache_cleanup_loop())
+
+        async def stats_report_loop():
+            while True:
+                await asyncio.sleep(60)
+                elapsed = time.time() - self._stats_start
+                total = self._gate_hits + self._gate_misses
+                rate = self._gate_hits / total * 100 if total > 0 else 0
+                try:
+                    with open('/tmp/silent_stats.log', 'w') as f:
+                        f.write(f'uptime: {elapsed:.0f}s\n')
+                        f.write(f'gate_total: {total}\n')
+                        f.write(f'gate_hits: {self._gate_hits} ({rate:.0f}%)\n')
+                        f.write(f'gate_misses: {self._gate_misses}\n')
+                        f.write(f'lock_skips: {self._lock_skips}\n')
+                        f.write(f'inject_random: {self._inject_random}\n')
+                        f.write(f'inject_at: {self._inject_at}\n')
+                        f.write(f'effective_rate: {self._inject_random / total * 100:.1f}%' if total > 0 else 'effective_rate: N/A')
+                except:
+                    pass
+        asyncio.create_task(stats_report_loop())
 
     def _has_at(self, message_chain) -> bool:
         if message_chain is None:
