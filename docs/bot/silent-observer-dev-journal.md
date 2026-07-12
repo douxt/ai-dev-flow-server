@@ -479,3 +479,71 @@ tr -d '\n\r ' < /tmp/x.b64 | base64 -d > /tmp/x.txt   # 本地解码后 Read
 **问题**：`remember()` 和 `update_profile()` 只说明了"是什么"，没说"什么时候用"。
 
 **修复**：加上使用时机 — `remember()` 用于"值得记住的偏好/计划/结论"，`update_profile()` 用于"了解到角色/专业/兴趣时，有把握才更新"。
+
+---
+
+## 十五、2026-07-12/13：SQLite 时间索引 + 配置覆写 + WS 断连 + 随机触发诊断
+
+### SQLite 双写替代 ChromaDB 排序
+
+ChromaDB 不支持 `ORDER BY`，`vector_list offset=0` 返回内部顺序（非时间序），`total` 字段不可靠。方案：新建 `chat_index.db`（WAL 模式），`_store_message` 双写 ChromaDB（语义搜索）+ SQLite（时间排序）。不回填历史，新消息自然积累。
+
+### 配置覆写三次踩坑
+
+`SELECT config → Python修改 → UPDATE` 整个 JSON，每次覆写 UI 侧配置（模型、at-sender、quote-origin）。正确做法：
+
+```sql
+-- 精确字段更新，不动其他配置
+UPDATE legacy_pipelines SET config = json_set(config, '$.trigger.group-respond-rules.random', 0.99);
+UPDATE plugin_settings SET config = json_set(config, '$.reply_probability', 0.5) WHERE ...;
+```
+
+**注意**：
+- `json_set(..., false)` 存成整数 `0`，需用 `json('true')`/`json('false')` 保证布尔类型
+- `SELECT FROM legacy_pipelines` 无 WHERE 返回第一条，bot 实际可能用其他管线，需查 `bots.use_pipeline_uuid` 确认
+
+### Plugin Runtime 断连与 Semaphore 修复
+
+**现象**：`Disconnected from plugin runtime` 频繁出现 → `LongTermMemory not found` → 管线 PreProcessor 失败 → LLM 不调用。
+
+**根因**：每条消息 2 次 WS 调用（`invoke_embedding` + `vector_upsert`），活跃时并发过高，WS 连接过载断开。
+
+**修复**：全局 `asyncio.Semaphore(3)` 限制并发 API 调用。
+
+```python
+_API_SEM = asyncio.Semaphore(3)
+async with _API_SEM:
+    vectors = await self.plugin.invoke_embedding(...)
+    await self.plugin.vector_upsert(...)
+```
+
+LangBot v4.10.5 已包含 PR #1698 主动心跳，但仍有断连。
+
+### 随机触发概率诊断
+
+**管线两层概率叠加**：
+- 插件层：`reply_probability`（gate handler）
+- 管线层：`group-respond-rules.random`（GroupRespondRuleCheckStage）
+- 实际触发 = 两层乘积。插件已管随机，管线应设 `1.0`
+
+**诊断工具**：
+- `/tmp/silent_gate.log` — 每条消息命中/未中
+- `/tmp/silent_prompt_dump.log` — inject 触发详情（**dump 要覆盖所有分支，之前只写 else 导致 random 触发"看起来从不工作"**）
+- `/tmp/silent_stats.log` — 60s 自动统计
+- `chat_index.db` — 精确消息间隔和锁时长
+
+**锁机制**：锁在 inject（PreProcessor）释放，远早于 LLM 完成。模拟证实间隔 > 锁时长时锁跳过 0 次。体感概率低主要来自随机聚类（50% 概率连续 7 次未中概率 0.8%，虽罕见但发生）。
+
+**`_last_trigger` 不覆盖锁**：random 不覆盖 random（防刷屏），@ 始终覆盖（高优先级）。
+
+### 权限显示优化
+
+`Permission` 是 `str(Enum)`，`str()` 返回 `'Permission.Owner'`，需取 `.value` 得 `'OWNER'`。映射中文：`OWNER→群主, ADMINISTRATOR→管理员`。`_build_msg_metadata` 中 `elif`→独立 `if` 使头衔和角色同时显示。
+
+### 系统提示词更新
+
+添加 `## 群聊记录格式` 说明：`[时间] 群昵称[头衔](身份)`，无身份标注即普通群员。
+
+### Docker 日志不捕获插件 stderr
+
+`docker logs langbot-plugin` 看不到插件 `print(file=sys.stderr)` 输出。诊断需写文件（gate.log / prompt_dump.log）。

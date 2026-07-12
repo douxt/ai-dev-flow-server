@@ -25,6 +25,7 @@
 | 🔧 **容器+SSH 运维** | [container-restart-best-practices.md](container-restart-best-practices.md) | 重启顺序、SSH 僵尸防护、Tailscale WSL 冲突、Docker 路径、DSM 清理脚本 |
 | 🖥️ **NAS 运维** | [nas-access-best-practices.md](nas-access-best-practices.md) | SSH/Docker 命令、DB 操作、日志解读、UUID 表、Tailscale 性能诊断 |
 | ⚙️ **终版配置** | [bot.md](bot.md) | NapCat/LangBot 配置、人设、记忆压缩、联网搜索 |
+| 🧬 **进化方向** | [evolution-roadmap.md](evolution-roadmap.md) | 四级进化落地方向、技术选型结论、参考项目清单（配 [evolve.md](evolve.md) 初稿） |
 | 🧪 **修复计划** | [at-40-bot-bot-wondrous-owl.md](/home/dou/.claude/plans/at-40-bot-bot-wondrous-owl.md) | 异步识图+内存缓存+双限时间线 |
 | 🔀 **转发综合评判** | [at-40-forward-bot-shiny-forest.md](/home/dou/.claude/plans/at-40-forward-bot-shiny-forest.md) | get_forward_msg vs 截图识图决策矩阵 |
 
@@ -39,4 +40,5 @@
 | 运维/部署/容器重启 | 容器运维 → NAS 运维 |
 | 处理合并转发 | 转发综合评判 → 开发日志第十三章 |
 | 改人设/调参数 | 终版配置（bot.md） |
+| 规划下一步进化 | 进化方向（evolution-roadmap.md） |
 | 查日志/调 bug | NAS 运维 → 开发日志对应章节 |
