@@ -1,6 +1,7 @@
-import asyncio, base64, hashlib, io, json, random, sys, time
+import asyncio, base64, hashlib, io, json, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
+_DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
 
 def _now():
     return datetime.now(BJT)
@@ -81,6 +82,8 @@ class DefaultEventListener(EventListener):
                 f.write(init_msg + '\n')
         except:
             pass
+
+        self._init_chat_index()
 
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
@@ -503,6 +506,16 @@ class DefaultEventListener(EventListener):
             )
         except Exception as e:
             print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
+        try:
+            db = sqlite3.connect(_DB_PATH)
+            db.execute(
+                "INSERT OR REPLACE INTO chat_index (doc_id, session_id, timestamp_unix, formatted_text) VALUES (?, ?, ?, ?)",
+                (doc_id, metadata['session_id'], metadata['timestamp_unix'], metadata['text'])
+            )
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f'[silent] chat_index write error: {e}', file=sys.stderr, flush=True)
 
     def _has_image(self, message_chain) -> bool:
         if message_chain is None:
@@ -733,24 +746,18 @@ class DefaultEventListener(EventListener):
 
     async def _get_recent_messages(self, api, session_name, limit):
         try:
-            # 先查总数，再跳到末尾拿最新记录
-            probe = await self.plugin.vector_list(
-                self.kb_id,
-                filters={"$and": [{"session_id": session_name}, {"type": "chat_history"}]},
-                limit=1,
-                offset=0,
-            )
-            total = probe.get('total', 0) if isinstance(probe, dict) else 0
-            offset = max(0, total - limit) if total > 0 else 0
-            result = await self.plugin.vector_list(
-                self.kb_id,
-                filters={"$and": [{"session_id": session_name}, {"type": "chat_history"}]},
-                limit=limit,
-                offset=offset,
-            )
-            return result.get('items', []) if isinstance(result, dict) else []
+            db = sqlite3.connect(_DB_PATH)
+            rows = db.execute(
+                "SELECT doc_id, formatted_text, timestamp_unix FROM chat_index WHERE session_id = ? ORDER BY timestamp_unix DESC LIMIT ?",
+                (session_name, limit)
+            ).fetchall()
+            db.close()
+            return [
+                {'id': row[0], 'metadata': {'text': row[1], 'timestamp_unix': row[2]}, 'document': row[1]}
+                for row in rows
+            ]
         except Exception as e:
-            print(f'[silent] vector_list error: {e}', file=sys.stderr, flush=True)
+            print(f'[silent] chat_index read error: {e}', file=sys.stderr, flush=True)
             return []
 
     async def _search_history(self, api, queries, session_name='', top_k=10):
@@ -948,6 +955,23 @@ class DefaultEventListener(EventListener):
             if t.exception() else None
         )
 
+    def _init_chat_index(self):
+        try:
+            db = sqlite3.connect(_DB_PATH)
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=NORMAL")
+            db.execute("""CREATE TABLE IF NOT EXISTS chat_index (
+                doc_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                timestamp_unix REAL NOT NULL,
+                formatted_text TEXT NOT NULL
+            )""")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_chat_session_time ON chat_index(session_id, timestamp_unix DESC)")
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f'[silent] chat_index init error: {e}', file=sys.stderr, flush=True)
+
 
 def _build_document_id(session_name, time_str, sender_id, text):
     raw = f"{session_name}|{time_str}|{sender_id}|{text}"
@@ -958,7 +982,7 @@ def _build_msg_metadata(session_name, sender_name, sender_id, time_str, text, se
     label = sender_name
     if sender_title:
         label += f'[{sender_title}]'
-    elif sender_role and sender_role not in ('Permission.MEMBER', 'MEMBER'):
+    if sender_role and sender_role not in ('Permission.MEMBER', 'MEMBER'):
         label += f'({sender_role})'
     return {
         'text': f"[{time_str}] {label}: {text}",
