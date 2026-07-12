@@ -14,6 +14,7 @@ from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 _ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 _MAX_PIXELS = 2048 * 2048
 _VISION_SEMAPHORE = None  # lazy init in _describe_images
+_API_SEM = asyncio.Semaphore(3)  # 限制并发 WS 调用，防止 plugin runtime 断连
 
 
 def _log_gate(msg):
@@ -497,14 +498,15 @@ class DefaultEventListener(EventListener):
 
     async def _store_message(self, metadata, doc_id):
         try:
-            vectors = await self.plugin.invoke_embedding(self.embedding_model_uuid, [metadata['text']])
-            await self.plugin.vector_upsert(
-                collection_id=self.kb_id,
-                vectors=vectors,
-                ids=[doc_id],
-                metadata=[metadata],
-                documents=[metadata['text']],
-            )
+            async with _API_SEM:
+                vectors = await self.plugin.invoke_embedding(self.embedding_model_uuid, [metadata['text']])
+                await self.plugin.vector_upsert(
+                    collection_id=self.kb_id,
+                    vectors=vectors,
+                    ids=[doc_id],
+                    metadata=[metadata],
+                    documents=[metadata['text']],
+                )
         except Exception as e:
             print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
         try:
