@@ -132,6 +132,10 @@ class DefaultEventListener(EventListener):
                         self._run_background(self._save_with_vision(ctx.event, doc_id))
                     elif doc_id:
                         self._run_background(self._save_and_store(ctx.event))
+                try:
+                    with open('/tmp/silent_gate.log', 'a') as f:
+                        f.write(f'[silent] gate: prevented\n')
+                except: pass
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
 
