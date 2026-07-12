@@ -1,4 +1,4 @@
-import asyncio, hashlib, json, random, sys, time
+import asyncio, base64, hashlib, io, json, random, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 
@@ -9,6 +9,18 @@ from langbot_plugin.api.entities import events, context
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 
+_ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+_MAX_PIXELS = 2048 * 2048
+_VISION_SEMAPHORE = None  # lazy init in _describe_images
+
+
+def _log_gate(msg):
+    try:
+        with open('/tmp/silent_gate.log', 'a') as f:
+            f.write(msg + '\n')
+    except:
+        pass
+
 
 class DefaultEventListener(EventListener):
     async def initialize(self):
@@ -17,6 +29,8 @@ class DefaultEventListener(EventListener):
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
         self.history_count = int(config.get('history_count', 20))
+        self.timeline_max_chars = int(config.get('timeline_max_chars', 2000))
+        self.vision_max_images = int(config.get('vision_max_images', 5))
         kb_id = str(config.get('kb_id', ''))
         emb_uuid = str(config.get('embedding_model_uuid', ''))
         if kb_id and emb_uuid:
@@ -29,13 +43,38 @@ class DefaultEventListener(EventListener):
             self.embedding_model_uuid = ''
             if kb_id or emb_uuid:
                 print('[silent] WARNING: kb_id and embedding_model_uuid must both be set, KB disabled', file=sys.stderr, flush=True)
+        self.vision_enabled = bool(config.get('vision_enabled', False))
+        self.vision_model_uuid = str(config.get('vision_model_uuid', ''))
+        self.vision_all_messages = bool(config.get('vision_all_messages', False))
+        self.vision_daily_limit = int(config.get('vision_daily_limit', 0))
+        self.debug_dump = bool(config.get('debug_dump', False))
+        if self.vision_enabled and not self.vision_model_uuid:
+            print('[silent] WARNING: vision_enabled=true but vision_model_uuid empty, disabling', file=sys.stderr, flush=True)
+            self.vision_enabled = False
+        if self.vision_enabled and self.vision_model_uuid:
+            try:
+                models = await self.plugin.list_llm_models()
+                match = [m for m in models if m.get('uuid') == self.vision_model_uuid and 'vision' in (m.get('abilities') or [])]
+                if not match:
+                    print(f'[silent] WARNING: model {self.vision_model_uuid} not found or lacks vision, disabling', file=sys.stderr, flush=True)
+                    self.vision_enabled = False
+            except Exception as e:
+                print(f'[silent] WARNING: cannot verify vision model: {e}, keeping enabled', file=sys.stderr, flush=True)
+        if self.vision_all_messages and not self.vision_enabled:
+            print('[silent] INFO: vision_all_messages=true ignored (vision_enabled=false)', file=sys.stderr, flush=True)
+        self._vision_daily_count = 0
+        self._vision_daily_date = _now().date()
+        self._vision_fail_streak = 0
+        self._vision_circuit_open_until = None
+        self._vision_stats = {'total': 0, 'success': 0, 'fail': 0, 'total_tokens': 0}
+        self._image_cache = {}  # doc_id → {status, desc, time}
         self._last_trigger = {}
         self._bg_tasks: set[asyncio.Task] = set()
         self._MAX_BG_TASKS = 50
         # 迁移已完成，禁用避免重复
         # if self.kb_enabled:
         #     asyncio.create_task(self._migrate_buffer_if_needed())
-        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled}'
+        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled}'
         print(init_msg, file=sys.stderr, flush=True)
         try:
             with open('/tmp/silent_init.log', 'w') as f:
@@ -48,10 +87,18 @@ class DefaultEventListener(EventListener):
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
+            # 提取引用文本（从 message_chain 的 Quote 组件）
+            quote_text = await self._extract_quote(ctx.event.message_chain)
             if is_trigger and self.kb_enabled:
-                doc_id = await self._save_message(ctx.event)
+                doc_id = await self._save_text_only(ctx.event)
+                # 不仅检测 message_chain 中的 Image 组件，也检测引用文本中的 [图片] 占位
+                has_img = self._has_image(ctx.event.message_chain)
+                has_img_in_quote = '[图片' in (quote_text or '')
+                if doc_id and self.vision_enabled and (has_img or has_img_in_quote):
+                    self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
+                    self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id)
+                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -60,9 +107,9 @@ class DefaultEventListener(EventListener):
                 except:
                     pass
             elif is_trigger:
-                doc_id = await self._save_message(ctx.event)
+                doc_id = await self._save_text_only(ctx.event)
                 trigger = 'at' if is_at else 'random'
-                self._last_trigger[session_name] = (trigger, doc_id)
+                self._last_trigger[session_name] = (trigger, doc_id, quote_text)
                 gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
                 print(gate_msg, file=sys.stderr, flush=True)
                 try:
@@ -72,7 +119,12 @@ class DefaultEventListener(EventListener):
                     pass
             else:
                 if self.kb_enabled:
-                    self._run_background(self._save_and_store(ctx.event))
+                    doc_id = await self._save_text_only(ctx.event)
+                    if doc_id and self.vision_enabled and self.vision_all_messages and self._has_image(ctx.event.message_chain):
+                        self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
+                        self._run_background(self._save_with_vision(ctx.event, doc_id))
+                    elif doc_id:
+                        self._run_background(self._save_and_store(ctx.event))
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
 
@@ -96,15 +148,16 @@ class DefaultEventListener(EventListener):
             now_str = _now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')
             ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}'))
             items = []
-            search_count = 0
             trigger = 'at'
             try:
                 session_name = ctx.event.session_name
-                trigger_info = self._last_trigger.pop(session_name, ('at', None))
+                trigger_info = self._last_trigger.pop(session_name, ('at', None, ''))
                 if isinstance(trigger_info, tuple):
-                    trigger, trigger_doc_id = trigger_info
+                    trigger = trigger_info[0]
+                    trigger_doc_id = trigger_info[1] if len(trigger_info) > 1 else None
+                    quote_text = trigger_info[2] if len(trigger_info) > 2 else ''
                 else:
-                    trigger, trigger_doc_id = trigger_info, None
+                    trigger, trigger_doc_id, quote_text = trigger_info, None, ''
 
                 if not self.kb_enabled or not self.kb_id:
                     return
@@ -122,71 +175,95 @@ class DefaultEventListener(EventListener):
                         items = [i for i in items if i.get('id') != trigger_doc_id]
                     items = items[-self.history_count:]
 
+                lines = _format_timeline(items)
+
+                # 字符数限制：从最旧开始丢弃完整消息
+                max_chars = self.timeline_max_chars
+                total_chars = sum(len(l) for l in lines)
+                while lines and total_chars > max_chars:
+                    total_chars -= len(lines.pop(0))
+
+                # 🔖 强化 timeline 中图片识别标记
+                import re
+                _identified = 0
+                _pending = 0
+                for _i, _line in enumerate(lines):
+                    if '🖼️ 图' not in _line:
+                        continue
+                    _idx = _line.index('🖼️ 图')
+                    _pfx = _line[:_idx]
+                    _rest = _line[_idx:]
+                    if '：⏳ 识别中' in _rest:
+                        lines[_i] = _pfx + _rest.replace('🖼️ 图', '⏳ [AI识图中] 图', 1)
+                        _pending += 1
+                    elif '：[图片:' in _rest:
+                        _m = re.match(r'🖼️ 图\d+：\[图片:\s*(.*?)\]', _rest)
+                        if _m:
+                            _img_prefix = _rest[:_rest.index('：')]
+                            _img_prefix_new = _img_prefix.replace('🖼️ 图', '🤖 [AI识图] 图', 1)
+                            _desc = _m.group(1)
+                            _after = _rest[len(f'{_img_prefix}：[图片: {_desc}]'):]
+                            lines[_i] = _pfx + f'{_img_prefix_new}：[{_desc}]' + _after
+                            _identified += 1
+                if _identified:
+                    lines.append(f'📌 [AI识图] 以上含 {_identified} 张已识别图片，请据此回答。')
+
                 if trigger == 'random':
-                    lines = _format_timeline(items)
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
                     ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
                     ctx.event.prompt.append(provider_message.Message(role='system', content='以上是群聊历史。接下来有一条用户消息——它只是随机触发器，不是你该回复的内容。无视它，用历史中的话题回应。'))
                 else:
-                    lines = _format_timeline(items)
-                    ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
-                    ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
-
-                # 语义搜索
-                try:
-                    if trigger == 'random':
-                        queries = [i.get('metadata', {}).get('text', '') for i in items[-3:] if i.get('metadata', {}).get('text', '')]
+                    query_vars = await api.get_query_vars()
+                    at_text = str(query_vars.get('user_message_text', '') or '')
+                    # quote_text 已在 gate 阶段从 message_chain 的 Quote 组件提取
+                    _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
+                    # DEBUG: dump prompt for analysis
+                    try:
+                        with open('/tmp/silent_prompt_dump.log', 'a') as f:
+                            f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
+                            f.write(f'[1] time: {now_str}\n')
+                            f.write(f'[2] trigger: {trigger}\n')
+                            f.write(f'[3] at_text: {at_text[:200] if at_text else "(empty)"}\n')
+                            f.write(f'[4] quote_text: {quote_text[:200] if quote_text else "(empty)"}\n')
+                            f.write(f'[5] ai_identified={_identified} ai_pending={_pending}\n')
+                            f.write(f'[6] mode: {"[@]" if at_text.strip() else "[空@]"}\n')
+                            f.write(f'[7] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
+                    except:
+                        pass
+                    if at_text.strip():
+                        ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
+                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                    elif quote_text:
+                        ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你，但引用了消息。你必须优先结合上面引用的内容直接回答（20-50字）。不要回复"在线""收到"等状态确认。'))
+                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        trigger = 'empty_at'
                     else:
-                        query_vars = await api.get_query_vars()
-                        at_text = str(query_vars.get('user_message_text', '') or '')
-                        sender_name = str(query_vars.get('sender_name', '') or '')
-                        if at_text.strip():
-                            # @模式：消息文本 + 发言人，精准匹配该用户历史
-                            if sender_name:
-                                queries = [at_text.strip(), f'{at_text.strip()} {sender_name}']
-                            else:
-                                queries = [at_text.strip()]
-                        else:
-                            queries = []
-                        try:
-                            with open('/tmp/silent_gate.log', 'a') as f:
-                                f.write('[silent] at_text="%s" sender=%s\n' % (at_text[:80], sender_name))
-                        except:
-                            pass
-                    if queries:
-                        with open('/tmp/silent_gate.log', 'a') as f:
-                            f.write('[silent] search: %d queries\n' % len(queries))
-                        kb_results = await asyncio.wait_for(self._search_history(api, queries), timeout=3.0)
-                        if kb_results:
-                            # 排除时间线已有的近期消息
-                            timeline_ids = {i.get('id') for i in items}
-                            kb_results = [r for r in kb_results if r.get('id') not in timeline_ids]
-                        if kb_results:
-                            with open('/tmp/silent_gate.log', 'a') as f:
-                                f.write('[silent] search: %d results (after dedup), top dist=%.4f\n' % (len(kb_results), kb_results[0].get('distance', 99)))
-                                for r in kb_results[:5]:
-                                    f.write('  [%.4f] %s\n' % (r.get('distance', 99), r.get('document', '')[:80]))
-                            search_count = len(kb_results)
-                            search_lines = []
-                            for r in kb_results:
-                                meta = r.get('metadata', {})
-                                ts = meta.get('timestamp', '?')
-                                sn = meta.get('sender_name', '?')
-                                doc = r.get('document', '')
-                                search_lines.append(f'- [{ts}] {sn}: {doc}')
-                            ctx.event.prompt.append(provider_message.Message(role='system', content='[群聊历史检索] 以下是从全部群聊记录中检索到的早期内容：\n' + '\n'.join(search_lines)))
-                            with open('/tmp/silent_gate.log', 'a') as f:
-                                f.write('[silent] INJECTED %d search lines, prompt_msgs=%d\n' % (len(search_lines), len(ctx.event.prompt)))
-                except asyncio.TimeoutError:
-                    pass
-                except Exception as e:
-                    with open('/tmp/silent_gate.log', 'a') as f:
-                        f.write('[silent] search error: %s\n' % e)
+                        ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你。你必须从【】内群聊最近记录中挑选一个具体话题直接评论（20-50字）。不要回复"在线""收到"等状态确认，不要打招呼，直接说话题。'))
+                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        trigger = 'empty_at'
+
             except Exception as e:
                 import traceback
                 with open('/tmp/silent_gate.log', 'a') as f:
                     f.write('[silent] inject ERROR: %s\n%s\n' % (e, traceback.format_exc()))
-            print(f'[silent] inject: timeline={len(items)} search={search_count} ({trigger})', file=sys.stderr, flush=True)
+            # 成功率日志
+            stats = self._vision_stats
+            if stats['total'] > 0:
+                print(f'[silent] vision stats: total={stats["total"]} ok={stats["success"]} fail={stats["fail"]}', file=sys.stderr, flush=True)
+            print(f'[silent] inject: timeline={len(items)} ({trigger})', file=sys.stderr, flush=True)
+
+        # 定期清理 _image_cache
+        async def cache_cleanup_loop():
+            while True:
+                await asyncio.sleep(600)  # 每 10 分钟
+                now = time.time()
+                stale = [k for k, v in self._image_cache.items() if now - v['time'] > 300]
+                for k in stale:
+                    del self._image_cache[k]
+                if stale:
+                    print(f'[silent] cache cleanup: removed {len(stale)} stale entries', file=sys.stderr, flush=True)
+        if self.kb_enabled:
+            asyncio.create_task(cache_cleanup_loop())
 
     def _has_at(self, message_chain) -> bool:
         if message_chain is None:
@@ -199,17 +276,28 @@ class DefaultEventListener(EventListener):
                 if origin is not None and self._has_at(origin):
                     return True
             if c.type == 'Forward':
+                nodes = getattr(c, 'node_list', []) or []
+                _log_gate(f'Forward debug: node_count={len(nodes)}, nodes={nodes}')
                 for node in getattr(c, 'node_list', []) or []:
                     mc = getattr(node, 'message_chain', None)
                     if mc is not None and self._has_at(mc):
                         return True
         return False
 
-    def _extract_text(self, message_chain, max_length=300) -> str:
+    async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
             return ''
+        if depth > 5:
+            return '[引用链过长]'
+        if image_descriptions is None:
+            image_descriptions = {}
+        # NapCat 合并转发消息的 message_chain 只有 ['Source']
+        chain_types = [c.type for c in message_chain]
+        if chain_types == ['Source']:
+            return '[合并转发群聊记录]'
         parts = []
-        for c in message_chain:
+        img_num = 0
+        for i, c in enumerate(message_chain):
             t = c.type
             if t == 'Plain':
                 parts.append(getattr(c, 'text', ''))
@@ -218,15 +306,21 @@ class DefaultEventListener(EventListener):
             elif t == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    parts.append(f'[引用] {self._extract_text(origin, max_length)}')
+                    inner = await self._extract_text(origin, max_length, image_descriptions=image_descriptions, depth=depth+1)
+                    parts.append(f'[引用内容]\n{inner}')
             elif t == 'Forward':
                 nodes = getattr(c, 'node_list', []) or []
                 if nodes:
-                    for i, node in enumerate(nodes[:5]):
+                    for ni, node in enumerate(nodes[:5]):
                         mc = getattr(node, 'message_chain', None)
-                        inner = self._extract_text(mc, max_length) if mc is not None else ''
+                        inner = await self._extract_text(mc, max_length, image_descriptions=image_descriptions, depth=depth+1) if mc is not None else ''
                         sender = getattr(node, 'sender_name', '')
-                        parts.append(f'[合并转发 {sender}] {inner}')
+                        if not sender:
+                            sender = str(getattr(node, 'sender_id', getattr(node, 'user_id', '')))
+                        if inner:
+                            parts.append(f'[合并转发 {sender}]\n{inner}')
+                        else:
+                            parts.append(f'[合并转发 {sender}: 无文本]')
                     if len(nodes) > 5:
                         parts.append(f'[共{len(nodes)}条,仅展示前5条]')
                 else:
@@ -234,7 +328,12 @@ class DefaultEventListener(EventListener):
             elif t == 'Source':
                 pass
             elif t == 'Image':
-                parts.append('[图片]')
+                img_num += 1
+                desc = image_descriptions.get(i) if image_descriptions else None
+                if desc and desc != '[图片]':
+                    parts.append(f'🖼️ 图{img_num}：{desc}')
+                else:
+                    parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
             elif t == 'Face':
                 parts.append(str(c))
             else:
@@ -243,7 +342,7 @@ class DefaultEventListener(EventListener):
                 return ' '.join(parts)[:max_length] + '...[截断]'
         return ' '.join(parts)
 
-    def _extract_at_text(self, query) -> str:
+    async def _extract_at_text(self, query) -> str:
         mc = getattr(query, 'message_chain', None)
         if mc is None:
             return ''
@@ -261,11 +360,52 @@ class DefaultEventListener(EventListener):
             elif t == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    parts.append(f'[引用] {self._extract_text(origin, 200)}')
+                    parts.append(f'[引用] {await self._extract_text(origin, 200, depth=1)}')
         return ' '.join(parts).strip()
 
-    async def _save_message(self, event):
-        text = getattr(event, 'text_message', '') or self._extract_text(event.message_chain)
+    async def _extract_quote(self, message_chain) -> str:
+        """从 message_chain 的 Quote 组件提取引用文本"""
+        if message_chain is None:
+            return ''
+        for c in message_chain:
+            if c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    # 检查 origin 是否包含 Forward 组件
+                    origin_types = [x.type for x in (origin if hasattr(origin, '__iter__') else [])]
+                    has_fwd = 'Forward' in origin_types
+                    if origin_types == ['Source']:
+                        return '[合并转发群聊记录]'
+                    inner = await self._extract_text(origin, 300, depth=1)
+                    # origin 包含 Forward 时加标记
+                    if has_fwd:
+                        return f'[合并转发] {inner}' if inner else '[合并转发群聊记录]'
+                    if not inner and origin_types:
+                        return '[合并转发群聊记录]'
+                    return inner
+            elif c.type == 'Forward':
+                # Forward 内查找 Quote
+                nodes = getattr(c, 'node_list', []) or []
+                for node in nodes:
+                    mc = getattr(node, 'message_chain', None)
+                    if mc is not None:
+                        result = await self._extract_quote(mc)
+                        if result:
+                            return result
+        return ''
+
+    async def _save_text_only(self, event):
+        """只存文本到 KB，不等待识图。gate 触发路径使用。"""
+        chain_types = [c.type for c in (event.message_chain or [])]
+        # NapCat 收到合并转发时，message_chain 只有 ['Source']，无实际内容
+        # 识别为转发群聊记录，明确标记
+        is_forward_only = chain_types == ['Source']
+        text = ''
+        if is_forward_only:
+            text = '[合并转发群聊记录]'
+            _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
+        else:
+            text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
@@ -289,8 +429,49 @@ class DefaultEventListener(EventListener):
                 self._run_background(self._backfill_sender(str(event.sender_id), sender_name, sender_title, sender_role))
         return doc_id
 
+    async def _save_with_vision(self, event, doc_id):
+        """后台识图任务。完成后 upsert KB 更新该条记录。"""
+        trace_id = ''
+        try:
+            msg_id = str(getattr(getattr(event, 'message_event', None), 'message_id', ''))
+            if msg_id:
+                trace_id = f'msg_{msg_id[-12:]}'
+        except:
+            pass
+        # 去重：检查 _image_cache 是否已有 done 结果
+        cached = self._image_cache.get(doc_id)
+        if cached and cached['status'] == 'done':
+            _log_gate(f'[{trace_id}] vision: already done, skip')
+            return
+        _log_gate(f'[{trace_id}] vision: start (async)')
+        try:
+            image_descs = await self._describe_images(event.message_chain, trace_id, self.vision_max_images)
+            text = await self._extract_text(event.message_chain, image_descriptions=image_descs)
+            ok = sum(1 for v in image_descs.values() if '图片' in v and v != '[图片]')
+            fail = sum(1 for v in image_descs.values() if v == '[图片]')
+            _log_gate(f'[{trace_id}] vision: done ok={ok} fail={fail}')
+            # upsert KB
+            session_name = f'{event.launcher_type}_{event.launcher_id}'
+            time_str = _now().strftime('%Y-%m-%d %H:%M')
+            sender = getattr(event.message_event, 'sender', None)
+            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id) if sender else str(event.sender_id)
+            sender_title = getattr(sender, 'special_title', '') or '' if sender else ''
+            sender_role = str(getattr(sender, 'permission', '')) if sender and hasattr(sender, 'permission') else ''
+            if len(text) > 500:
+                text = text[:300] + '...[truncated]...' + text[-100:]
+            meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
+            await self._store_message(meta, doc_id)
+            _log_gate(f'[{trace_id}] vision: KB upserted, text len={len(meta["text"])}')
+            # 更新缓存：存所有图片描述（不只用第一张）
+            descs = [d for d in image_descs.values() if d != '[图片]']
+            self._image_cache[doc_id] = {'status': 'done', 'desc': ' | '.join(descs) if descs else '[图片]', 'time': time.time()}
+        except Exception as e:
+            _log_gate(f'[{trace_id}] vision: error {type(e).__name__}: {str(e)[:120]}')
+            self._image_cache[doc_id] = {'status': 'failed', 'desc': '[图片(识别失败)]', 'time': time.time()}
+
     async def _save_and_store(self, event):
-        text = getattr(event, 'text_message', '') or self._extract_text(event.message_chain)
+        """非触发消息的后台归档。不等待识图。"""
+        text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return
         if len(text) > 500:
@@ -323,6 +504,187 @@ class DefaultEventListener(EventListener):
         except Exception as e:
             print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
 
+    def _has_image(self, message_chain) -> bool:
+        if message_chain is None:
+            return False
+        for c in message_chain:
+            if c.type == 'Image':
+                return True
+            if c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None and self._has_image(origin):
+                    return True
+        return False
+
+    def _collect_images(self, message_chain):
+        """收集 message_chain 中所有 Image 组件，返回 [(chain_index, component)]"""
+        result = []
+        if message_chain is None:
+            return result
+        for i, c in enumerate(message_chain):
+            if c.type == 'Image':
+                result.append((i, c))
+            elif c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    result.extend(self._collect_images(origin))
+        return result
+
+    async def _describe_images(self, message_chain, trace_id='', max_images=5) -> dict:
+        global _VISION_SEMAPHORE
+        if _VISION_SEMAPHORE is None:
+            _VISION_SEMAPHORE = asyncio.Semaphore(2)
+        imgs = self._collect_images(message_chain)
+        if not imgs:
+            return {}
+        model_uuid = self.vision_model_uuid
+        result = {}
+        tasks = []
+        for idx, img in imgs[:max_images]:
+            tasks.append(self._describe_one(idx, img, model_uuid, trace_id))
+        if tasks:
+            gathered = await asyncio.gather(*tasks, return_exceptions=True)
+            for (idx, _), r in zip(imgs[:max_images], gathered):
+                if isinstance(r, Exception):
+                    _log_gate(f'[{trace_id}] vision: img[{idx}] exception {type(r).__name__}: {str(r)[:120]}')
+                    result[idx] = '[图片]'
+                else:
+                    result[idx] = r
+        for idx, _ in imgs[max_images:]:
+            result[idx] = '[图片(略)]'
+        for idx, _ in imgs:
+            if idx not in result:
+                result[idx] = '[图片]'
+        return result
+
+    async def _describe_one(self, idx, img, model_uuid, trace_id):
+        logs = []
+        t_start = time.time()
+        try:
+            bytes_data, mime = await asyncio.wait_for(img.get_bytes(), timeout=5)
+            t_get = time.time() - t_start
+            logs.append(f'get_bytes={mime} size={len(bytes_data) // 1024}KB ({t_get:.2f}s)')
+        except asyncio.TimeoutError:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] get_bytes timeout')
+            return '[图片(下载失败)]'
+        except Exception as e:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] get_bytes error {type(e).__name__}: {str(e)[:120]}')
+            return '[图片(下载失败)]'
+
+        if mime not in _ALLOWED_MIME:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] mime={mime} not allowed')
+            return '[图片(不支持的格式)]'
+
+        if not bytes_data:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] empty bytes')
+            return '[图片(空)]'
+
+        need_resize = False
+        try:
+            img_obj = open_image(bytes_data)
+            w, h = img_obj.size
+            if w > 2048 or h > 2048 or w * h > _MAX_PIXELS:
+                need_resize = True
+            img_obj.close()
+        except Exception:
+            need_resize = False
+
+        if need_resize:
+            try:
+                loop = asyncio.get_running_loop()
+                bytes_data = await loop.run_in_executor(None, _resize_image, bytes_data)
+                logs.append(f'resized ({time.time() - t_start:.2f}s)')
+            except Exception as e:
+                _log_gate(f'[{trace_id}] vision: img[{idx}] resize error {type(e).__name__}')
+                return '[图片(处理错误)]'
+
+        b64 = base64.b64encode(bytes_data).decode('ascii')
+        if len(b64) > 10 * 1024 * 1024:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] base64 too large ({len(b64) // 1024}KB)')
+            return '[图片过大]'
+
+        data_uri = f'data:{mime};base64,{b64}'
+        try:
+            t_api_start = time.time()
+            resp = await asyncio.wait_for(
+                self.plugin.invoke_llm(
+                    llm_model_uuid=model_uuid,
+                    messages=[
+                        provider_message.Message(
+                            role='user',
+                            content=[
+                                provider_message.ContentElement.from_text('请用一句话描述这张图片的内容（直接描述，不要前缀如"这张图片"）。'),
+                                provider_message.ContentElement.from_image_base64(data_uri),
+                            ]
+                        )
+                    ],
+                ),
+                timeout=10,
+            )
+            t_api = time.time() - t_api_start
+            raw_text = self._extract_llm_text(resp)
+            desc = _clean_description(raw_text)
+            logs.append(f'llm_ok lat={t_api:.1f}s desc="{desc}"')
+            self._record_vision_result(True)
+            return desc
+        except asyncio.TimeoutError:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] llm timeout')
+            self._record_vision_result(False)
+            return '[图片(超时)]'
+        except Exception as e:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] llm_fail {type(e).__name__}: {str(e)[:120]}')
+            self._record_vision_result(False)
+            return '[图片]'
+        finally:
+            _log_gate(f'[{trace_id}] vision: img[{idx}] ' + ' '.join(logs))
+
+    def _extract_llm_text(self, resp) -> str:
+        """从 invoke_llm 返回值中提取文本"""
+        if resp is None:
+            return ''
+        if isinstance(resp, str):
+            return resp
+        content = getattr(resp, 'content', None)
+        if content is None:
+            return str(resp) if resp else ''
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for c in content:
+                if hasattr(c, 'text') and c.text:
+                    parts.append(c.text)
+                elif isinstance(c, dict) and c.get('type') == 'text':
+                    parts.append(c.get('text', ''))
+            return ' '.join(parts)
+        return str(content) if content else ''
+
+    def _record_vision_result(self, success: bool):
+        self._vision_stats['total'] += 1
+        if success:
+            self._vision_stats['success'] += 1
+            self._vision_fail_streak = 0
+        else:
+            self._vision_stats['fail'] += 1
+            self._vision_fail_streak += 1
+            if self._vision_fail_streak >= 5:
+                self._vision_circuit_open_until = _now() + timedelta(minutes=5)
+                print(f'[silent] WARNING vision: circuit opened ({self._vision_fail_streak} consecutive failures)', file=sys.stderr, flush=True)
+
+    async def _check_vision_quota(self) -> bool:
+        today = _now().date()
+        if self._vision_daily_date != today:
+            self._vision_daily_count = 0
+            self._vision_daily_date = today
+        if self._vision_circuit_open_until and _now() < self._vision_circuit_open_until:
+            _log_gate(f'vision: circuit open until {self._vision_circuit_open_until.strftime("%H:%M:%S")}')
+            return False
+        if self.vision_daily_limit > 0 and self._vision_daily_count >= self.vision_daily_limit:
+            _log_gate(f'vision: daily limit reached ({self._vision_daily_count}/{self.vision_daily_limit})')
+            return False
+        self._vision_daily_count += 1
+        return True
+
     async def _backfill_sender(self, sender_id, new_name, title, role):
         """回填历史消息中该 sender_id 的裸名，替换为含群名片/头衔的名字"""
         label = new_name
@@ -349,7 +711,7 @@ class DefaultEventListener(EventListener):
             if old_name == label:
                 continue
             if '[' in old_name or '(' in old_name:
-                continue  # 已有群名片信息
+                continue
             old_text = meta.get('text', '')
             new_text = f"[{meta.get('timestamp', '?')}] {label}: {old_text.split(']: ', 1)[-1] if ']: ' in old_text else old_text}"
             meta['sender_name'] = label
@@ -382,7 +744,7 @@ class DefaultEventListener(EventListener):
             print(f'[silent] vector_list error: {e}', file=sys.stderr, flush=True)
             return []
 
-    async def _search_history(self, api, queries, top_k=10):
+    async def _search_history(self, api, queries, session_name='', top_k=10):
         """混合搜索：Vector + Keyword（RRF融合），对标 LTM + 业界最佳实践"""
         try:
             with open('/tmp/silent_gate.log', 'a') as f:
@@ -395,9 +757,7 @@ class DefaultEventListener(EventListener):
         if not valid_queries:
             return []
         import math
-        # 取第一个有效 query 做搜索
         q = valid_queries[0]
-        # RRF 分数表：doc_id → rrf_score
         rrf_scores = {}
         doc_map = {}
         K = 60
@@ -409,11 +769,14 @@ class DefaultEventListener(EventListener):
             norm = math.sqrt(sum(v*v for v in qv))
             if norm > 0:
                 qv = [v / norm for v in qv]
+            vec_filters = {"type": "chat_history"}
+            if session_name:
+                vec_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
             vec_raw = await self.plugin.vector_search(
                 collection_id=self.kb_id,
                 query_vector=qv,
                 top_k=top_k,
-                filters={"type": "chat_history"},
+                filters=vec_filters,
             )
             for rank, entry in enumerate(vec_raw or []):
                 if not isinstance(entry, dict):
@@ -441,18 +804,20 @@ class DefaultEventListener(EventListener):
         try:
             import jieba
             words = [w for w in jieba.cut(q) if len(w) >= 2]
-            # 过滤停用词
             stopwords = {'之前', '有没有', '没有人', '有人', '聊过', '吗', '什么', '怎么', '为什么', '可以', '这个', '那个', '一下', '在吗', '能不能', '是否', '还有', '以及', '或者', '不过', '但是', '因为', '所以', '如果', '虽然', '而且', '然后', '的话', '吧', '呢', '啊', '哈', '哦', '嗯', '一个', '哪些', '哪个', '那种', '什么样', '真是', '就是', '不是'}
             words = [w for w in words if w not in stopwords]
             words = list(set(words))
             kw_rank = 0
             for kw in words:
                 try:
+                    kw_filters = {"type": "chat_history"}
+                    if session_name:
+                        kw_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
                     kw_raw = await self.plugin.vector_search(
                         collection_id=self.kb_id,
                         query_vector=[0.0] * 384,
                         top_k=5,
-                        filters={"type": "chat_history"},
+                        filters=kw_filters,
                         search_type='full_text',
                         query_text=kw,
                     )
@@ -610,3 +975,42 @@ def _format_timeline(items):
         if text:
             lines.append(text)
     return lines
+
+
+def open_image(bytes_data):
+    from PIL import Image
+    return Image.open(io.BytesIO(bytes_data))
+
+
+def _resize_image(bytes_data):
+    from PIL import Image
+    img = Image.open(io.BytesIO(bytes_data))
+    try:
+        w, h = img.size
+        max_dim = max(w, h)
+        if max_dim > 2048:
+            ratio = 2048 / max_dim
+            new_size = (int(w * ratio), int(h * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        buf = io.BytesIO()
+        img_format = img.format or 'JPEG'
+        if img_format == 'PNG' and img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+            img_format = 'JPEG'
+        img.save(buf, format=img_format, quality=70)
+        return buf.getvalue()
+    finally:
+        img.close()
+
+
+def _clean_description(text):
+    text = (text or '').strip().strip('"').strip("'")
+    for prefix in ['这张图片', '图片中', '图中', 'This image', 'The image', 'Image']:
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            text = text.lstrip('是').lstrip('展示了').lstrip('显示').lstrip()
+            break
+    if not text or any(kw in text for kw in ['不能描述', '无法识别', 'cannot describe', 'violates']):
+        return '[图片]'
+    text = text.split('\n')[0][:60]
+    return f'[图片: {text}]'
