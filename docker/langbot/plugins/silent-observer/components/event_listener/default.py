@@ -559,7 +559,7 @@ class DefaultEventListener(EventListener):
         try:
             image_descs = await self._describe_images(event.message_chain, trace_id, self.vision_max_images)
             text = await self._extract_text(event.message_chain, image_descriptions=image_descs)
-                        error_placeholder = lambda v: v.startswith('[图片') and v.endswith(']')
+            error_placeholder = lambda v: v.startswith('[图片') and v.endswith(']')
             ok = sum(1 for v in image_descs.values() if not error_placeholder(v))
             fail = len(image_descs) - ok
             _log_gate(f'[{trace_id}] vision: done ok={ok} fail={fail}')
