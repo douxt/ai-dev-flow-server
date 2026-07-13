@@ -193,34 +193,38 @@ langbot DB 中 `bots` 表记录：
 | adapter | `http_bot` |
 | adapter_config | `{"inbound_secret":"udimc123", "outbound_secret":"udimc123", "callback_url":"http://napcat:8888", ...}` |
 
-### relay 配置
+### relay v2 配置
 
-文件：`/tmp/relay.py`（napcat 容器内），监听 `0.0.0.0:8888`。
+文件：`/tmp/relay_v2.py`（napcat 容器内），监听 `0.0.0.0:8888`。
+
+特性：基于 LangBot 回调协议的 `(session_id, sequence)` 幂等去重，只转发 `is_final=true` 的最终回复，中间流式 chunk 丢弃。
 
 启动：
 ```bash
-ssh root@nas "timeout 5 \$DOCKER exec -d napcat python3 /tmp/relay.py"
+ssh root@nas "timeout 5 \$DOCKER exec -d napcat python3 /tmp/relay_v2.py"
 ```
 
 验证：
 ```bash
-ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay.py'"
+ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay_v2'"
 ```
 
 ### 发送测试消息（Python 脚本）
 
+**推荐使用 `/sync` 端点**（同步模式），等待 LLM 完整回复后一次性返回，不产生流式 chunk：
+
 ```python
 #!/usr/bin/env python3
-"""E2E 测试：模拟任意用户发送群消息，验证 bot 回复出现在 QQ 群"""
+"""E2E 测试：/sync 模式模拟任意用户，同步获取完整回复"""
 import json, hmac, hashlib, time, urllib.request
 
 LANG_BOT = "http://langbot:5300"
 BOT_UUID = "dcbe70d9-af11-4624-908a-9928e4a08bdb"
 SECRET = b"udimc123"
 
-def send_message(session_id: str, sender_id: str, sender_name: str,
-                 message: list, session_type: str = "group"):
-    """发送签名消息到 HTTP Bot，触发完整 pipeline"""
+def send_sync(session_id: str, sender_id: str, sender_name: str,
+              message: list, session_type: str = "group"):
+    """发送到 /sync 端点，阻塞等待完整回复"""
     body = json.dumps({
         "session_id": session_id,
         "session_type": session_type,
@@ -229,24 +233,16 @@ def send_message(session_id: str, sender_id: str, sender_name: str,
     }).encode()
 
     ts = str(int(time.time()))
-    signing_str = ts.encode() + b"." + body
-    sig = "sha256=" + hmac.new(SECRET, signing_str, hashlib.sha256).hexdigest()
+    sig = "sha256=" + hmac.new(SECRET, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
 
     req = urllib.request.Request(
-        f"{LANG_BOT}/bots/{BOT_UUID}",
+        f"{LANG_BOT}/bots/{BOT_UUID}/sync",  # /sync 端点
         data=body,
-        headers={
-            "Content-Type": "application/json",
-            "X-LB-Timestamp": ts,
-            "X-LB-Signature": sig,
-        },
+        headers={"Content-Type": "application/json", "X-LB-Timestamp": ts, "X-LB-Signature": sig},
         method="POST",
     )
-    try:
-        resp = urllib.request.urlopen(req, timeout=10)
-        return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return {"error": e.status, "body": e.read().decode()}
+    resp = urllib.request.urlopen(req, timeout=60)
+    return json.loads(resp.read())
 
 # --- 测试用例 ---
 
@@ -290,16 +286,12 @@ if __name__ == "__main__":
 ### 验证步骤
 
 ```bash
-# 1. 确认 relay 运行中
-ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay.py'"
+# 1. 确认 relay v2 运行中
+ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay_v2'"
 
-# 2. 运行测试脚本（在 napcat 容器内）
-ssh root@nas "timeout 15 \$DOCKER exec -i napcat python3" < test_e2e.py
-
-# 3. 等待 5-10 秒后检查：
-#    a) QQ 测试群出现 "[模拟] ..." 开头的 bot 回复
-#    b) gate log 无 Unknown
-ssh root@nas "timeout 5 \$DOCKER exec langbot-plugin sh -c 'tail -15 /tmp/silent_gate.log'"
+# 2. 运行 E2E 脚本（在 napcat 容器内，使用 /sync 端点）
+scp tests/test_e2e_sync.py root@nas:/tmp/
+ssh root@nas "timeout 5 \$DOCKER cp /tmp/test_e2e_sync.py napcat:/tmp/ && timeout 90 \$DOCKER exec napcat python3 /tmp/test_e2e_sync.py"
 
 # 4. 检查 chat_index 存储
 ssh root@nas "timeout 5 \$DOCKER exec langbot-plugin /app/.venv/bin/python3 -c \"
@@ -358,7 +350,7 @@ scp tests/test_face_unit.py root@nas:/tmp/ && \
   timeout 10 \$DOCKER exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py"
 
 # relay 状态
-ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay.py && echo OK || echo DOWN'"
+ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay_v2 && echo OK || echo DOWN'"
 
 # gate log 最新
 ssh root@nas "timeout 5 \$DOCKER exec langbot-plugin sh -c 'tail -15 /tmp/silent_gate.log'"
@@ -387,7 +379,7 @@ alias bot-test-unit='scp $HOME/dev/ai-dev-flow-server/docker/langbot/plugins/sil
 
 alias bot-gate='ssh root@nas "timeout 5 /volume1/@appstore/ContainerManager/usr/bin/docker exec langbot-plugin sh -c \"tail -15 /tmp/silent_gate.log\""'
 
-alias bot-relay='ssh root@nas "timeout 5 /volume1/@appstore/ContainerManager/usr/bin/docker exec napcat sh -c \"pgrep -f relay.py && echo OK || echo DOWN\""'
+alias bot-relay='ssh root@nas "timeout 5 /volume1/@appstore/ContainerManager/usr/bin/docker exec napcat sh -c \"pgrep -f relay_v2 && echo OK || echo DOWN\""'
 ```
 
 ---
@@ -398,7 +390,7 @@ alias bot-relay='ssh root@nas "timeout 5 /volume1/@appstore/ContainerManager/usr
 
 ```bash
 # 重启 relay
-ssh root@nas "timeout 5 \$DOCKER exec -d napcat python3 /tmp/relay.py"
+ssh root@nas "timeout 5 \$DOCKER exec -d napcat python3 /tmp/relay_v2"
 ```
 
 ### 2. HTTP Bot 返回 401 (bad signature)？
@@ -456,7 +448,7 @@ jobs:
           ssh ${{ secrets.NAS_HOST }} 'docker cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && docker exec langbot-plugin python3 /tmp/test_face_unit.py'
       - name: Smoke Test
         run: |
-          ssh ${{ secrets.NAS_HOST }} 'docker exec napcat pgrep -f relay.py || exit 1'
+          ssh ${{ secrets.NAS_HOST }} 'docker exec napcat pgrep -f relay_v2 || exit 1'
           ssh ${{ secrets.NAS_HOST }} 'docker exec langbot-plugin cat /tmp/silent_init.log | grep -q "vision_enabled=True"'
       - name: E2E - Face Test
         run: |
