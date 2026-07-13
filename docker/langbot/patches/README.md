@@ -7,6 +7,7 @@
 | 补丁 | 目标文件 | 原因 | 上游 |
 |------|---------|------|------|
 | [process.py](process.py) | `/app/src/langbot/pkg/pipeline/process/process.py` | `str()` 大 message_chain 阻塞事件循环 → WS ping timeout | 待提交 issue |
+| [monitoring_helper.py](monitoring_helper.py) | `/app/src/langbot/pkg/pipeline/monitoring_helper.py` | `model_dump()` + `json.dumps()` 大 message_chain 阻塞事件循环 → WS ping timeout | 待提交 issue |
 
 ## 应用
 
