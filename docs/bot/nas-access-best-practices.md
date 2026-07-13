@@ -91,9 +91,11 @@ ssh root@nas "timeout 10 $DOCKER exec langbot-plugin sh -c '
   find /app/data/plugins/dou__langbot-silent-observer -name \"*.pyc\" -delete
 '"
 
-# 3. 部署文件
-ssh root@nas "timeout 10 $DOCKER cp /tmp/silent_default.py \
-  langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py"
+# 3. 部署文件（优先用卷路径，docker cp 偶有静默失败）
+# 卷映射：/volume1/docker/langbot/data/plugins → /app/data/plugins
+scp default.py root@nas:/volume1/docker/langbot/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py
+# 备用方式：
+# ssh root@nas "timeout 10 $DOCKER cp /tmp/silent_default.py langbot-plugin:<容器内路径>"
 
 # 4. 重启（先 plugin，后主进程）
 ssh root@nas "timeout 20 $DOCKER restart langbot-plugin langbot"
