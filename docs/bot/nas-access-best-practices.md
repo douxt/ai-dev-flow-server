@@ -27,7 +27,11 @@ ssh root@nas
 | **单元测试** | `docker/langbot/plugins/silent-observer/tests/test_face_unit.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
 | **冒烟测试** | `docker/langbot/plugins/silent-observer/tests/test_smoke.py` | 部署到 `napcat:/tmp/` 执行 |
 | **E2E 测试** | `docker/langbot/plugins/silent-observer/tests/test_e2e_sync.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **压力测试** | `docker/langbot/plugins/silent-observer/tests/test_bg_stress.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **引用E2E测试** | `docker/langbot/plugins/silent-observer/tests/test_quote_e2e.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
 | **健康巡检** | `nas/health-check.sh` | NAS: `/volume1/docker/langbot/health-check.sh` |
+| **审查清单** | `.claude/gate-checklists/bot-plugin-review.md` | Plan Mode 强制对照审查 |
+| **插件入口** | `docker/langbot/plugins/silent-observer/main.py` | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/main.py` |
 | **relay v2** | (临时，待入库) | 容器 `napcat:/tmp/relay_v2.py`，监听 `:8888` |
 | **LangBot 源码** | (第三方，只读) | 容器内 `/app/.venv/lib/python3.12/site-packages/langbot_plugin/api/entities/builtin/platform/message.py` |
 | **聊天记录 DB** | (NAS 数据) | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/chat_index.db` |
