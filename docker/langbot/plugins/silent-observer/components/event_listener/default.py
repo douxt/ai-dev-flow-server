@@ -203,6 +203,10 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
+            # 把 Face 组件替换为 Plain 文本，防 pipeline 渲染成 [Unknown]
+            mc = getattr(ctx.event, 'message_chain', None)
+            if mc:
+                self._normalize_face_components(mc)
             now_str = _now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')
             ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}'))
             items = []
@@ -377,6 +381,20 @@ class DefaultEventListener(EventListener):
                         return True
         return False
 
+    def _face_to_text(self, c):
+        """Face 组件 → Plain 文本，防止 pipeline 渲染为 [Unknown]"""
+        name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
+        if name:
+            return f'[QQ表情:{name}]'
+        return f'[QQ表情:{getattr(c, "face_id", "?")}]'
+
+    def _normalize_face_components(self, message_chain):
+        """原地替换 message_chain 中的 Face 组件为 Plain"""
+        for i, c in enumerate(message_chain):
+            if c.type == 'Face':
+                text = self._face_to_text(c)
+                message_chain[i] = provider_message.Plain(text=text)
+
     async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
             return ''
@@ -428,11 +446,7 @@ class DefaultEventListener(EventListener):
                 else:
                     parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
             elif t == 'Face':
-                name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
-                if name:
-                    parts.append(f'[表情:{name}]')
-                else:
-                    parts.append(f'[表情:{getattr(c, "face_id", "?")}]')
+                parts.append(self._face_to_text(c))
             else:
                 parts.append(f'[{t}]')
             if len(' '.join(parts)) > max_length:
@@ -453,11 +467,7 @@ class DefaultEventListener(EventListener):
             elif t == 'Image':
                 parts.append('[图片]')
             elif t == 'Face':
-                name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
-                if name:
-                    parts.append(f'[表情:{name}]')
-                else:
-                    parts.append(f'[表情:{getattr(c, "face_id", "?")}]')
+                parts.append(self._face_to_text(c))
             elif t == 'Quote':
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
