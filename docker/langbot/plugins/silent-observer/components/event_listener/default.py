@@ -199,31 +199,14 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
 
-        async def _debounced_save(session_name, ctx):
-            """等待流式结束（3秒无新chunk）后保存最后一次"""
-            try:
-                await asyncio.sleep(3)
-                ctx = self._reply_pending.pop(session_name, ctx)
-                self._reply_tasks.pop(session_name, None)
-                text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
-                if self.kb_enabled and text.strip():
-                    time_str = _now().strftime('%Y-%m-%d %H:%M')
-                    meta = _build_msg_metadata(session_name, '机器豆', '0', time_str, text, 'BOT', '')
-                    doc_id = _build_document_id(session_name, time_str, '0', text)
-                    await self._store_message(meta, doc_id)
-                self._last_trigger.pop(session_name, None)
-                print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
-            except asyncio.CancelledError:
-                return
-
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
-            self._reply_pending[session_name] = ctx
-            old = self._reply_tasks.get(session_name)
-            if old and not old.done():
-                old.cancel()
-            self._reply_tasks[session_name] = asyncio.create_task(_debounced_save(session_name, ctx))
+            _ts = time.time()
+            _last = self._reply_ts.get(session_name, 0)
+            self._reply_ts[session_name] = _ts
+            if _ts - _last < 1.0:
+                return  # 流式 chunk，跳过（1秒冷却）
 
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
