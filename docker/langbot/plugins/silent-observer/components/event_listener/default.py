@@ -218,7 +218,7 @@ class DefaultEventListener(EventListener):
             if mc:
                 self._normalize_face_components(mc)
             now_str = _now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')
-            ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}'))
+            ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}。以下【】中所有时间戳均为北京时间(UTC+8)，不得自行换算。'))
             items = []
             trigger = 'at'
             try:
@@ -248,6 +248,12 @@ class DefaultEventListener(EventListener):
                     items = items[-self.history_count:]
 
                 lines = _format_timeline(items)
+                # 去重：连续相同 bot 消息只保留第一条（防 relay 重复污染 + 自我引用级联放大）
+                _deduped = []
+                for _l in lines:
+                    if not _deduped or _l != _deduped[-1]:
+                        _deduped.append(_l)
+                lines = _deduped
 
                 # 字符数限制：从最旧开始丢弃完整消息
                 max_chars = self.timeline_max_chars
