@@ -655,3 +655,64 @@ napcat 默认只启 WebSocket 模式。HTTP API 需在 `onebot11_3228649756.json
 {"enable":true, "name":"test-api", "url":"0.0.0.0:3000", "token":"udimc123"}
 ```
 napcat 自动选择 3000 端口启动 HTTP 服务。compose 需映射该端口。
+
+## 十七、2026-07-13：Flood 修复 + 测试基础设施 + 识图优化
+
+### 流式回调 Flood 问题
+
+**现象**：HTTP Bot 的 `/sync` 端点返回 N 个流式 chunk，插件 `NormalMessageResponded` handler 对每个 chunk 触发一次 `save_reply`，导致同一条回复在 KB 中存储 N 次（10-30 条重复）。
+
+**修复历程**：
+1. 尝试 `finish_reason` 字段判断 → HTTP Bot 下始终为 `'stop'`，无效
+2. 尝试 asyncio debounce task → 在插件框架中 task 管理复杂，未生效
+3. 最终采用简单的 **1 秒冷却**机制：同一 session 连续 chunk 只保存第一条
+4. ⚠️ **已知问题**：1 秒冷却在 async handler 中未完全阻止重复保存，需进一步排查
+
+**教训**：async handler 中 `_reply_ts` dict 的快速读写可能因事件循环调度而失效，基于 `asyncio.Lock` 或 DB 层去重更可靠。
+
+### relay v2 — 只转发最终回复
+
+**问题**：relay v1 对每个流式 chunk 都转发到 QQ 群，造成刷屏。
+
+**修复**：relay v2 基于 LangBot 回调协议的 `(session_id, sequence)` 幂等去重，只转发 `is_final=true` 的最终回复。中间 chunk 丢弃或缓存。
+
+文件：napcat 容器 `/tmp/relay_v2.py`，监听 `:8888`。
+
+### SQLite 并发写锁
+
+**问题**：流式 chunk 并发写入 chat_index 导致 `OperationalError: database is locked`。
+
+**修复**：
+1. 创建 `_get_db()` 工厂函数，`timeout=10` + `PRAGMA journal_mode=WAL`
+2. 所有 SQLite 连接统一使用该函数
+3. 部署路径注意：`docker cp` 可能静默失败，改用直接写到 NAS 卷路径 `/volume1/docker/langbot/data/plugins/...`
+
+### Vision 超时 + 统计修复
+
+**超时**：qwen3.7-plus 是推理模型，64KB+ 图片需 16-45s。从 20s 调整为 45s。
+
+**统计 bug**：成功描述 `[图片: 一只乌龟...]` 被误判为 error placeholder。修复：用 `':' in v` 替代 `v.endswith(']')` 判断。
+
+### 测试基础设施
+
+新建 4 个文件：
+
+| 文件 | 用途 |
+|------|------|
+| `tests/test_smoke.py` | 冒烟：napcat/langbot/relay 三检，exit(0/1) |
+| `tests/test_e2e_sync.py` | E2E 回归：/sync 模拟用户，验证 KB flood |
+| `nas/health-check.sh` | NAS cron 巡检，连续 3 次失败才重启，10min 防抖锁 |
+| `docs/bot/automated-testing-guide.md` | 测试体系完整文档 |
+
+**决策记录**：
+- 脚本放项目仓库 `tests/`，执行时 scp → napcat/langbot-plugin 容器
+- 执行环境：napcat 容器（已验证可访问 langbot:5300 和 relay:8888）
+- 冒烟失败策略：napcat/langbot/plugin 任一挂→失败；relay 挂→仅警告
+- smoke 用 `sys.exit(0/1)` 而非文本解析输出
+
+### 下一步
+
+1. **流式去重完善**：调研 asyncio.Lock 或 DB 层 hash 去重
+2. **CI 化**：GitHub Actions 部署后自动跑 smoke + e2e
+3. **health-check.sh 部署**：NAS crontab 正式启用
+4. **KB 清理**：历史重复数据去重
