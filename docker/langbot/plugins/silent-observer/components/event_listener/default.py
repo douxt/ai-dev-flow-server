@@ -784,7 +784,7 @@ class DefaultEventListener(EventListener):
                         )
                     ],
                 ),
-                timeout=20,
+                timeout=45,
             )
             t_api = time.time() - t_api_start
             raw_text = self._extract_llm_text(resp)
