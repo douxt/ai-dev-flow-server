@@ -60,6 +60,12 @@ class DefaultEventListener(EventListener):
                 types['Face'] = LangBotFace
             return types
         MessageChain._get_component_types = classmethod(_patched)
+        # 启用 WAL 模式防并发写锁
+        try:
+            _db = sqlite3.connect(_DB_PATH)
+            _db.execute('PRAGMA journal_mode=WAL')
+            _db.close()
+        except: pass
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
