@@ -53,13 +53,13 @@ class DefaultEventListener(EventListener):
         await super().initialize()
         # 修复 LangBot 缺少 Face 组件注册的 bug
         from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
-        _orig_get_types = MessageChain._get_component_types
-        def _patched_get_types(cls):
-            types = _orig_get_types(cls)
+        _orig = MessageChain._get_component_types.__func__
+        def _patched(cls):
+            types = _orig(cls)
             if 'Face' not in types:
                 types['Face'] = LangBotFace
             return types
-        MessageChain._get_component_types = classmethod(_patched_get_types)
+        MessageChain._get_component_types = classmethod(_patched)
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
