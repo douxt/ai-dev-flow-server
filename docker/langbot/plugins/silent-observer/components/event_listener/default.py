@@ -518,8 +518,8 @@ class DefaultEventListener(EventListener):
         try:
             image_descs = await self._describe_images(event.message_chain, trace_id, self.vision_max_images)
             text = await self._extract_text(event.message_chain, image_descriptions=image_descs)
-            ok = sum(1 for v in image_descs.values() if '图片' in v and v != '[图片]')
-            fail = sum(1 for v in image_descs.values() if v == '[图片]')
+            ok = sum(1 for v in image_descs.values() if not v.startswith('[图片'))
+            fail = len(image_descs) - ok
             _log_gate(f'[{trace_id}] vision: done ok={ok} fail={fail}')
             # upsert KB
             session_name = f'{event.launcher_type}_{event.launcher_id}'
@@ -701,7 +701,7 @@ class DefaultEventListener(EventListener):
                         )
                     ],
                 ),
-                timeout=10,
+                timeout=20,
             )
             t_api = time.time() - t_api_start
             raw_text = self._extract_llm_text(resp)
