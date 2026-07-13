@@ -51,6 +51,15 @@ def _log_gate(msg):
 class DefaultEventListener(EventListener):
     async def initialize(self):
         await super().initialize()
+        # 修复 LangBot 缺少 Face 组件注册的 bug
+        from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
+        _orig_get_types = MessageChain._get_component_types
+        def _patched_get_types(cls):
+            types = _orig_get_types(cls)
+            if 'Face' not in types:
+                types['Face'] = LangBotFace
+            return types
+        MessageChain._get_component_types = classmethod(_patched_get_types)
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
