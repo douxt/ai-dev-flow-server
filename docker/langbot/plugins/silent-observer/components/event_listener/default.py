@@ -517,7 +517,7 @@ class DefaultEventListener(EventListener):
             text = '[合并转发群聊记录]'
             _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
         else:
-            text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
+            text = await self._extract_text(event.message_chain) or getattr(event, 'text_message', '')
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
@@ -584,7 +584,7 @@ class DefaultEventListener(EventListener):
 
     async def _save_and_store(self, event):
         """非触发消息的后台归档。不等待识图。"""
-        text = getattr(event, 'text_message', '') or await self._extract_text(event.message_chain)
+        text = await self._extract_text(event.message_chain) or getattr(event, 'text_message', '')
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return
         if len(text) > 500:
