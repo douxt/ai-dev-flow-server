@@ -18,12 +18,46 @@ ssh root@nas
 | `langbot-plugin` | 插件运行时 | 插件代码: `/app/data/plugins/dou__langbot-silent-observer/` |
 | `napcat` | QQ 协议 | 配置: `/app/napcat/config/onebot11_3228649756.json` |
 
-### 插件文件映射
-| 本地文件 | 容器路径 |
-|----------|---------|
-| `manifest.yaml` | `/app/data/plugins/dou__langbot-silent-observer/manifest.yaml` |
-| `default.py` | `/app/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py` |
-| `search_chat_history.py` | `/app/data/plugins/dou__langbot-silent-observer/components/tool/search_chat_history.py` |
+### 核心代码地图（本地 ↔ NAS）
+
+| 用途 | 本地路径（项目仓库） | NAS/容器路径 |
+|------|---------------------|-------------|
+| **插件主文件** | `docker/langbot/plugins/silent-observer/components/event_listener/default.py` | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py` |
+| | | NAS 卷: `/volume1/docker/langbot/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py` |
+| **单元测试** | `docker/langbot/plugins/silent-observer/tests/test_face_unit.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **冒烟测试** | `docker/langbot/plugins/silent-observer/tests/test_smoke.py` | 部署到 `napcat:/tmp/` 执行 |
+| **E2E 测试** | `docker/langbot/plugins/silent-observer/tests/test_e2e_sync.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **健康巡检** | `nas/health-check.sh` | NAS: `/volume1/docker/langbot/health-check.sh` |
+| **relay v2** | (临时，待入库) | 容器 `napcat:/tmp/relay_v2.py`，监听 `:8888` |
+| **LangBot 源码** | (第三方，只读) | 容器内 `/app/.venv/lib/python3.12/site-packages/langbot_plugin/api/entities/builtin/platform/message.py` |
+| **聊天记录 DB** | (NAS 数据) | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/chat_index.db` |
+| **LangBot 配置 DB** | (NAS 数据) | 容器 `langbot:/app/data/langbot.db` |
+| **插件配置** | LangBot WebUI 管理 | DB 表 `plugin_settings`，key=`dou__langbot-silent-observer` |
+| **测试文档** | `docs/bot/automated-testing-guide.md` | — |
+| **开发日志** | `docs/bot/silent-observer-dev-journal.md` | — |
+
+### 部署命令速查
+
+```bash
+# 部署插件（推荐：直接写 NAS 卷，docker cp 有时静默失败）
+scp docker/langbot/plugins/silent-observer/components/event_listener/default.py \
+  root@nas:/volume1/docker/langbot/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py
+
+# 清缓存 + 重启
+ssh root@nas "D=/volume1/@appstore/ContainerManager/usr/bin/docker; \
+  \$D exec langbot-plugin sh -c 'find /app/data/plugins/dou__langbot-silent-observer -name __pycache__ -exec rm -rf {} +'; \
+  \$D restart langbot-plugin"
+
+# 运行冒烟
+scp tests/test_smoke.py root@nas:/tmp/ && \
+  ssh root@nas "D=/volume1/@appstore/ContainerManager/usr/bin/docker; \
+  \$D cp /tmp/test_smoke.py napcat:/tmp/; timeout 30 \$D exec napcat python3 /tmp/test_smoke.py"
+
+# 运行 E2E
+scp tests/test_e2e_sync.py root@nas:/tmp/ && \
+  ssh root@nas "D=/volume1/@appstore/ContainerManager/usr/bin/docker; \
+  \$D cp /tmp/test_e2e_sync.py langbot-plugin:/tmp/; timeout 90 \$D exec langbot-plugin /app/.venv/bin/python3 /tmp/test_e2e_sync.py"
+```
 
 ---
 
