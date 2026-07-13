@@ -547,3 +547,15 @@ LangBot v4.10.5 已包含 PR #1698 主动心跳，但仍有断连。
 ### Docker 日志不捕获插件 stderr
 
 `docker logs langbot-plugin` 看不到插件 `print(file=sys.stderr)` 输出。诊断需写文件（gate.log / prompt_dump.log）。
+
+### LLM 自动挑错幻觉
+
+**现象**：timeline 里 1-0 完整序列，bot 却反复说"缺了 4""跳过了 5"。数据完整，bot 幻觉。
+
+**根因**：自己的旧回复插在数字中间，LLM 看到序列被打断就自作聪明总结「缺数字」。
+
+**修复**：prompt 加约束：`群聊记录是截断的，不要判断数字序列是否完整或评论缺了哪个数字`。不加的话 LLM 天生爱挑错。
+
+### 详细事件日志体系
+
+`/tmp/silent_event.log` 逐条记录每条消息的命中/未中/锁跳过/注入、消息间隔、锁时长。配合 `/tmp/silent_stats.log`（60s 汇总）可完整诊断随机触发行为，无需人工值守。
