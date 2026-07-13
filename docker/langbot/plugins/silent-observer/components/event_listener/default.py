@@ -4,6 +4,12 @@ BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
 _ROLE_CN = {'OWNER': '群主', 'ADMINISTRATOR': '管理员', 'MEMBER': '成员'}
 
+def _get_db():
+    """获取 SQLite 连接（WAL + 超时，防并发锁）"""
+    db = sqlite3.connect(_DB_PATH, timeout=10)
+    db.execute('PRAGMA journal_mode=WAL')
+    return db
+
 # QQ 经典黄脸表情 face_id → 中文名，napcat 偶尔不提供 face_name 时的 fallback
 _QQ_FACE_NAME = {
     0:'微笑',1:'撇嘴',2:'色',3:'发呆',4:'得意',5:'流泪',6:'害羞',7:'闭嘴',8:'睡',9:'大哭',
@@ -62,7 +68,7 @@ class DefaultEventListener(EventListener):
         MessageChain._get_component_types = classmethod(_patched)
         # 启用 WAL 模式防并发写锁
         try:
-            _db = sqlite3.connect(_DB_PATH)
+            _db = _get_db()
             _db.execute('PRAGMA journal_mode=WAL')
             _db.close()
         except: pass
@@ -643,7 +649,7 @@ class DefaultEventListener(EventListener):
         except Exception as e:
             print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
         try:
-            db = sqlite3.connect(_DB_PATH)
+            db = _get_db()
             db.execute(
                 "INSERT OR REPLACE INTO chat_index (doc_id, session_id, timestamp_unix, formatted_text) VALUES (?, ?, ?, ?)",
                 (doc_id, metadata['session_id'], metadata['timestamp_unix'], metadata['text'])
@@ -882,7 +888,7 @@ class DefaultEventListener(EventListener):
 
     async def _get_recent_messages(self, api, session_name, limit):
         try:
-            db = sqlite3.connect(_DB_PATH)
+            db = _get_db()
             rows = db.execute(
                 "SELECT doc_id, formatted_text, timestamp_unix FROM chat_index WHERE session_id = ? ORDER BY timestamp_unix DESC LIMIT ?",
                 (session_name, limit)
@@ -1093,7 +1099,7 @@ class DefaultEventListener(EventListener):
 
     def _init_chat_index(self):
         try:
-            db = sqlite3.connect(_DB_PATH)
+            db = _get_db()
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA synchronous=NORMAL")
             db.execute("""CREATE TABLE IF NOT EXISTS chat_index (
