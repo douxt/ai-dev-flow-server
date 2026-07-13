@@ -30,6 +30,7 @@ def _now():
     return datetime.now(BJT)
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import events, context
+from langbot_plugin.api.entities.builtin.platform.message import Plain as PlatformPlain
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 
@@ -393,7 +394,7 @@ class DefaultEventListener(EventListener):
         for i, c in enumerate(message_chain):
             if c.type == 'Face':
                 text = self._face_to_text(c)
-                message_chain[i] = provider_message.Plain(text=text)
+                message_chain[i] = PlatformPlain(text=text)
 
     async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
