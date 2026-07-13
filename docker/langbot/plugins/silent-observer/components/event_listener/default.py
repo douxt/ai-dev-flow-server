@@ -51,6 +51,15 @@ def _log_gate(msg):
 class DefaultEventListener(EventListener):
     async def initialize(self):
         await super().initialize()
+        # 修复 LangBot 缺少 Face 组件注册的 bug
+        from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
+        _orig = MessageChain._get_component_types.__func__
+        def _patched(cls):
+            types = _orig(cls)
+            if 'Face' not in types:
+                types['Face'] = LangBotFace
+            return types
+        MessageChain._get_component_types = classmethod(_patched)
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
@@ -447,7 +456,9 @@ class DefaultEventListener(EventListener):
                 else:
                     parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
             elif t == 'Face':
-                parts.append(self._face_to_text(c))
+                face_text = self._face_to_text(c)
+                parts.append(face_text)
+                _log_gate(f'_extract_text: Face id={getattr(c,"face_id","?")} name="{getattr(c,"face_name","")}" → "{face_text}"')
             else:
                 parts.append(f'[{t}]')
             if len(' '.join(parts)) > max_length:
@@ -518,6 +529,9 @@ class DefaultEventListener(EventListener):
             _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
         else:
             text = await self._extract_text(event.message_chain) or getattr(event, 'text_message', '')
+            if 'Unknown' in text:
+                mc_types = [f'{c.type}' for c in (event.message_chain or [])]
+                _log_gate(f'_save_text_only: HAS_UNKNOWN text_len={len(text)} chain_types={mc_types} text100={text[:100]}')
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
