@@ -213,12 +213,22 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
+            # 流式去重：同一 session 1 秒内只存第一条
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             _ts = time.time()
             _last = self._reply_ts.get(session_name, 0)
             self._reply_ts[session_name] = _ts
             if _ts - _last < 1.0:
-                return  # 流式 chunk，跳过（1秒冷却）
+                return
+            sender = getattr(ctx.event, 'sender_id', 'unknown')
+            text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
+            if self.kb_enabled:
+                time_str = _now().strftime('%Y-%m-%d %H:%M')
+                meta = _build_msg_metadata(session_name, '机器豆', '0', time_str, text, 'BOT', '')
+                doc_id = _build_document_id(session_name, time_str, '0', text)
+                self._run_background(self._store_message(meta, doc_id))
+            self._last_trigger.pop(session_name, None)
+            print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
