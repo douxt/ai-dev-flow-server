@@ -198,6 +198,9 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
+            # 只保存最终回复，跳过流式中间 chunk
+            if getattr(ctx.event, 'finish_reason', 'stop') != 'stop':
+                return
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             sender = getattr(ctx.event, 'sender_id', 'unknown')
             text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
