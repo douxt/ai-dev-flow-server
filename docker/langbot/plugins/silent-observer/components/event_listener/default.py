@@ -518,6 +518,9 @@ class DefaultEventListener(EventListener):
             _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
         else:
             text = await self._extract_text(event.message_chain) or getattr(event, 'text_message', '')
+            if 'Unknown' in text:
+                mc_types = [f'{c.type}' for c in (event.message_chain or [])]
+                _log_gate(f'_save_text_only: HAS_UNKNOWN text_len={len(text)} chain_types={mc_types} text100={text[:100]}')
         sender = getattr(event.message_event, 'sender', None)
         if sender:
             sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
