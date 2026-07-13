@@ -559,3 +559,99 @@ LangBot v4.10.5 已包含 PR #1698 主动心跳，但仍有断连。
 ### 详细事件日志体系
 
 `/tmp/silent_event.log` 逐条记录每条消息的命中/未中/锁跳过/注入、消息间隔、锁时长。配合 `/tmp/silent_stats.log`（60s 汇总）可完整诊断随机触发行为，无需人工值守。
+
+---
+
+## 十六、2026-07-13：QQ 表情识别全链路 + 自动化测试体系建设
+
+### 问题起源
+
+bot 收到 QQ 表情（Face 组件）后回复 "无法识别 [Unknown]"，所有表情被当作未知类型处理。
+
+### 调查过程（5 轮定位）
+
+| 轮次 | 尝试 | 结果 |
+|------|------|------|
+| 1 | 去掉 deepseek-v4-flash 的 vision 标记 | ❌ 无关，这是主 LLM 模型能力标记，Face 渲染是消息层的事 |
+| 2 | `_extract_text` 加 Face→`[表情:name]` fallback | ❌ 仅影响历史存储，当前触发消息不进此路径 |
+| 3 | `_normalize_face_components` 改 message_chain | ❌ 缩进 bug 导致插件整体崩溃，功能全未生效 |
+| 4 | 修缩进 + 调换 `_extract_text`/`text_message` 优先级 | ❌ 仍 `[Unknown]`——gate log 显示 chain 里已是 `Unknown` 类型 |
+| 5 | **查 LangBot 源码** — `_get_component_types` 未注册 Face | ✅ 根因确认 |
+
+### 根因
+
+LangBot `MessageChain._get_component_types`（`message.py:35`）的注册表包含 21 个组件类型，**但没有 `"Face": Face`**。napcat 发来的 `{"type": "Face", "face_id": 178}` 被解析时找不到匹配类型 → 创建 `Unknown` 组件 → 渲染为 `[Unknown]`。
+
+**Face 类本身就定义在 `message.py:444`**，只是没注册。
+
+### 修复：Monkey-Patch 注册 Face
+
+```python
+# initialize() 中注入 Face 到类型注册表
+from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
+_orig = MessageChain._get_component_types.__func__
+def _patched(cls):
+    types = _orig(cls)
+    if 'Face' not in types:
+        types['Face'] = LangBotFace
+    return types
+MessageChain._get_component_types = classmethod(_patched)
+```
+
+**注意**：`_get_component_types` 有 `@classmethod` 装饰器，需用 `.__func__` 拆解原函数再重新 `classmethod()` 包裹，否则 double-wrap 导致参数传递错误。
+
+### 表情映射表
+
+内置 137 个 QQ 经典黄脸 + 高频 ID（178=斜眼笑, 264=捂脸）的 `face_id → 中文名` 映射。Face 组件 `face_name` 由 napcat 提供，部分为空（如 face_id=178），此时 fallback 到内置表。
+
+### 配套修复（Face 引发的连锁问题）
+
+1. **`_save_text_only` 文本记录**：`_extract_text` 优先于 `text_message`，不再用 LangBot 的 `[Unknown]` 渲染
+2. **`_normalize_face_components`**：inject handler 开头把当前消息链里的 Face 替换为 Plain 文本（`inject` 跑完后 pipeline 再渲染就不影响了）
+3. **vision ok/fail 统计**：`not v.startswith('[图片')` → `not (v.startswith('[图片') and v.endswith(']'))`，避免成功描述 `[图片: 一只小猪]` 被误判
+4. **vision timeout**：10s → 20s（qwen3.7-plus 推理模型需更长时间）
+
+### 缩进 bug 教训
+
+`error_placeholder = lambda ...` 一行缩进了 24 空格（应为 12），导致整个 default.py 语法错误，插件自 vision-stats-fix 部署后**完全未加载**。bot 所有回复退化为 pipeline 默认行为（无 timeline 注入、无 vision、无 face 识别）。直到 `import` 时报 `IndentationError` 才发现。
+
+**教训**：每次部署后必须验证 `silent_init.log`，且部署前跑 `py_compile`。
+
+### 自动化测试体系（逐步建设）
+
+| 阶段 | 方式 | 覆盖 | 状态 |
+|------|------|------|------|
+| **1. 单元测试** | `tests/test_face_unit.py` — 直接在容器内 `python3` 跑，不依赖 QQ | 映射表、Face→文本、消息链提取 | ✅ 已可用 |
+| **2. 集成测试** | napcat HTTP API（port 3000）curl 发消息 | 消息发送管道（但以 bot 身份，无法触发 gate handler） | ⚠️ 半可用 |
+| **3. 端到端测试** | LangBot HTTP Bot 适配器 POST 模拟任意用户 | 全链路：消息解析 → gate → inject → LLM → 回复 | 🔧 探索中 |
+
+**阶段 1 的用法**：
+```bash
+ssh root@nas 'docker cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && docker exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py'
+```
+
+**阶段 2 用法**：
+```bash
+ssh root@nas "docker exec napcat curl -s -X POST 'http://localhost:3000/send_group_msg?access_token=udimc123' -H 'Content-Type: application/json' -d '{\"group_id\":1104330614,\"message\":[{\"type\":\"face\",\"data\":{\"id\":\"178\"}}]}'"
+```
+但只能以 bot 身份发，不能 @bot 触发回复。
+
+**阶段 3 发现**：LangBot 内置 `http_bot` 适配器（`/app/src/langbot/pkg/platform/sources/http_bot.py`），支持 POST 入站消息，可模拟任意用户、任意消息类型。数据库已预留 bot 记录，但适配器名为 `http_bot`（而非 `http`），且需要配置签名密钥。接入后即可实现完全自动化端到端测试：
+
+```bash
+# 模拟小通豆发 Face 表情 + @bot
+curl -X POST http://langbot:5300/bots/<uuid> \
+  -H "X-LB-Timestamp: $(date +%s)" \
+  -H "X-LB-Signature: sha256=..." \
+  -d '{"session_id":"group_1104330614","sender":{"id":"370087943","name":"小通豆"},"message":[...]}'
+```
+
+**目标**：CI 化——每次改代码后自动发 Face 消息 → 等 bot 回复 → 验证回复内容包含表情名 → 报告通过/失败。
+
+### napcat HTTP API 启用备忘
+
+napcat 默认只启 WebSocket 模式。HTTP API 需在 `onebot11_3228649756.json` 的 `network.httpServers` 中添加：
+```json
+{"enable":true, "name":"test-api", "url":"0.0.0.0:3000", "token":"udimc123"}
+```
+napcat 自动选择 3000 端口启动 HTTP 服务。compose 需映射该端口。
