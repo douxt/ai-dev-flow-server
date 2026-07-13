@@ -447,7 +447,9 @@ class DefaultEventListener(EventListener):
                 else:
                     parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
             elif t == 'Face':
-                parts.append(self._face_to_text(c))
+                face_text = self._face_to_text(c)
+                parts.append(face_text)
+                _log_gate(f'_extract_text: Face id={getattr(c,"face_id","?")} name="{getattr(c,"face_name","")}" → "{face_text}"')
             else:
                 parts.append(f'[{t}]')
             if len(' '.join(parts)) > max_length:
