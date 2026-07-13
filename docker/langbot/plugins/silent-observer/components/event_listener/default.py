@@ -105,6 +105,7 @@ class DefaultEventListener(EventListener):
         self._image_cache = {}  # doc_id → {status, desc, time}
         self._last_trigger = {}
         self._lock_set_ts = {}  # session → lock设置时间戳
+        self._reply_ts = {}  # session → 上次保存时间戳 (流式去重)
         self._bg_tasks: set[asyncio.Task] = set()
         self._MAX_BG_TASKS = 50
         # 触发统计
@@ -198,10 +199,13 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
-            # 只保存最终回复，跳过流式中间 chunk
-            if getattr(ctx.event, 'finish_reason', 'stop') != 'stop':
-                return
+            # 流式去重：同一 session 3 秒内只保存最后一次（防 KB flood）
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
+            _now = time.time()
+            _last_ts = self._reply_ts.get(session_name, 0)
+            self._reply_ts[session_name] = _now
+            if _now - _last_ts < 3:
+                return  # 流式 chunk，等最终版本
             sender = getattr(ctx.event, 'sender_id', 'unknown')
             text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
             if self.kb_enabled:
