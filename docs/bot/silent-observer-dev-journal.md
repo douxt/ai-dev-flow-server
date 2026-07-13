@@ -799,7 +799,7 @@ gate (GroupMessageReceived)           ← 秒回，不阻塞 emit_event
   │
   ▼
 inject (PromptPreProcessing)          ← 此时才提取引用文本
-  ├── _extract_quote (trigger_mc)     ← 不再阻塞 emit_event
+  ├── _extract_quote (trigger_mc)     ← 有 yield 点 + 深度限制，不长时间阻塞 emit_event
   └── 注入 prompt
 ```
 
