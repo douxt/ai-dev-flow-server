@@ -463,9 +463,7 @@ class DefaultEventListener(EventListener):
                 origin = getattr(c, 'origin', None)
                 if origin is not None:
                     inner = await self._extract_text(origin, max_length, image_descriptions=image_descriptions, depth=depth+1)
-                    parts.append(f'▼ 引用消息 ▼
-{inner}
-▲ 引用结束 ▲')
+                    parts.append('▼ 引用消息 ▼\n' + inner + '\n▲ 引用结束 ▲')
             elif t == 'Forward':
                 nodes = getattr(c, 'node_list', []) or []
                 if nodes:
