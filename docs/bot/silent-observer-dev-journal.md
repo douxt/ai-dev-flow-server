@@ -808,3 +808,479 @@ inject (PromptPreProcessing)          ← 此时才提取引用文本
 1. 流式去重完善
 2. health-check.sh 改用非 LLM 路径（避免每 5 分钟触发 pipeline）
 3. 监控 pending 堆积自动告警
+
+---
+
+## 十九、2026-07-14 MCP 工具调用超时防护
+
+> 会话锁死 9 小时，根因：LangBot MCP 工具调用无超时机制
+
+### 事故概要
+
+- **时间**：2026-07-14 08:04 ~ 17:15（9 小时 11 分钟）
+- **影响**：测试群、太空工程师群全部无响应
+- **根因**：`_save_with_vision()` 调用 `call_mcp_tool("describe_image")` 永久阻塞
+- **恢复**：手动重启 langbot-plugin 容器
+
+### 根本原因分析
+
+#### 1. LangBot MCP 工具调用无超时机制
+
+`silent-observer` 插件调用 LangBot 的 MCP 工具（图像识别），但 **LangBot 的 `invoke_mcp_tool` 没有 `asyncio.timeout()`**。
+
+```python
+# LangBot mcp.py:699
+async def invoke_mcp_tool(self, tool_name: str, arguments: dict):
+    """调用 MCP 工具（无超时）"""
+    result = await self.session.call_tool(tool_name, arguments)
+    return result  # 如果 MCP server 不响应，这里永久阻塞
+```
+
+#### 2. Silent Observer 会话锁无 TTL 机制
+
+`inject` handler 设置 `_last_trigger[session_name]` 后，如果 `_save_with_vision()` 永久阻塞，锁永远不会释放。
+
+```python
+# default.py:140-150
+async def inject(self, ctx):
+    self._last_trigger[session_name] = {...}  # 设置锁
+    try:
+        await self._save_with_vision(...)  # 永久阻塞
+    finally:
+        del self._last_trigger[session_name]  # 永远不会执行
+```
+
+#### 3. 触发链路
+
+```
+用户发送图片 → gate handler 触发 → inject handler 开始
+→ _save_with_vision() 调用 MCP 工具 → MCP 工具永久阻塞
+→ inject handler 永久阻塞 → _last_trigger 未释放
+→ 后续消息被 is_locked() 拦截 → 会话卡死
+```
+
+### 临时修复：Monkey Patch
+
+在 LangBot 主进程的 `mcp.py` 中添加 `asyncio.timeout(30)`：
+
+```python
+# docker/langbot/patches/mcp_timeout.patch
+
+# 在 invoke_mcp_tool 方法中
+async with asyncio.timeout(30):  # 30秒硬超时
+    result = await self.session.call_tool(tool_name, arguments)
+```
+
+**部署方式**：
+
+```bash
+# 1. 创建 patch 文件
+cat > /volume1/docker/langbot/patches/mcp_timeout.patch << 'EOF'
+--- a/src/langbot/pkg/mcp.py
++++ b/src/langbot/pkg/mcp.py
+@@ -696,7 +696,10 @@
+     async def invoke_mcp_tool(self, tool_name: str, arguments: dict):
+         """调用 MCP 工具"""
+-        result = await self.session.call_tool(tool_name, arguments)
++        # 30秒硬超时，防止永久阻塞
++        async with asyncio.timeout(30):
++            result = await self.session.call_tool(tool_name, arguments)
+         return result
+EOF
+
+# 2. 应用 patch
+ssh root@nas "cd /volume1/docker/langbot && \
+  docker exec langbot patch -p1 < /patches/mcp_timeout.patch"
+
+# 3. 重启容器
+ssh root@nas "docker restart langbot"
+```
+
+### 后续改进（待实现）
+
+#### 1. 会话锁加 TTL 机制
+
+```python
+async def inject(self, ctx):
+    session_name = ctx.event.session_name
+    
+    # 设置会话锁 + TTL（5分钟）
+    self._last_trigger[session_name] = {
+        "doc_id": doc_id,
+        "trigger_time": time.time(),
+        "status": "processing",
+        "ttl": 300  # 5分钟
+    }
+    
+    try:
+        # ... 原有逻辑
+    finally:
+        if session_name in self._last_trigger:
+            del self._last_trigger[session_name]
+
+def is_locked(self, session_name):
+    """检查会话是否锁定（带 TTL）"""
+    if session_name not in self._last_trigger:
+        return False
+    
+    lock_info = self._last_trigger[session_name]
+    trigger_time = lock_info.get("trigger_time", 0)
+    ttl = lock_info.get("ttl", 300)
+    
+    # 超过 TTL 自动释放
+    if time.time() - trigger_time > ttl:
+        del self._last_trigger[session_name]
+        return False
+    
+    return True
+```
+
+#### 2. 会话卡死监控告警
+
+```python
+async def _monitor_session_locks(self):
+    """定期检查会话锁状态，超时告警"""
+    while True:
+        for session_name, lock_info in self._last_trigger.items():
+            trigger_time = lock_info.get("trigger_time", 0)
+            if time.time() - trigger_time > 300:  # 5分钟
+                print(f"⚠️ 会话 {session_name} 锁定超过 5 分钟")
+                # 可以发送告警通知
+        await asyncio.sleep(60)  # 每分钟检查一次
+```
+
+### 经验教训
+
+#### 1. 外部调用必须加超时
+
+任何外部调用（API、MCP 工具、网络请求）**必须**加超时机制：
+
+```python
+# ✅ 正确
+async with asyncio.timeout(30):
+    result = await external_call()
+
+# ❌ 错误
+result = await external_call()  # 可能永久阻塞
+```
+
+#### 2. 会话锁必须有 TTL
+
+内存中的锁机制**必须**有 TTL（Time To Live），防止永久锁定：
+
+```python
+# ✅ 正确
+self._locks[session_id] = {
+    "time": time.time(),
+    "ttl": 300  # 5分钟
+}
+
+# ❌ 错误
+self._locks[session_id] = time.time()  # 无 TTL
+```
+
+#### 3. 关键操作需要监控告警
+
+会话卡死、锁超时、MCP 工具失败等关键操作**必须**有监控告警，不能依赖用户报告。
+
+### 参考资料
+
+- [LangBot Issue #2339](https://github.com/langbot-app/LangBot/issues/2339) - MCP 工具超时问题
+- [Asyncio Timeout 文档](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout)
+- [事故报告](incident-20260714-mcp-timeout.md)
+
+---
+
+## 二十、2026-07-14 System Prompt 能力声明规范
+
+> Bot 否认自己有视觉能力，根因：System Prompt 未明确声明能力边界
+
+### 问题描述
+
+用户发送图片并 @bot 询问内容，bot 回复：
+
+> "抱歉，我目前没有视觉能力，无法识别图片内容。"
+
+但实际上 silent-observer 插件已经接入图像识别，能够识别图片并注入到 prompt 中。
+
+### 根本原因分析
+
+#### 1. System Prompt 未声明视觉能力
+
+当前 system prompt 只声明了：
+- 群聊记录格式
+- 时间戳规范
+- 回复风格
+
+**未声明** bot 具备的能力（视觉识别、知识库检索等）。
+
+#### 2. 模型基于训练数据产生幻觉
+
+LLM 的训练数据中，大多数 bot 确实没有视觉能力。当 system prompt 未明确声明能力时，模型会基于训练数据"幻觉"出能力否认。
+
+```
+用户：@bot 这张图片是什么？
+Bot：（看到 system prompt 未声明视觉能力）
+    → 基于训练数据，大多数 bot 没有视觉能力
+    → 回复："我没有视觉能力"
+```
+
+#### 3. 触发条件
+
+- 用户发送图片 + @bot 询问内容
+- 图片识别成功，但注入的 prompt 未被模型正确理解
+- 模型基于"我没有视觉能力"的先验知识回复
+
+### 修复方案：System Prompt 添加能力声明
+
+在 system prompt 中明确声明 bot 具备的能力：
+
+```markdown
+## 你的能力
+
+你具备以下能力，在回复时可以主动使用：
+
+### 1. 视觉识别能力
+
+- 群聊中的图片会被自动识别，识别结果以以下格式注入到 prompt 中：
+  ```
+  🖼️ 图1：[图片: 一只橘猫趴在键盘上]
+  🖼️ 图2：[图片: 夕阳下的海滩]
+  ```
+- 当用户 @你并询问图片内容时，你可以直接引用识别结果回答
+- 如果识别失败，会显示 `[图片(识别失败)]`，你可以如实告知用户
+
+### 2. 知识库检索能力
+
+- 你可以通过 `search_chat_history` 工具检索群聊历史
+- 当用户询问"之前聊过什么"、"某某说了什么"时，主动调用检索工具
+- 检索结果会以 `[群聊历史检索]` 标签注入到 prompt 中
+
+### 3. 记忆能力
+
+- 你具备长期记忆，可以记住用户提到的重要信息
+- 当用户说"记住这个"、"以后提醒我"时，使用 `remember` 工具存储
+
+### 能力边界
+
+- 你**不具备**实时联网搜索能力（除非明确接入）
+- 你**不具备**发送图片、文件的能力（只能文本回复）
+- 你**不能**访问外部网站、API（除非通过工具）
+```
+
+### 修复效果
+
+添加能力声明后，bot 的回复变为：
+
+```
+用户：@bot 这张图片是什么？
+Bot：（看到 system prompt 声明了视觉能力）
+    → 检查 prompt 中的图片识别结果
+    → 回复："这是一只橘猫趴在键盘上"
+```
+
+### 经验教训
+
+#### 1. System Prompt 必须明确声明能力边界
+
+LLM 的行为高度依赖 system prompt 的引导。如果 system prompt 未声明某项能力，模型可能会：
+- 否认具备该能力（即使技术上已实现）
+- 不会主动使用该能力（即使用户请求）
+- 产生与实际情况不符的幻觉
+
+**最佳实践**：在 system prompt 中明确列出 bot 具备的所有能力，包括：
+- 能力名称
+- 使用场景
+- 输入/输出格式
+- 能力边界（不能做什么）
+
+#### 2. 能力声明要具体到格式
+
+不要只说"你有视觉能力"，而要说明：
+- 图片识别结果如何注入（格式）
+- 识别失败如何显示（格式）
+- 何时使用（场景）
+
+```markdown
+# ❌ 模糊声明
+你有视觉能力，可以识别图片。
+
+# ✅ 具体声明
+群聊中的图片会被自动识别，识别结果以以下格式注入：
+🖼️ 图1：[图片: 描述内容]
+如果识别失败，显示 [图片(识别失败)]
+当用户 @你并询问图片内容时，直接引用识别结果回答。
+```
+
+#### 3. 能力边界同样重要
+
+除了声明"能做什么"，还要声明"不能做什么"，防止模型过度承诺：
+
+```markdown
+### 能力边界
+- 你**不具备**实时联网搜索能力
+- 你**不能**访问外部网站
+- 你**无法**发送图片、文件
+```
+
+### 参考资料
+
+- [Prompt Engineering Guide: System Prompts](https://www.promptingguide.ai/techniques/system-prompt)
+- [Anthropic: How to write a system prompt](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/system-prompts)
+
+---
+
+## 二十一、2026-07-14 时区统一与标注规范
+
+> Bot 把 10:23 误判为 02:23，根因：时间格式混用 UTC 和北京时间
+
+### 问题描述
+
+用户询问 bot：
+
+> "克里鼠.W 什么时候发的这张图片？"
+
+Bot 回复：
+
+> "克里鼠.W 在 02:23 发的这张图片。"
+
+但实际上图片发送时间是 **10:23（北京时间）**，bot 误判为凌晨 02:23。
+
+### 根本原因分析
+
+#### 1. 时间格式混用
+
+当前 inject 代码中，时间格式不一致：
+
+```python
+# 部分代码使用 UTC
+timestamp_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+# 部分代码使用北京时间
+timestamp_bj = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+```
+
+#### 2. Timeline 注入格式混乱
+
+注入到 prompt 的时间线中，时间戳格式不统一：
+
+```
+# 混合格式
+[2026-07-14 10:23:00] 克里鼠.W: [图片]
+[2026-07-14 02:23:00 UTC] 克里鼠.W: 这张图片真可爱
+[2026-07-14T10:23:00+08:00] 小通豆: @克里鼠.W 确实
+```
+
+#### 3. 模型无法正确解析时区
+
+LLM 看到混合格式的时间戳，无法确定应该使用哪个时区：
+- 看到 `10:23:00`，不知道是 UTC 还是北京时间
+- 看到 `02:23:00 UTC`，知道是 UTC，但不知道用户期望的是北京时间
+- 基于训练数据中的默认假设（通常是 UTC），误判时间
+
+### 修复方案：统一使用北京时间
+
+#### 1. 代码层面统一时区
+
+所有时间戳统一使用北京时间（UTC+8）：
+
+```python
+# default.py
+
+from datetime import datetime, timezone, timedelta
+
+# 定义北京时区
+BJT = timezone(timedelta(hours=8))
+
+def get_timestamp():
+    """统一使用北京时间"""
+    return datetime.now(BJT).strftime("%Y-%m-%d %H:%M:%S")
+
+# 所有地方使用统一函数
+timestamp = get_timestamp()
+```
+
+#### 2. Timeline 注入格式统一
+
+所有时间戳统一格式：`[YYYY-MM-DD HH:MM]`（北京时间）
+
+```python
+# inject handler
+
+def format_timeline(messages):
+    """格式化时间线（统一北京时间）"""
+    lines = []
+    for msg in messages:
+        # 转换为北京时间
+        bj_time = msg.timestamp.astimezone(BJT)
+        time_str = bj_time.strftime("%Y-%m-%d %H:%M")
+        lines.append(f"[{time_str}] {msg.sender}: {msg.content}")
+    return "\n".join(lines)
+```
+
+#### 3. System Prompt 声明时区规范
+
+在 system prompt 中明确声明时区规范：
+
+```markdown
+## 时区规范
+
+- 所有时间戳均为 **北京时间（UTC+8）**
+- 格式：`[YYYY-MM-DD HH:MM]`
+- 示例：`[2026-07-14 10:23]` 表示 2026年7月14日 上午10:23
+
+**禁止**：
+- 不要将北京时间转换为其他时区
+- 不要假设时间戳是 UTC
+- 不要回复"凌晨 02:23"如果时间戳显示"10:23"
+```
+
+### 修复效果
+
+统一时区后，bot 的回复变为：
+
+```
+用户：克里鼠.W 什么时候发的这张图片？
+Bot：（看到时间戳 [2026-07-14 10:23]）
+    → 明确知道是北京时间 10:23
+    → 回复："克里鼠.W 在上午 10:23 发的这张图片。"
+```
+
+### 经验教训
+
+#### 1. 时间格式必须统一
+
+在多用户、多系统的场景中，时间格式混乱是常见问题。最佳实践：
+- 选择一个标准时区（通常是本地时区或 UTC）
+- 所有代码使用该时区
+- 所有输出使用该时区
+- 在文档中明确声明
+
+#### 2. 时区转换要显式
+
+如果需要转换时区，必须显式转换，不要依赖隐式假设：
+
+```python
+# ✅ 正确：显式转换
+bj_time = utc_time.astimezone(BJT)
+
+# ❌ 错误：隐式假设
+bj_time = utc_time  # 假设已经是北京时间
+```
+
+#### 3. 文档中声明时区规范
+
+在 system prompt、API 文档、数据库 schema 中明确声明时区：
+
+```markdown
+## 时区规范
+- 数据库存储：UTC
+- API 输出：北京时间（UTC+8）
+- 日志记录：北京时间（UTC+8）
+```
+
+### 参考资料
+
+- [Python datetime 文档](https://docs.python.org/3/library/datetime.html)
+- [时区最佳实践](https://dev.to/nickytonline/handling-timezones-in-javascript-and-node-js-3g8j)
+- [Anthropic: Prompt Engineering for Time](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/handling-time)
