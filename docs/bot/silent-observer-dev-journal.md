@@ -1284,3 +1284,105 @@ bj_time = utc_time  # 假设已经是北京时间
 - [Python datetime 文档](https://docs.python.org/3/library/datetime.html)
 - [时区最佳实践](https://dev.to/nickytonline/handling-timezones-in-javascript-and-node-js-3g8j)
 - [Anthropic: Prompt Engineering for Time](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/handling-time)
+
+## 二十二、2026-07-14 napcat 大转发卡死根因分析
+
+> 单群静默但其他群正常，根因：napcat `getMultiMessages` 无超时
+
+### 现象
+
+- 用户在测试群引用了一条大转发消息（含 8 张图片）
+- 测试群完全静默，bot 无任何响应
+- 其他群（EVE）消息正常收发
+- napcat 进程未崩溃（PID 存活），但 WS 连接消失
+
+### 排查过程
+
+#### 1. 初步假设：base64 体积过大
+
+之前发现单条消息 107MB（8 张 base64 图片，每张 9-15MB）。设置 `enableLocalFile2Url: true` 后：
+- 单图测试：10KB-761KB，`get_bytes` 0.00s，识图成功 ✅
+- **但大转发仍然卡死**
+
+#### 2. 源码分析：`parseMultMsg` 的真相
+
+查看 napcat 源码 `/app/napcat/napcat.mjs`：
+
+```javascript
+// 行 106244: multiForwardMsgElement 处理器
+multiForwardMsgElement: async (element, msg, _wrapper, context) => {
+  let multiMsgs = await this.getMultiMessages(msg, parentMsgPeer);  // ← 无条件下载！
+  if (!multiMsgs || multiMsgs.length === 0) {
+    multiMsgs = await this.core.apis.PacketApi.pkt.operation.FetchForwardMsg(element.resId);
+  }
+  // ...
+  if (!context.parseMultMsg) return forward;  // ← parseMultMsg 只控制输出，不阻止下载
+  forward.data.content = await this.parseMultiMessageContent(...);
+  return forward;
+},
+```
+
+**关键发现**：`parseMultMsg: false` **不阻止** `getMultiMessages` 调用。napcat 总是先下载完整转发内容，再决定是否放入输出。
+
+#### 3. 验证实验
+
+| 测试 | 结果 |
+|------|------|
+| `enableLocalFile2Url: true` + 单图 | ✅ 10KB，识图成功 |
+| `enableLocalFile2Url: true` + 大转发 | ❌ 卡死 |
+| `parseMultMsg: true` + 大转发 | ❌ 仍卡死 |
+| EVE 群普通消息（同 napcat 实例） | ✅ 正常 |
+
+#### 4. 根因确认
+
+```
+napcat 收到转发消息
+  → multiForwardMsgElement 处理器
+  → await this.getMultiMessages(...)  ← 无超时
+  → QQ 服务器未响应（内容过期/节点过多/网络问题）
+  → Promise 永远不 resolve
+  → 该群消息处理链卡住
+  → 后续同群消息排队等待
+  → 单群静默（事件循环本身未阻塞，其他群正常）
+```
+
+### 影响范围
+
+- **单群静默**：只有发送大转发的群受影响
+- **跨群隔离**：其他群消息正常（独立处理链）
+- **WS 连接**：langbot WS 连接数降为 0（napcat WS client 未重连）
+
+### 临时恢复
+
+```bash
+docker exec napcat python3 -c "
+import json
+with open('/app/napcat/config/onebot11_3228649756.json') as f:
+    d = json.load(f)
+d['parseMultMsg'] = False
+with open('/app/napcat/config/onebot11_3228649756.json', 'w') as f:
+    json.dump(d, f, indent=2)
+"
+docker restart napcat
+```
+
+### 后续修复方案
+
+给 `getMultiMessages` 加超时保护：
+
+```javascript
+// 目标：docker/napcat/patches/forward-timeout.sh
+let multiMsgs = await Promise.race([
+  this.getMultiMessages(msg, parentMsgPeer),
+  new Promise(resolve => setTimeout(() => resolve(null), 5000))
+]);
+```
+
+需要建立 napcat 补丁体系（类似 `docker/langbot/patches/`）。
+
+### 经验教训
+
+1. **napcat 已知问题**：GitHub Issues #210, #214, #130 均报告转发消息超时/卡死
+2. **配置项陷阱**：`parseMultMsg: false` 不等于"不下载"，只是"不输出"
+3. **单群静默诊断**：如果只有某个群无响应但其他群正常，优先怀疑 napcat 消息处理卡死
+4. **无超时 await 是万恶之源**：任何网络请求/外部 API 调用都应有超时保护
