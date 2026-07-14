@@ -238,8 +238,14 @@ class DefaultEventListener(EventListener):
             mc = getattr(ctx.event, 'message_chain', None)
             if mc:
                 self._normalize_face_components(mc)
-            now_str = _now().strftime('%Y年%m月%d日 %H:%M:%S 北京时间')
-            ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间：{now_str}。以下【】中所有时间戳均为北京时间(UTC+8)，不得自行换算。'))
+            # 同时注入 UTC 和北京时间,消除时区歧义(防 LLM 时区幻觉)
+            now_bj = _now()
+            now_utc = now_bj.astimezone(timezone.utc)
+            now_str = (
+                f'北京时间 {now_bj.strftime("%Y-%m-%d %H:%M:%S")} '
+                f'(UTC {now_utc.strftime("%H:%M:%S")})'
+            )
+            ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间:{now_str}。以下【】中所有时间戳均为北京时间,禁止转换为UTC或其他时区。'))
             items = []
             trigger = 'at'
             try:
