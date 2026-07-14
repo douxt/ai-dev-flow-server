@@ -286,6 +286,7 @@ class DefaultEventListener(EventListener):
                 import re
                 _identified = 0
                 _pending = 0
+                _failed = 0
                 for _i, _line in enumerate(lines):
                     if '🖼️ 图' not in _line:
                         continue
@@ -295,17 +296,24 @@ class DefaultEventListener(EventListener):
                     if '：⏳ 识别中' in _rest:
                         lines[_i] = _pfx + _rest.replace('🖼️ 图', '⏳ [AI识图中] 图', 1)
                         _pending += 1
-                    elif '：[图片:' in _rest:
-                        _m = re.match(r'🖼️ 图\d+：\[图片:\s*(.*?)\]', _rest)
+                    else:
+                        _m = re.match(r'🖼️ 图\d+：\[图片([^\]]*)\]', _rest)
                         if _m:
                             _img_prefix = _rest[:_rest.index('：')]
-                            _img_prefix_new = _img_prefix.replace('🖼️ 图', '🤖 [AI识图] 图', 1)
-                            _desc = _m.group(1)
-                            _after = _rest[len(f'{_img_prefix}：[图片: {_desc}]'):]
-                            lines[_i] = _pfx + f'{_img_prefix_new}：[{_desc}]' + _after
-                            _identified += 1
+                            _desc = _m.group(1).strip()
+                            if _desc.startswith('('):
+                                _reason = _desc.strip('()')
+                                lines[_i] = _pfx + _rest.replace('🖼️ 图', f'❌ [AI识图失败:{_reason}] 图', 1)
+                                _failed += 1
+                            else:
+                                _img_prefix_new = _img_prefix.replace('🖼️ 图', '🤖 [AI识图] 图', 1)
+                                _after = _rest[len(f'{_img_prefix}：[图片{_desc}]'):]
+                                lines[_i] = _pfx + f'{_img_prefix_new}：[{_desc}]' + _after
+                                _identified += 1
                 if _identified:
                     lines.append(f'📌 [AI识图] 以上含 {_identified} 张已识别图片，请据此回答。')
+                if _failed:
+                    lines.append(f'⚠️ [AI识图] 以上含 {_failed} 张图片识别失败（超时/错误），如实说明并建议用户重发。')
 
                 # DEBUG: dump prompt for analysis
                 try:
@@ -313,7 +321,7 @@ class DefaultEventListener(EventListener):
                         f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
                         f.write(f'[1] time: {now_str}\n')
                         f.write(f'[2] trigger: {trigger}\n')
-                        f.write(f'[3] ai_identified={_identified} ai_pending={_pending}\n')
+                        f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
                         f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
                 except:
                     pass
