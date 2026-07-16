@@ -234,10 +234,19 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
-            # 把 Face 组件替换为 Plain 文本，防 pipeline 渲染成 [Unknown]
+            # Face → Plain 替换：先收集再原地替换（顺序不能反，替换后 Face 变 Plain）
             mc = getattr(ctx.event, 'message_chain', None)
+            _face_texts = []
             if mc:
+                for c in mc:
+                    if self._is_face_component(c):
+                        _face_texts.append(self._face_to_text(c))
                 self._normalize_face_components(mc)
+            if _face_texts:
+                ctx.event.prompt.append(provider_message.Message(
+                    role='system',
+                    content=f'[表情] 用户发送了 QQ 表情：{", ".join(_face_texts)}'
+                ))
             # 同时注入 UTC 和北京时间,消除时区歧义(防 LLM 时区幻觉)
             now_bj = _now()
             now_utc = now_bj.astimezone(timezone.utc)
@@ -322,6 +331,8 @@ class DefaultEventListener(EventListener):
                     lines.append(f'⚠️ [AI识图] 以上含 {_failed} 张图片识别失败（超时/错误），如实说明并建议用户重发。')
 
                 # DEBUG: dump prompt for analysis
+                query_vars2 = await api.get_query_vars()
+                at_text2 = str(query_vars2.get('user_message_text', '') or '')
                 try:
                     with open('/tmp/silent_prompt_dump.log', 'a') as f:
                         f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
@@ -329,6 +340,8 @@ class DefaultEventListener(EventListener):
                         f.write(f'[2] trigger: {trigger}\n')
                         f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
                         f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
+                        f.write(f'[5] user: {at_text2[:200]}\n')
+                        f.write(f'[6] face: {", ".join(_face_texts) if _face_texts else "(无)"}\n')
                 except:
                     pass
 
