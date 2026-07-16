@@ -234,19 +234,12 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
-            # Face → Plain 替换：先收集再原地替换（顺序不能反，替换后 Face 变 Plain）
+            # Face → Plain 替换：防 pipeline 渲染成 [Unknown]
+            # 注：inject 阶段 mc 始终为 None（PromptPreProcessing 不携带 message_chain），
+            # 但 _extract_text（gate 同步执行）已将 Face 文本写入 chat_index，timeline 携带表情信息。
             mc = getattr(ctx.event, 'message_chain', None)
-            _face_texts = []
             if mc:
-                for c in mc:
-                    if self._is_face_component(c):
-                        _face_texts.append(self._face_to_text(c))
                 self._normalize_face_components(mc)
-            if _face_texts:
-                ctx.event.prompt.append(provider_message.Message(
-                    role='system',
-                    content=f'[表情] 用户发送了 QQ 表情：{", ".join(_face_texts)}'
-                ))
             # 同时注入 UTC 和北京时间,消除时区歧义(防 LLM 时区幻觉)
             now_bj = _now()
             now_utc = now_bj.astimezone(timezone.utc)
@@ -341,7 +334,9 @@ class DefaultEventListener(EventListener):
                         f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
                         f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
                         f.write(f'[5] user: {at_text2[:200]}\n')
-                        f.write(f'[6] face: {", ".join(_face_texts) if _face_texts else "(无)"}\n')
+                        _face_in_timeline = sum(1 for l in lines if '[QQ表情:' in l)
+                        if _face_in_timeline:
+                            f.write(f'[6] face: timeline 含 {_face_in_timeline} 条表情消息\n')
                 except:
                     pass
 
