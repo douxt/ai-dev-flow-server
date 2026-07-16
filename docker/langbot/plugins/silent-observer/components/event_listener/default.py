@@ -41,7 +41,7 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 
 _ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-_MAX_PIXELS = 2048 * 2048
+_MAX_PIXELS = 1024 * 1024
 _VISION_SEMAPHORE = None  # lazy init in _describe_images
 _API_SEM = asyncio.Semaphore(3)  # 限制并发 WS 调用，防止 plugin runtime 断连
 
@@ -762,7 +762,7 @@ class DefaultEventListener(EventListener):
         try:
             img_obj = open_image(bytes_data)
             w, h = img_obj.size
-            if w > 2048 or h > 2048 or w * h > _MAX_PIXELS:
+            if w > 1024 or h > 1024 or w * h > _MAX_PIXELS:
                 need_resize = True
             img_obj.close()
         except Exception:
@@ -785,21 +785,22 @@ class DefaultEventListener(EventListener):
         data_uri = f'data:{mime};base64,{b64}'
         try:
             t_api_start = time.time()
-            resp = await asyncio.wait_for(
-                self.plugin.invoke_llm(
-                    llm_model_uuid=model_uuid,
-                    messages=[
-                        provider_message.Message(
-                            role='user',
-                            content=[
-                                provider_message.ContentElement.from_text('请用一句话描述这张图片的内容（直接描述，不要前缀如"这张图片"）。'),
-                                provider_message.ContentElement.from_image_base64(data_uri),
-                            ]
-                        )
-                    ],
-                ),
-                timeout=45,
-            )
+            async with _VISION_SEMAPHORE:
+                resp = await asyncio.wait_for(
+                    self.plugin.invoke_llm(
+                        llm_model_uuid=model_uuid,
+                        messages=[
+                            provider_message.Message(
+                                role='user',
+                                content=[
+                                    provider_message.ContentElement.from_text('请用一句话描述这张图片的内容（直接描述，不要前缀如"这张图片"）。'),
+                                    provider_message.ContentElement.from_image_base64(data_uri),
+                                ]
+                            )
+                        ],
+                    ),
+                    timeout=45,
+                )
             t_api = time.time() - t_api_start
             raw_text = self._extract_llm_text(resp)
             desc = _clean_description(raw_text)
@@ -1187,8 +1188,8 @@ def _resize_image(bytes_data):
     try:
         w, h = img.size
         max_dim = max(w, h)
-        if max_dim > 2048:
-            ratio = 2048 / max_dim
+        if max_dim > 1024:
+            ratio = 1024 / max_dim
             new_size = (int(w * ratio), int(h * ratio))
             img = img.resize(new_size, Image.LANCZOS)
         buf = io.BytesIO()
