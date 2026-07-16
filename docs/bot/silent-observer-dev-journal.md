@@ -80,6 +80,41 @@
 - **根因**：`kb_results = await ...` 写在了 `else` 分支而非 `if queries:` 分支
 - **教训**：大段重写后用 `python3 -m py_compile` + 逐行审查缩进
 
+---
+
+## 四、QQ 表情识别修复全记录（2026-07-16）
+
+### 问题链
+
+1. **表情识别曾经工作，后来失效** → 根因：SDK `_get_component_types()` 缺 `"Face": Face` 映射
+2. **修复 SDK 后仍输出 `[Unknown]`** → 根因：双容器 + uv cache 各有 SDK 副本，修复不全
+3. **修复全副本后 gate 能识别，bot 仍说"没数据"** → 根因：`user_message_text` 在 inject 之前提取，不含 Face 文本
+4. **尝试 inject 中扫描 message_chain 注入 system 消息** → 失败：`mc` 始终为 None
+5. **最终方案：gate 提取 + 缓存 + inject 注入** → 成功
+
+### 关键技术发现
+
+**`PromptPreProcessing`（inject）不携带 `message_chain`**。这是 LangBot Pipeline 的架构设计：pipeline 在 inject 之前已消费 message_chain 并提取 `user_message_text`。任何依赖 `ctx.event.message_chain` 的 inject 逻辑都是空操作。
+
+实际的表情传递有两条路径：
+
+| 路径 | 数据流 | 时机 |
+|------|--------|------|
+| timeline | gate `_extract_text` → chat_index → inject `_get_recent_messages` → prompt | 历史消息（同步可靠） |
+| 当前消息 | gate `_extract_faces` → `_face_cache` → inject pop → system 消息 | 当前消息（KB 禁用也生效） |
+
+### 非文本组件表示最佳实践
+
+经两轮 Web 搜索（Discord bot、OpenCrabs Telegram、onebot-llm-agent、ACL/AAAI 论文）确认：
+
+- 非文本组件（emoji/sticker/reaction）→ 结构化文本标记（`[QQ表情:xxx]`）→ system/context 通道
+- **不混入 `user_message_text`**（语义边界：用户说了什么 vs 系统检测到了什么）
+- 图片、表情、reaction 统一走此模式
+
+### 自动化测试覆盖
+
+`test_face_regression.py`：6 场景 14 断言，覆盖纯表情无文字、face_name 为空、多表情、纯文字回归、gate miss 路径。HTTP Bot 自动发送，无需手动 QQ 操作。
+
 ### 7. LangRAG 引擎未安装导致报错
 - **现象**：`Plugin langbot-team/LangRAG not found`
 - **根因**：`QueryBasedAPIProxy.retrieve_knowledge` 走 `RETRIEVE_KNOWLEDGE_BASE` 需要 KB 配置的引擎，Dou KB 配置了 LangRAG 但未安装
