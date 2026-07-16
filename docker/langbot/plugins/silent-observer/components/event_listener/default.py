@@ -432,6 +432,11 @@ class DefaultEventListener(EventListener):
                         return True
         return False
 
+    @staticmethod
+    def _is_face_component(c):
+        """判断组件是否为 QQ 表情（兼容 Unknown 降级）"""
+        return c.type == 'Face' or hasattr(c, 'face_id')
+
     def _face_to_text(self, c):
         """Face 组件 → Plain 文本，防止 pipeline 渲染为 [Unknown]"""
         name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
@@ -440,11 +445,17 @@ class DefaultEventListener(EventListener):
         return f'[QQ表情:{getattr(c, "face_id", "?")}]'
 
     def _normalize_face_components(self, message_chain):
-        """原地替换 message_chain 中的 Face 组件为 Plain"""
+        """原地替换 message_chain 中的 Face 组件为 Plain（递归处理 Quote.origin）"""
+        if message_chain is None:
+            return
         for i, c in enumerate(message_chain):
-            if c.type == 'Face':
+            if self._is_face_component(c):
                 text = self._face_to_text(c)
                 message_chain[i] = PlatformPlain(text=text)
+            elif c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    self._normalize_face_components(origin)
 
     async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
@@ -496,7 +507,7 @@ class DefaultEventListener(EventListener):
                     parts.append(f'🖼️ 图{img_num}：{desc}')
                 else:
                     parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
-            elif t == 'Face':
+            elif t == 'Face' or self._is_face_component(c):
                 face_text = self._face_to_text(c)
                 parts.append(face_text)
                 _log_gate(f'_extract_text: Face id={getattr(c,"face_id","?")} name="{getattr(c,"face_name","")}" → "{face_text}"')
