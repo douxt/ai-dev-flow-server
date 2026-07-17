@@ -1,0 +1,13 @@
+{
+  "sessionId": "d45c2e4d-a6ae-493e-8747-87a3f477d892",
+  "transcriptPath": "/home/dou/.claude/projects/-home-dou-dev-ai-dev-flow-server/d45c2e4d-a6ae-493e-8747-87a3f477d892.jsonl",
+  "transcriptChars": 9077274,
+  "actualTokens": 260640,
+  "estimatedTokens": 2269319,
+  "tokenSource": "api",
+  "lastTool": "TodoWrite",
+  "updatedAt": "2026-07-17T09:05:08.689Z",
+  "compactedAt": null,
+  "compactionType": null,
+  "compactedSessionId": null
+}
