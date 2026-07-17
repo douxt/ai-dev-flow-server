@@ -129,6 +129,7 @@ class DefaultEventListener(EventListener):
         self._inject_random = 0
         self._inject_at = 0
         self._last_msg_ts = {}  # session → 上一条消息时间戳
+        self._face_cache = {}  # session → face_text（gate 提取，inject 注入）
         self._stats_start = time.time()
         # 迁移已完成，禁用避免重复
         # if self.kb_enabled:
@@ -150,6 +151,11 @@ class DefaultEventListener(EventListener):
             is_trigger = is_at or random.random() < self.prob
             # 引用图片检测（轻量同步，不调 API）
             quote_has_img = self._quote_has_image(ctx.event.message_chain)
+            # 提取引用文本 + 表情文本（gate 阶段有 message_chain，inject 阶段没有）
+            quote_text = await self._extract_quote(ctx.event.message_chain)
+            face_text = self._extract_faces(ctx.event.message_chain)
+            if face_text:
+                self._face_cache[session_name] = face_text
             if is_trigger and self.kb_enabled:
                 doc_id = await self._save_text_only(ctx.event)
                 has_img = self._has_image(ctx.event.message_chain)
@@ -233,7 +239,9 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
-            # 把 Face 组件替换为 Plain 文本，防 pipeline 渲染成 [Unknown]
+            # Face → Plain 替换：防 pipeline 渲染成 [Unknown]
+            # 注：inject 阶段 mc 始终为 None（PromptPreProcessing 不携带 message_chain），
+            # 但 _extract_text（gate 同步执行）已将 Face 文本写入 chat_index，timeline 携带表情信息。
             mc = getattr(ctx.event, 'message_chain', None)
             if mc:
                 self._normalize_face_components(mc)
@@ -249,6 +257,10 @@ class DefaultEventListener(EventListener):
             trigger = 'at'
             try:
                 session_name = ctx.event.session_name
+                # 注入 gate 阶段提取的表情文本（inject 阶段无 message_chain，必须在 KB 检查前注入）
+                face_text = self._face_cache.pop(session_name, '')
+                if face_text:
+                    ctx.event.prompt.append(provider_message.Message(role='system', content=f'[表情] 用户发送了 QQ 表情：{face_text}'))
                 trigger_info = self._last_trigger.pop(session_name, ('at', None, ''))
                 if isinstance(trigger_info, tuple):
                     trigger = trigger_info[0]
@@ -323,6 +335,8 @@ class DefaultEventListener(EventListener):
                     lines.append(f'⚠️ [AI识图] 以上含 {_failed} 张图片识别失败（超时/错误），如实说明并建议用户重发。')
 
                 # DEBUG: dump prompt for analysis
+                query_vars2 = await api.get_query_vars()
+                at_text2 = str(query_vars2.get('user_message_text', '') or '')
                 try:
                     with open('/tmp/silent_prompt_dump.log', 'a') as f:
                         f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
@@ -330,6 +344,10 @@ class DefaultEventListener(EventListener):
                         f.write(f'[2] trigger: {trigger}\n')
                         f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
                         f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
+                        f.write(f'[5] user: {at_text2[:200]}\n')
+                        _face_in_timeline = sum(1 for l in lines if '[QQ表情:' in l)
+                        _face_info = face_text if face_text else (f'timeline 含 {_face_in_timeline} 条' if _face_in_timeline else '(无)')
+                        f.write(f'[6] face: {_face_info}\n')
                 except:
                     pass
 
@@ -367,6 +385,17 @@ class DefaultEventListener(EventListener):
             if stats['total'] > 0:
                 print(f'[silent] vision stats: total={stats["total"]} ok={stats["success"]} fail={stats["fail"]}', file=sys.stderr, flush=True)
             print(f'[silent] inject: timeline={len(items)} ({trigger})', file=sys.stderr, flush=True)
+            # DEBUG: dump full prompt
+            try:
+                with open('/tmp/silent_gate.log', 'a') as f:
+                    f.write(f'=== LLM RAW PROMPT [{_now().strftime("%H:%M:%S")}] ===\n')
+                    for i, msg in enumerate(ctx.event.prompt):
+                        role = getattr(msg, 'role', '?')
+                        content = str(getattr(msg, 'content', ''))
+                        f.write(f'--- [{i}] role={role} ({len(content)}c) ---\n{content}\n')
+                    f.write('=== END RAW PROMPT ===\n\n')
+            except:
+                pass
 
         # 定期清理 _image_cache
         async def cache_cleanup_loop():
@@ -433,6 +462,21 @@ class DefaultEventListener(EventListener):
                         return True
         return False
 
+    @staticmethod
+    def _is_face_component(c):
+        """判断组件是否为 QQ 表情（兼容 Unknown 降级）"""
+        return c.type == 'Face' or hasattr(c, 'face_id')
+
+    def _extract_faces(self, message_chain):
+        """从 message_chain 提取所有 Face 文本，逗号分隔"""
+        if not message_chain:
+            return ''
+        texts = []
+        for c in message_chain:
+            if self._is_face_component(c):
+                texts.append(self._face_to_text(c))
+        return ', '.join(texts) if texts else ''
+
     def _face_to_text(self, c):
         """Face 组件 → Plain 文本，防止 pipeline 渲染为 [Unknown]"""
         name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
@@ -441,11 +485,17 @@ class DefaultEventListener(EventListener):
         return f'[QQ表情:{getattr(c, "face_id", "?")}]'
 
     def _normalize_face_components(self, message_chain):
-        """原地替换 message_chain 中的 Face 组件为 Plain"""
+        """原地替换 message_chain 中的 Face 组件为 Plain（递归处理 Quote.origin）"""
+        if message_chain is None:
+            return
         for i, c in enumerate(message_chain):
-            if c.type == 'Face':
+            if self._is_face_component(c):
                 text = self._face_to_text(c)
                 message_chain[i] = PlatformPlain(text=text)
+            elif c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    self._normalize_face_components(origin)
 
     async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
@@ -497,7 +547,7 @@ class DefaultEventListener(EventListener):
                     parts.append(f'🖼️ 图{img_num}：{desc}')
                 else:
                     parts.append(f'🖼️ 图{img_num}：⏳ 识别中...')
-            elif t == 'Face':
+            elif t == 'Face' or self._is_face_component(c):
                 face_text = self._face_to_text(c)
                 parts.append(face_text)
                 _log_gate(f'_extract_text: Face id={getattr(c,"face_id","?")} name="{getattr(c,"face_name","")}" → "{face_text}"')
