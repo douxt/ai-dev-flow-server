@@ -1421,3 +1421,84 @@ let multiMsgs = await Promise.race([
 2. **配置项陷阱**：`parseMultMsg: false` 不等于"不下载"，只是"不输出"
 3. **单群静默诊断**：如果只有某个群无响应但其他群正常，优先怀疑 napcat 消息处理卡死
 4. **无超时 await 是万恶之源**：任何网络请求/外部 API 调用都应有超时保护
+
+---
+
+## 第廿三章 napcat forward-timeout 补丁部署
+
+> 2026-07-16 | 建立 napcat patches 体系，部署 forward-timeout 补丁
+
+### 前期分析：patch 2 (quote-url/base64) 调查
+
+深入分析了 napcat.mjs（117K 行）中 base64 图片数据的来源：
+
+**已确认的安全路径：**
+- `picElement` 转换器（L105875-105903）：`disableGetUrl` 始终默认 `false`，图片 URL 始终走 CDN (`getImageUrl`)
+- `enableLocalFile2Url: true`：仅在 `GetFile` API handler 中添加 base64（L109014-109016），langbot 不调用此 API
+- output: `{type: "image", data: {file: element.fileName, url: "https://cdn..."}}` — 无 base64
+
+**结论：** 当前 `enableLocalFile2Url: true` + 插件 `_strip_base64` 已覆盖 base64 问题。Patch 2 不再单独实施。
+
+**关键发现：**
+- `enableLocalFile2Url` 配置名误导——实际是"在 GetFile API 响应中附加 base64"，与 WS 消息中的图片 URL 无关
+- `disableGetUrl` 默认 `false` 是硬编码的，不受 `enableLocalFile2Url` 控制
+- `"file: element.fileName,"` 在 3 处重复（picElement/fileElement/videoElement），sed 无法精确限定，放弃自动化
+
+### Patch 1 实施
+
+**修改内容：**
+
+```javascript
+// L106250 — Patch 1a: getMultiMessages 10s 超时
+let multiMsgs = await Promise.race([
+  this.getMultiMessages(msg, parentMsgPeer),
+  new Promise(resolve => setTimeout(() => resolve(null), 10000))
+]);
+
+// L106253 — Patch 1b: FetchForwardMsg fallback 5s 超时
+multiMsgs = await Promise.race([
+  this.core.apis.PacketApi.pkt.operation.FetchForwardMsg(element.resId),
+  new Promise(resolve => setTimeout(() => resolve(null), 5000))
+]);
+```
+
+**部署参数：**
+- getMultiMessages: 10s（NapLink SDK/MoFox Bot 社区实践）
+- FetchForwardMsg fallback: 5s（协议级查询，通常更快）
+- Promise.race 局限性：输掉的 Promise 不取消（zombie Promise），但优于永久卡死
+
+### 部署记录
+
+| 步骤 | 结果 |
+|------|------|
+| 容器内 grep 检查目标字符串 | ✅ 两个目标字符串均唯一存在 |
+| sed 替换 | ✅ |
+| grep 验证新字符串 | ✅ 两个替换均生效 |
+| docker restart napcat | ✅ |
+| patch 存活验证 | ✅ |
+| langbot WS 重连 | ✅ (`GET /ws 1.1 101`) |
+
+### 踩坑
+
+1. **`nexec` 引号问题**：`$*` 不保留特殊字符（括号），导致 grep 在远程 ash 报语法错误。改用 `printf '%q'` 逐参数转义
+2. **容器内无 node 二进制**：napcat 使用 QQ 内嵌 JS 引擎（非独立 Node.js），`node -c` 不可用。改用 grep 字符串验证 + 运行时重启验证
+3. **进程级重启不适用**：napcat 容器内运行多个 `qq` 进程（非单一 Node 进程），`kill -TERM` 无法干净重启。改用 `docker restart`
+
+### apply.sh 设计
+
+```
+备份(时间戳+宿主机持久化)
+  → grep 检查目标字符串(不存在→中止)
+  → sed 替换
+  → grep 验证新字符串(失败→自动回滚)
+  → docker restart
+  → 等待进程恢复(30s 超时)
+```
+
+回滚：`./apply.sh --rollback` 从宿主机 `/tmp/napcat-backups/` 取最新备份恢复
+
+### 后续
+
+- cron 巡检（每 5 分钟 `grep -q 'Promise.race'`，丢失时报警）
+- napcat 升级后需重新 apply
+- 长期方案：Dockerfile 预打包
