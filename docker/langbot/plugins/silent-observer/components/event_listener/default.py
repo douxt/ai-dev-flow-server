@@ -120,8 +120,8 @@ class DefaultEventListener(EventListener):
         self._reply_ts = {}  # session → 上次保存时间戳 (流式去重)
         self._reply_pending = {}  # session → 缓存的最后一个 ctx
         self._reply_tasks = {}  # session → debounce task
-        self._bg_tasks: set[asyncio.Task] = set()
-        self._MAX_BG_TASKS = 50
+        self._bg_queue = asyncio.Queue(maxsize=10)
+        self._bg_workers = [asyncio.create_task(self._bg_worker()) for _ in range(3)]
         # 触发统计
         self._gate_hits = 0
         self._gate_misses = 0
@@ -148,20 +148,19 @@ class DefaultEventListener(EventListener):
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
-            # 提取引用文本（从 message_chain 的 Quote 组件）
-            quote_text = await self._extract_quote(ctx.event.message_chain)
+            # 引用图片检测（轻量同步，不调 API）
+            quote_has_img = self._quote_has_image(ctx.event.message_chain)
             if is_trigger and self.kb_enabled:
                 doc_id = await self._save_text_only(ctx.event)
-                # 不仅检测 message_chain 中的 Image 组件，也检测引用文本中的 [图片] 占位
                 has_img = self._has_image(ctx.event.message_chain)
-                has_img_in_quote = '[图片' in (quote_text or '')
+                has_img_in_quote = quote_has_img
                 if doc_id and self.vision_enabled and (has_img or has_img_in_quote):
                     self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
                     self._run_background(self._save_with_vision(ctx.event, doc_id))
                 trigger = 'at' if is_at else 'random'
                 locked = session_name in self._last_trigger and not is_at
                 if not locked:
-                    self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                    self._last_trigger[session_name] = (trigger, doc_id, ctx.event.message_chain)
                     self._lock_set_ts[session_name] = time.time()
                 else:
                     self._lock_skips += 1
@@ -180,7 +179,7 @@ class DefaultEventListener(EventListener):
                 trigger = 'at' if is_at else 'random'
                 locked = session_name in self._last_trigger and not is_at
                 if not locked:
-                    self._last_trigger[session_name] = (trigger, doc_id, quote_text)
+                    self._last_trigger[session_name] = (trigger, doc_id, ctx.event.message_chain)
                     self._lock_set_ts[session_name] = time.time()
                 else:
                     self._lock_skips += 1
@@ -254,9 +253,11 @@ class DefaultEventListener(EventListener):
                 if isinstance(trigger_info, tuple):
                     trigger = trigger_info[0]
                     trigger_doc_id = trigger_info[1] if len(trigger_info) > 1 else None
-                    quote_text = trigger_info[2] if len(trigger_info) > 2 else ''
+                    trigger_mc = trigger_info[2] if len(trigger_info) > 2 else None
+                    quote_text = await self._extract_quote(trigger_mc) if trigger_mc else ''
                 else:
-                    trigger, trigger_doc_id, quote_text = trigger_info, None, ''
+                    trigger, trigger_doc_id, trigger_mc = trigger_info, None, None
+                    quote_text = await self._extract_quote(trigger_mc) if trigger_mc else ''
 
                 if not self.kb_enabled or not self.kb_id:
                     return
@@ -527,33 +528,49 @@ class DefaultEventListener(EventListener):
                     parts.append(f'[引用] {await self._extract_text(origin, 200, depth=1)}')
         return ' '.join(parts).strip()
 
-    async def _extract_quote(self, message_chain) -> str:
-        """从 message_chain 的 Quote 组件提取引用文本"""
+    def _quote_has_image(self, message_chain) -> bool:
+        """轻量同步检查：引用中是否包含 [图片] 占位（不调 API，不阻塞事件循环）"""
         if message_chain is None:
-            return ''
+            return False
         for c in message_chain:
             if c.type == 'Quote':
                 origin = getattr(c, 'origin', None)
+                if origin is not None and hasattr(origin, '__iter__'):
+                    for x in origin:
+                        if getattr(x, 'type', '') == 'Image':
+                            return True
+        return False
+
+    async def _extract_quote(self, message_chain, depth=0) -> str:
+        """从 message_chain 的 Quote 组件提取引用文本（含 yield 点 + 深度限制）"""
+        if message_chain is None:
+            return ''
+        if depth > 5:
+            return ''
+        for i, c in enumerate(message_chain):
+            if i > 0 and i % 10 == 0:
+                await asyncio.sleep(0)
+            if c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
                 if origin is not None:
-                    # 检查 origin 是否包含 Forward 组件
                     origin_types = [x.type for x in (origin if hasattr(origin, '__iter__') else [])]
                     has_fwd = 'Forward' in origin_types
                     if origin_types == ['Source']:
                         return '[合并转发群聊记录]'
                     inner = await self._extract_text(origin, 300, depth=1)
-                    # origin 包含 Forward 时加标记
                     if has_fwd:
                         return f'[合并转发] {inner}' if inner else '[合并转发群聊记录]'
                     if not inner and origin_types:
                         return '[合并转发群聊记录]'
                     return inner
             elif c.type == 'Forward':
-                # Forward 内查找 Quote
                 nodes = getattr(c, 'node_list', []) or []
-                for node in nodes:
+                for ni, node in enumerate(nodes):
+                    if ni > 0 and ni % 5 == 0:
+                        await asyncio.sleep(0)
                     mc = getattr(node, 'message_chain', None)
                     if mc is not None:
-                        result = await self._extract_quote(mc)
+                        result = await self._extract_quote(mc, depth + 1)
                         if result:
                             return result
         return ''
@@ -1111,16 +1128,21 @@ class DefaultEventListener(EventListener):
             _log(f'[silent] migration skip group_116381172: {e}')
 
     def _run_background(self, coro):
-        if len(self._bg_tasks) >= self._MAX_BG_TASKS:
-            print('[silent] bg queue full', file=sys.stderr, flush=True)
-            return
-        task = asyncio.create_task(coro)
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
-        task.add_done_callback(
-            lambda t: print(f'[silent] bg error: {t.exception()}', file=sys.stderr, flush=True)
-            if t.exception() else None
-        )
+        """将协程放入有界后台队列，由 worker pool 消费。"""
+        try:
+            self._bg_queue.put_nowait(coro)
+        except asyncio.QueueFull:
+            print('[silent] bg queue full, dropping task', file=sys.stderr, flush=True)
+
+    async def _bg_worker(self):
+        while True:
+            coro = await self._bg_queue.get()
+            try:
+                await coro
+            except Exception as e:
+                print(f'[silent] bg worker error: {e}', file=sys.stderr, flush=True)
+            finally:
+                self._bg_queue.task_done()
 
     def _init_chat_index(self):
         try:
