@@ -147,6 +147,7 @@ class DefaultEventListener(EventListener):
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
+            self._strip_base64(ctx.event.message_chain)
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
             # 引用图片检测（轻量同步，不调 API）
@@ -749,6 +750,29 @@ class DefaultEventListener(EventListener):
             db.close()
         except Exception as e:
             print(f'[silent] chat_index write error: {e}', file=sys.stderr, flush=True)
+
+    @staticmethod
+    def _strip_base64(message_chain):
+        """递归清除 message_chain 中所有 Image 组件的 base64 数据，只保留 url。
+        解决 napcat Quote/Forward 内图片塞 base64 导致 WS 消息体膨胀的问题。"""
+        if message_chain is None:
+            return
+        for c in message_chain:
+            if c.type == 'Image':
+                try:
+                    c.base64 = ''
+                except Exception:
+                    pass
+            elif c.type == 'Quote':
+                origin = getattr(c, 'origin', None)
+                if origin is not None:
+                    DefaultEventListener._strip_base64(origin)
+            elif c.type == 'Forward':
+                nodes = getattr(c, 'node_list', []) or []
+                for node in nodes:
+                    mc = getattr(node, 'message_chain', None)
+                    if mc is not None:
+                        DefaultEventListener._strip_base64(mc)
 
     def _has_image(self, message_chain) -> bool:
         if message_chain is None:
