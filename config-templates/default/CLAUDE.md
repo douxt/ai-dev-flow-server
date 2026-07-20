@@ -2,14 +2,20 @@
 
 ## Worktree 强制（全平台，不可绕过）
 
-所有代码开发必须在 git worktree 中隔离进行，**禁止在主仓库目录下直接编辑代码**。
+所有代码开发必须在 git worktree 中隔离，**禁止在主仓库目录下直接编辑代码**。
+统一使用 `wt` 工具管理，禁止直接调用 `git worktree add/remove`。
 
-| 规则 | 说明 |
+| 操作 | 命令 |
 |------|------|
-| 创建 worktree | 修改代码前先 `git worktree add .claude/worktrees/<任务名> -b feat/<任务名>` |
-| 禁止主分支编辑 | 禁止在 master/main 分支直接 Edit/Write |
-| 禁止 `rm -rf` worktree | 用 `git worktree remove` 清理 |
-| 禁止跨 worktree 复制 | 共享代码通过 git 对象库自然共享 |
+| 创建 | `wt create <任务名>` |
+| 清理 | `wt cleanup <任务名>` |
+| 提交 | `wt commit <任务名> "消息"` |
+
+| 禁止 | 正确做法 |
+|------|---------|
+| `git worktree add` | 用 `wt create` |
+| `git worktree remove` / `rm -rf` worktree | 用 `wt cleanup` |
+| 跨 worktree 复制文件 | 通过 git 共享 |
 
 ## 代码修改安全
 
