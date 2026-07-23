@@ -1,5 +1,5 @@
 name: auto-execute-afk
-description: AFK 自动执行 — TDD 实现→测试→双模型审查→PR→待审批（无人值守）
+description: AFK 自动执行 v3.0 — /implement 驱动：TDD 实现→测试→双模型审查→PR→待审批→教训提取（无人值守）
 nodes:
   - id: setup
     bash: |
@@ -22,20 +22,24 @@ nodes:
     depends_on: [setup]
     prompt: |
       阅读 issues/$(basename $ARGUMENTS)（已从主项目同步到 worktree）。
+      本节点对应 v3.0 /implement 流程。
 
       ## 第1步：盘点状态
-      1. 提取 issue 中所有 Acceptance Criteria（AC 清单）
+      1. 提取 ticket 中所有 Acceptance Criteria（AC 清单），确认验证级别（[auto]/[human-verify]/[decision]）
       2. 运行 `git log --oneline -10` 查看已有提交
       3. 运行 `git diff main..HEAD --stat` 查看已改文件
       4. 逐条判断 AC：已实现则标记 ✅，未实现则标记 ❌
       5. 输出盘点结果表
 
-      ## 第2步：实现未完成的 AC
+      ## 第2步：实现未完成的 AC（内建 Maker-Checker）
       仅实现标记 ❌ 的 AC。TDD 流程：先写失败测试 → 最小实现 → 跑通。
       每个 AC 独立提交，commit message 引用 AC 编号。
 
       严格只实现 AC 列出的内容，禁止修改无关文件、禁止顺手重构、禁止加额外功能。
       每个 AC 独立验证：实现后必须运行相关测试确认通过。
+      实现完成后自我审查（Maker-Checker）：读 diff + 逐条对照 AC。
+
+      安全红线：涉及 auth/payment/crypto/delete/permission → 标记并在 PR 中声明。
 
       ## 如果所有 AC 均已实现
       输出 "ALL_AC_DONE" 并跳过实现。
@@ -68,7 +72,9 @@ nodes:
   - id: auto-review
     depends_on: [validate]
     prompt: |
-      审查本次所有改动（git diff HEAD~1），按安全/性能/可维护性三个角度列问题。
+      审查本次所有改动（git diff HEAD~1），对应 v3.0 /code-review 流程。
+      按安全/性能/可维护性三个角度列问题。
+      特别检查：安全红线（auth/payment/crypto/delete/permission）→ 逐行审查。
       有问题的列出 file:line + 描述 + 严重级别(high/medium/low)。
       无问题输出 "CLEAN"。
 
@@ -272,3 +278,20 @@ nodes:
       git pull --rebase --quiet 2>/dev/null || true
       git push 2>/dev/null || true
       echo "SUMMARY_WRITTEN: issues/${ISSUE_SLUG}-summary.md"
+
+  - id: lessons
+    depends_on: [write-summary]
+    prompt: |
+      复盘本次实现，提取教训（v3.0 /implement 内建复盘）。
+      扫描：本次 diff、review 意见（auto-review + cross-review 输出）、summary 文件。
+
+      提取格式：
+      ```
+      ## Lessons from <ticket>
+
+      - **问题**: <描述>
+        **教训**: <可操作的规则>
+        **建议追加到**: CLAUDE.md # Lessons
+      ```
+
+      仅输出实质性的教训（至少一条）。无教训则输出 "NO_LESSONS"。
