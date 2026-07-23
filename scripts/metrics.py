@@ -74,25 +74,28 @@ def git_stats(workspace):
     stats = {"pr_count": 0, "pr_merged": 0, "rework_count": 0}
 
     try:
-        # PR merge commits
+        # Total PR attempts: count "dispatch: claim" commits (each = one ticket claimed for PR)
         result = subprocess.run(
-            ["git", "-C", workspace, "log", "--oneline", "--since=90.days", "--grep=Merge pull request"],
+            ["git", "-C", workspace, "log", "--oneline", "--since=90.days",
+             "--grep=dispatch: claim"],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
             stats["pr_count"] = len([l for l in result.stdout.splitlines() if l.strip()])
 
-        # Merged PRs (successful)
+        # Merged PRs: count "Merge pull request" commits (successful merges)
         result = subprocess.run(
-            ["git", "-C", workspace, "log", "--oneline", "--since=90.days", "--grep=Merge pull request"],
+            ["git", "-C", workspace, "log", "--oneline", "--since=90.days",
+             "--grep=Merge pull request"],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
             stats["pr_merged"] = len([l for l in result.stdout.splitlines() if l.strip()])
 
-        # Rework: commits with "dispatch: failed" → followed by "dispatch: claim" on same ticket
+        # Rework: "dispatch: failed" commits (claim → fail → re-claim on same ticket)
         result = subprocess.run(
-            ["git", "-C", workspace, "log", "--oneline", "--since=90.days", "--grep=dispatch: failed"],
+            ["git", "-C", workspace, "log", "--oneline", "--since=90.days",
+             "--grep=dispatch: failed"],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
@@ -109,15 +112,17 @@ def git_stats(workspace):
 
 
 def estimate_digest_time(workspace):
-    """从 trace.jsonl 估算平均 issue 消化时间"""
+    """从 trace.jsonl 估算平均 ticket 消化时间（tickets:done → implement:done）
+
+    注意：stage.transition 是项目级事件（非 per-ticket），dispatch 是单线程的，
+    因此相邻的 tickets:done → implement:done 对可近似视为一个 ticket 的消化周期。
+    """
     trace_file = os.path.join(workspace, ".devflow", "trace.jsonl")
     if not os.path.isfile(trace_file):
         return None
 
-    ready_times = {}  # ticket_file → ready_ts
-    done_times = {}   # ticket_file → done_ts
-    intervals = []
-
+    # 收集所有阶段转换事件的时间戳
+    transitions = []
     try:
         with open(trace_file) as f:
             for line in f:
@@ -128,34 +133,35 @@ def estimate_digest_time(workspace):
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-
-                etype = event.get("event", "")
-                if etype == "stage.transition":
-                    fname = event.get("from", "").split(":")[0]  # approximate
-                    ts = event.get("ts", "")
-                    to_stage = event.get("to", "")
-                    if to_stage == "tickets:done":
-                        ready_times[fname] = ts
-                    elif to_stage == "implement:done" or to_stage == "done":
-                        done_times[fname] = ts
+                if event.get("event") == "stage.transition":
+                    transitions.append(event)
     except Exception:
-        pass
+        return None
 
-    total_hours = 0
-    count = 0
-    for key in done_times:
-        if key in ready_times:
-            try:
-                t1 = datetime.fromisoformat(ready_times[key])
-                t2 = datetime.fromisoformat(done_times[key])
-                hours = (t2 - t1).total_seconds() / 3600
-                if hours > 0:
-                    total_hours += hours
-                    count += 1
-            except (ValueError, TypeError):
-                pass
+    # 配对：每次 tickets:done 之后最近的 implement:done（单线程 dispatch 保证不交叉）
+    intervals = []
+    pending_ready = None
+    for ev in transitions:
+        to_stage = ev.get("to", "")
+        ts_str = ev.get("ts", "")
+        if not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
 
-    return round(total_hours / count, 1) if count > 0 else None
+        if to_stage == "tickets:done":
+            pending_ready = ts
+        elif to_stage in ("implement:done", "done") and pending_ready is not None:
+            hours = (ts - pending_ready).total_seconds() / 3600
+            if hours > 0:
+                intervals.append(hours)
+            pending_ready = None
+
+    if intervals:
+        return round(sum(intervals) / len(intervals), 1)
+    return None
 
 
 def update(workspace):
