@@ -19,7 +19,7 @@ fi
 
 # 统计待处理建议（以 ## 开头的未标记 done 的条目）
 pending=$(grep -cE '^##\s' "$SUGGESTIONS" 2>/dev/null || echo 0)
-done_count=$(grep -cE '\[x\]' "$SUGGESTIONS" 2>/dev/null || echo 0)
+done_count=$(grep -cE '^\s*\[x\]' "$SUGGESTIONS" 2>/dev/null || echo 0)
 remaining=$((pending - done_count))
 
 if [ "$remaining" -gt 0 ]; then
