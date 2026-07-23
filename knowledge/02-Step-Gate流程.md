@@ -95,7 +95,7 @@ backlog → ready → in_progress → done
 
 | 文件 | 内容 | 引用于 |
 |:----|------|:------:|
-| `.devflow/knowledge/01-核心方法论.md` | AI 辅助编程方法论 v4.0 | explore, implement |
+| `.devflow/knowledge/01-核心方法论.md` | AI 辅助编程方法论 v5.0 | explore, implement |
 | `.devflow/knowledge/03-Spec质量宪法.md` | Spec 宪法（Ponytail + 三假设 + 验证层级） | spec |
 | `.devflow/knowledge/04-Ticket质量宪法.md` | Ticket 宪法（窗口适配） | tickets |
 | `.devflow/knowledge/05-脚本质量宪法.md` | 脚本宪法 12 项 | 保留 |

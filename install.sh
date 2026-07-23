@@ -354,6 +354,7 @@ if [ "$UPDATE_MODE" = true ]; then
         for gs in "$SOURCE/skills/"*/; do
             [ -d "$gs" ] || continue
             gs_name=$(basename "$gs")
+            [[ "$gs_name" == .* ]] && continue
             dry_run "cp -rL $gs $CLAUDE_HOME/.claude/skills/$gs_name"
         done
         for gc in "$SOURCE/gate-checklists/"*.md; do
@@ -715,13 +716,14 @@ if [ "$FRONTEND" = true ]; then
     echo "── 步骤 2b: 复制 gate-checklists/ ──"
     maybe_cp_dir "$SOURCE/gate-checklists" "$CLAUDE_HOME/.claude/gate-checklists"
 
-    # gate skills（skills/ 下 7 个 gate skill）
+    # gate skills（skills/ 下 gate skill，v3.0 起已退役，此目录仅保留兼容）
     echo "── 步骤 2c: 安装 gate skills ──"
     if [ -d "$SOURCE/skills" ]; then
         dry_run "mkdir -p $CLAUDE_HOME/.claude/skills"
         for skill_dir in "$SOURCE/skills/"*/; do
             [ -d "$skill_dir" ] || continue
             skill_name=$(basename "$skill_dir")
+            [[ "$skill_name" == .* ]] && continue
             skill_dst="$CLAUDE_HOME/.claude/skills/$skill_name"
             if [ "$DRY_RUN" = true ]; then
                 echo "  [DRY-RUN] cp -r $skill_name/ → $skill_dst"
@@ -946,7 +948,7 @@ fi
 echo "  [ ] .devflow/knowledge/ — 7 份知识文档"
 if [ "$FRONTEND" = true ]; then
     echo "  [ ] .gate-state — Gate 状态追踪"
-    echo "  [ ] ~/.claude/skills/ — 15 个 CC skill + 7 个 gate skill"
+    echo "  [ ] ~/.claude/skills/ — 15 个 CC skill（gate skill v3.0 起已退役）"
     echo "  [ ] ~/.claude/gate-checklists/ — 6 个 gate 清单"
     echo "  [ ] ~/.claude/workflows/ — 6 个 gate 脚本"
 fi
