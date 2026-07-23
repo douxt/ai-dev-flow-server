@@ -1,15 +1,13 @@
-# AI Dev Flow — Gate 状态追踪（服务器版）
-# workflow 脚本自动写入 passed；人手动设定 blocked 触发回退
-# gate-7 为人工审查，不走 workflow 脚本
+# AI Dev Flow v3.0 — 阶段状态追踪
+# stage-tracker hook 自动更新；人手动设定 blocked 触发回退
+# implement 含内建 Maker-Checker，审查由 /code-review 子代理完成
 
 project: ""
-version: "1.0"
+version: "3.0"
 mode: "server"
-gates:
-  gate-1: { status: pending, desc: "/grill-me 需求对齐" }
-  gate-2: { status: pending, desc: "/to-prd 产出 PRD" }
-  gate-3: { status: pending, desc: "/to-issues 拆 Issue" }
-  gate-4: { status: pending, desc: "/review-cc-cli Issue 评审" }
-  gate-5: { status: pending, desc: "检查 .devflow/ 完整性" }
-  gate-6: { status: pending, desc: "AFK 管线就绪确认" }
-# gate-7: 人工代码审查 + PR 合并，无 workflow 脚本
+stages:
+  explore: { status: pending, desc: "Plan Mode 初稿 / /grill-with-docs 需求澄清" }
+  spec:    { status: pending, desc: "/to-spec 产出规格（Ponytail + 三假设 + 验证层级）" }
+  tickets: { status: pending, desc: "/to-tickets 拆工单（每 ticket ≤ 上下文 40%）" }
+  implement: { status: pending, desc: "/implement 实现 + /code-review 审查" }
+  done:    { status: pending, desc: "PR 合入 + 复盘 → CLAUDE.md # Lessons" }
