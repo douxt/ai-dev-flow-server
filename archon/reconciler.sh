@@ -55,6 +55,19 @@ fi
 
 CHANGED=false
 
+# -1. 清理过期的任务锁（>6h 未释放 → 强制清理）
+LOCKS_DIR="$WORKSPACE/.devflow/locks"
+if [ -d "$LOCKS_DIR" ]; then
+    for lock_dir in "$LOCKS_DIR"/*/; do
+        [ -d "$lock_dir" ] || continue
+        LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$lock_dir" 2>/dev/null || echo 0) ))
+        if [ "$LOCK_AGE" -gt 21600 ]; then  # 6h = 21600s
+            LOCK_NAME=$(basename "$lock_dir")
+            rmdir "$lock_dir" 2>/dev/null && log "CLEANED: stale lock $LOCK_NAME (${LOCK_AGE}s)"
+        fi
+    done
+fi
+
 # 0. 等待人工审批 → 跳过（不修改状态，不 push）
 while IFS= read -r f; do
     [ -z "$f" ] && continue

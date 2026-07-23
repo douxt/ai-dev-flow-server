@@ -24,7 +24,7 @@
   },
   "hooks": {
     "PreToolUse": [
-      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/file-guard.sh"}]},
+      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/workflow-gate.sh"}, {"type": "command", "command": "__CLAUDE_HOME__/hooks/file-guard.sh"}]},
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/bash-firewall.sh"}, {"type": "command", "command": "__CLAUDE_HOME__/hooks/block-git-worktree.sh"}]},
       {"matcher": "EnterWorktree", "hooks": [{"type": "command", "command": "__CLAUDE_HOME__/hooks/block-enter-worktree.sh"}]}
     ],

@@ -275,6 +275,12 @@ if [ "$UPDATE_MODE" = true ]; then
         fi
     fi
 
+    # v2.1 → v3.0: Gate 状态机迁移
+    if [ -f "$TARGET/.gate-state" ] && [ ! -f "$TARGET/.devflow/stage" ]; then
+        echo "  迁移 v2.1 gate-state → v3.0 stage ..."
+        bash "$SOURCE/scripts/migrate-gate-state.sh" "$TARGET" || echo "  ⚠️  迁移失败，可手动处理"
+    fi
+
     install_wt
     deploy_file() {
         local src="$1" dst="$2"
@@ -301,6 +307,8 @@ if [ "$UPDATE_MODE" = true ]; then
         for py in "$SOURCE/scripts/"*.py; do
             [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
         done
+        deploy_file "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+        dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
     fi
 
     echo "  更新 knowledge/ ..."
@@ -808,7 +816,8 @@ if [ "$BACKEND" = true ]; then
     maybe_cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/notify.py"
     maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
     maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
-    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
+    maybe_cp "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" "$TARGET/.devflow/scripts/trace.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
 
     # .archon/workflows/
     echo "── 步骤 5b: 注册 Archon workflow ──"

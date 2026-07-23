@@ -9,6 +9,9 @@ TOOL_NAME="$1"
 TOOL_INPUT="$2"
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 STAGE_FILE="$WORKSPACE/.devflow/stage"
+TRACE_SCRIPT="$WORKSPACE/.devflow/scripts/trace.sh"
+
+trace() { bash "$TRACE_SCRIPT" "$@" 2>/dev/null || true; }
 
 # 仅在工作区有 .devflow/ 的项目中生效
 [ -d "$WORKSPACE/.devflow" ] || exit 0
@@ -57,9 +60,11 @@ done
 
 # 写入新阶段
 echo "$detected_stage" > "$STAGE_FILE"
+trace "stage.transition" from="$previous_stage" to="$detected_stage"
 
 # 阶段跳跃 → advisory 警告
 if [ "$current_index" -gt 0 ] && [ "$prev_index" -gt 0 ] && [ "$current_index" -gt "$((prev_index + 1))" ]; then
+    trace "stage.skip" from="$previous_stage" to="$detected_stage" skipped="$((current_index - prev_index - 1))"
     cat >&2 <<EOF
 
 ⚠️  stage-tracker: 检测到阶段跳跃
