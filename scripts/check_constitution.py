@@ -326,6 +326,24 @@ def run(issue_path, issues_dir=None, json_out=False, workspace=None):
     return 0 if failed == 0 else 1
 
 
+def run_to_dict(issue_path, issues_dir=None, workspace=None):
+    """内部使用：调用 run() 的 JSON 模式并返回 dict"""
+    import io
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    exit_code = 1
+    try:
+        exit_code = run(issue_path, json_out=True, issues_dir=issues_dir, workspace=workspace)
+        output = sys.stdout.getvalue()
+    finally:
+        sys.stdout = old_stdout
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return {"file": issue_path, "error": output.strip(), "passed": 0, "warned": 0, "failed": 1,
+                "safety_hits": [], "checks": []}
+
+
 def run_batch(issues_dir, json_out=False, workspace=None):
     """批量扫描 issues/ 目录下所有 .md 文件"""
     if not os.path.isdir(issues_dir):
@@ -346,14 +364,15 @@ def run_batch(issues_dir, json_out=False, workspace=None):
     for f in md_files:
         path = os.path.join(issues_dir, f)
         try:
-            result = run_with_return(path, issues_dir, workspace)
+            result = run_to_dict(path, issues_dir, workspace)
             all_results.append(result)
-            total_passed += result["passed"]
-            total_warned += result["warned"]
-            total_failed += result["failed"]
+            total_passed += result.get("passed", 0)
+            total_warned += result.get("warned", 0)
+            total_failed += result.get("failed", 0)
             total_safety.update(result.get("safety_hits", []))
         except Exception as e:
-            all_results.append({"file": path, "error": str(e), "passed": 0, "warned": 0, "failed": 0})
+            all_results.append({"file": path, "error": str(e), "passed": 0, "warned": 0, "failed": 0,
+                                "safety_hits": [], "checks": []})
 
     if json_out:
         summary = {
@@ -375,95 +394,6 @@ def run_batch(issues_dir, json_out=False, workspace=None):
             print(f"   🛡️  安全红线文件: {', '.join(sorted(total_safety))}")
 
     return 0 if total_failed == 0 else 1
-
-
-def run_with_return(issue_path, issues_dir=None, workspace=None):
-    """内部使用：返回 dict 而非打印"""
-    post = load_issue(issue_path)
-    content = post.content if hasattr(post, 'content') else ""
-    results = []
-    passed = 0
-    failed = 0
-    warned = 0
-
-    def add(rule, severity, desc):
-        nonlocal passed, failed, warned
-        if severity == "pass":
-            passed += 1
-        elif severity == "warning":
-            warned += 1
-        else:
-            failed += 1
-        results.append({"rule": rule, "severity": severity, "desc": desc})
-
-    # (重复 run() 中的 15 项检查逻辑，此处精简为关键检查)
-    est = post.get("estimate", "")
-    if est:
-        match = re.search(r'(\d+\.?\d*)\s*d', str(est))
-        days = float(match.group(1)) if match else 0
-        if days <= 1:
-            add("1.estimate", "pass", f"工时 {est} ≤1d")
-        elif days <= 2:
-            add("1.estimate", "warning", f"工时 {est} >1d")
-        else:
-            add("1.estimate", "fail", f"工时 {est} >2d，必须拆分")
-    else:
-        add("1.estimate", "fail", "estimate 缺失")
-
-    itype = post.get("type", "")
-    if itype in VALID_TYPES:
-        add("2.type", "pass", f"type={itype}")
-    else:
-        add("2.type", "fail", f"type={itype or '缺失'} 不合法")
-
-    effort = post.get("effort", "")
-    if effort == "small":
-        add("3.effort", "pass", "effort=small")
-    elif effort == "medium":
-        add("3.effort", "warning", "effort=medium")
-    elif effort == "large":
-        add("3.effort", "fail", "effort=large 必须拆分")
-    else:
-        add("3.effort", "warning", "effort 缺失")
-
-    blocked = post.get("blocked_by", [])
-    if isinstance(blocked, str):
-        blocked = [b.strip() for b in blocked.split(",") if b.strip()]
-    add("4.blocked_by", "pass", f"依赖: {blocked or '无'}")
-
-    needs_fields = ["needs_llm", "needs_vision", "needs_pdf", "needs_docker"]
-    declared = [n for n in needs_fields if n in post]
-    add("5.needs", "pass" if declared else "warning",
-        f"needs_*: {declared or '未声明'}")
-
-    tf = post.get("test_files", [])
-    if isinstance(tf, str):
-        tf = [t.strip() for t in tf.split(",") if t.strip()]
-    add("6.test_files", "pass" if tf else "warning", f"test_files: {tf or '空'}")
-
-    st = post.get("status", "")
-    add("7.status", "pass" if st in VALID_STATUSES else "fail",
-        f"status={st or '缺失'}")
-
-    full_text = json.dumps({k: str(v) for k, v in post.items()}) + " " + (content or "")
-    safety_hits = detect_safety_types(full_text)
-    add("8.safety", "pass" if not safety_hits else "warning",
-        f"安全: {','.join(sorted(safety_hits)) if safety_hits else '无'}")
-
-    est_tokens = int(estimate_tokens(full_text))
-    if est_tokens <= 48000:
-        add("9.window_budget", "pass", f"窗口预算: {est_tokens}tok")
-    elif est_tokens <= 60000:
-        add("9.window_budget", "warning", f"窗口预算: {est_tokens}tok（超 48K）")
-    else:
-        add("9.window_budget", "fail", f"窗口预算: {est_tokens}tok（严重超 48K）")
-
-    return {
-        "file": issue_path,
-        "passed": passed, "warned": warned, "failed": failed,
-        "safety_hits": sorted(safety_hits) if safety_hits else [],
-        "checks": results,
-    }
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ setup() {
     TEST_DIR=$(mktemp -d)
     export WORKSPACE="$TEST_DIR"
     mkdir -p "$TEST_DIR/.devflow"
+    REPO_ROOT="${REPO_ROOT:-$(git -C "$BATS_TEST_DIRNAME/../.." rev-parse --show-toplevel 2>/dev/null || pwd)}"
     HOOK="$REPO_ROOT/config-templates/default/hooks/workflow-gate.sh"
     export CC_SESSION_ID="test-session-001"
 }
