@@ -42,10 +42,10 @@ esac
 target_file=""
 case "$TOOL_NAME" in
     Edit|Write)
-        target_file=$(echo "$TOOL_INPUT" | grep -oP '(?<="file_path"\s*:\s*")[^"]+' | head -1)
+        target_file=$(echo "$TOOL_INPUT" | grep -oP '"file_path"\s*:\s*"\K[^"]+' | head -1)
         ;;
     Bash)
-        target_file=$(echo "$TOOL_INPUT" | grep -oP '(?<=>\s*)\S+' | head -1)
+        target_file=$(echo "$TOOL_INPUT" | grep -oP '>\s*\K\S+' | head -1)
         ;;
 esac
 

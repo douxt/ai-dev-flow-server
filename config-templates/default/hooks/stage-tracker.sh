@@ -26,7 +26,7 @@ fi
 
 # 检测 issues/ 下是否有新文件（比 tickets 阶段更可靠）
 if [ -d "$WORKSPACE/issues" ]; then
-    issue_count=$(find "$WORKSPACE/issues" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
+    issue_count=$(find "$WORKSPACE/issues" -maxdepth 1 -name "*.md" -not -name "TEMPLATE.md" -type f 2>/dev/null | wc -l)
     if [ "$issue_count" -gt 0 ]; then
         detected_stage="tickets:done"
     fi

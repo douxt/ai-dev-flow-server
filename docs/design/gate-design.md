@@ -3,10 +3,15 @@ name: process-v2-design
 description: 开发全流程 Step Gate 重构方案
 author: Claude Code
 created: 2026-06-01
-status: draft
+updated: 2026-07-23 (v3.0)
+status: active
 ---
 
 # 开发全流程 Step Gate 重构方案
+
+> **v3.0 (2026-07-23)**: 架构已升级为 Skill-Harness 分离模式。Matt Pocock v1.1 五命令直接调用，约束由基础设施层（hooks/checkers）兜底。详见 [CHANGELOG.md](../../CHANGELOG.md) 和 [v2→v3 迁移指南](../references/v2-to-v3-migration.md)。
+>
+> **v3.0 核心变化**：9 Gate → 5 阶段（explore→spec→tickets→implement→done），workflow-gate hook 入口拦截，stage-tracker hook 产物检测，全流程 trace 日志。
 
 ## 一、动机
 
