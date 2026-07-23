@@ -31,6 +31,7 @@ mkdir "$LOCKDIR" 2>/dev/null || { log "SKIP: 已有 dispatch 在运行"; exit 0;
 # 统一清理（lock + worktree + ARCHON_OUT，覆盖所有退出路径）
 cleanup_exit() {
     rmdir "$LOCKDIR" 2>/dev/null || true
+    rmdir "${ISSUE_LOCKDIR:-}" 2>/dev/null || true
     rm -f "$ARCHON_OUT" 2>/dev/null || true
     if [ -n "${DISPATCH_WT:-}" ] && [ -d "$DISPATCH_WT" ]; then
         cd "$WORKSPACE" 2>/dev/null || true
@@ -139,6 +140,15 @@ ISSUE_NUM=$(basename "$BEST_ISSUE" | cut -d- -f1)
 ISSUE_SLUG=$(basename "$BEST_ISSUE" .md)
 ISSUE_PATH=$(realpath --relative-to="$DISPATCH_WT" "$BEST_ISSUE")
 log "DISPATCH: #${ISSUE_NUM} ${ISSUE_SLUG}"
+
+# 任务锁：防同机多 agent 会话并发领同一 ticket
+ISSUE_LOCKDIR="$WORKSPACE/.devflow/locks/${ISSUE_NUM}"
+mkdir -p "$(dirname "$ISSUE_LOCKDIR")"
+mkdir "$ISSUE_LOCKDIR" 2>/dev/null || {
+    log "SKIP: #${ISSUE_NUM} 已被同机其他 agent 锁定"
+    exit 0
+}
+# 任务锁纳入 cleanup（release 时由 trap 删除）
 
 # 宪法前置检查
 CONSTITUTION_RESULT=$(python3 "$SCRIPTS_DIR/check_constitution.py" "$BEST_ISSUE" --json 2>&1 || true)
