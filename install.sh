@@ -817,6 +817,7 @@ if [ "$BACKEND" = true ]; then
     maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
     maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
     maybe_cp "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+    maybe_cp "$SOURCE/scripts/metrics.py" "$TARGET/.devflow/scripts/metrics.py"
     [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" "$TARGET/.devflow/scripts/trace.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
 
     # .archon/workflows/

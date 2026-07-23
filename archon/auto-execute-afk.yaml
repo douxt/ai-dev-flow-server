@@ -123,8 +123,15 @@ nodes:
          如果有 → 输出 PR_URL: <url> 并结束
       3. `git push -u origin <branch>` 推送分支
       4. 从 $ARGUMENTS 指向的 issue 文件提取标题（grep '^# ' 第一行）
-      5. `gh pr create --base main --head <branch> --title "<title>" --body "<审查摘要>"`
-      6. 输出 PR_URL: <url>（一行，格式严格：PR_URL: https://...）
+      5. 准备 PR body：
+         - 审查摘要（来自 merge-reviews 节点的综合评分 + common_issues）
+         - ## 认知债务（v3.0）：逐文件解释改动动机和影响
+           | 文件 | 改动动机 | 影响范围 | 回滚风险 |
+           |------|---------|---------|---------|
+           | src/xxx.py | 修复 N+1 查询 | 列表页性能 | 低 — 仅改查询方式 |
+         - safety 标记（如有）
+      6. `gh pr create --base main --head <branch> --title "<title>" --body "<PR body>"`
+      7. 输出 PR_URL: <url>（一行，格式严格：PR_URL: https://...）
 
   - id: mark-in-review
     depends_on: [create-pr]
@@ -285,13 +292,19 @@ nodes:
       复盘本次实现，提取教训（v3.0 /implement 内建复盘）。
       扫描：本次 diff、review 意见（auto-review + cross-review 输出）、summary 文件。
 
-      提取格式：
+      提取格式（追加到 .devflow/rule-suggestions.md）：
       ```
-      ## Lessons from <ticket>
+      ## <ticket-id>: <一句话总结>
+      [ ] 待评审
 
       - **问题**: <描述>
-        **教训**: <可操作的规则>
-        **建议追加到**: CLAUDE.md # Lessons
+      - **教训**: <可操作的规则>
+      - **建议追加到**: CLAUDE.md # Lessons
+      - **证据**: <来自 review/diff 的具体引用>
       ```
 
-      仅输出实质性的教训（至少一条）。无教训则输出 "NO_LESSONS"。
+      1. 先读取已有 .devflow/rule-suggestions.md（如存在）
+      2. 追加新条目（用 ## 标题）
+      3. 写回文件
+
+      无实质教训则输出 "NO_LESSONS"（不写文件）。

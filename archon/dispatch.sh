@@ -228,6 +228,7 @@ sys.stdout.write(json.dumps(payload))
         rm -f "$ARCHON_WS/source" 2>/dev/null || true
         rm -f "$ARCHON_OUT"
         log "IN_REVIEW: #${ISSUE_NUM} ${ISSUE_SLUG} (耗时 ${DURATION}s)"
+        python3 "$SCRIPTS_DIR/metrics.py" update --workspace "$WORKSPACE" 2>/dev/null || true
         exit 0
     fi
     # 失败：也捕获标记
