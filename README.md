@@ -29,8 +29,8 @@ bash install.sh /path/to/your-project --tech-stack node
 # 3. 按提示执行 root 段（激活 timer）
 # systemctl enable --now dispatch-<project>.timer reconcile-<project>.timer
 
-# 4. 人在 OpenLobby 中开始走 gate 流程
-# /gate-1-grill → /gate-2-prd → /gate-3-issues → AFK 自动消化
+# 4. 开始走 Gate 流程
+# /grill-with-docs → /to-spec → /to-tickets → /implement → AFK 自动消化
 ```
 
 ## 支持的 tech-stack
