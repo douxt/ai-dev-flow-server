@@ -6,10 +6,10 @@ set -euo pipefail
 SKILLS_DIR="${SKILLS_DIR:-$HOME/.claude/skills}"
 [ -d "$SKILLS_DIR" ] || { echo "❌ $SKILLS_DIR 不存在"; exit 1; }
 
-SKILLS=(caveman diagnose grill-me grill-with-docs handoff
-  improve-codebase-architecture prototype review-cc-cli
-  setup-matt-pocock-skills tdd to-issues to-prd triage
-  write-a-skill zoom-out)
+# v3.0: Matt Pocock v1.1 核心 + 保留自研 skill
+SKILLS=(code-review diagnose grill-with-docs handoff implement
+  improve-codebase-architecture prototype research review-cc-cli
+  setup-matt-pocock-skills tdd to-spec to-tickets triage wayfinder)
 
 for s in "${SKILLS[@]}"; do
   if [ -d "$SKILLS_DIR/$s" ]; then
