@@ -275,6 +275,12 @@ if [ "$UPDATE_MODE" = true ]; then
         fi
     fi
 
+    # v2.1 → v3.0: Gate 状态机迁移
+    if [ -f "$TARGET/.gate-state" ] && [ ! -f "$TARGET/.devflow/stage" ]; then
+        echo "  迁移 v2.1 gate-state → v3.0 stage ..."
+        bash "$SOURCE/scripts/migrate-gate-state.sh" "$TARGET" || echo "  ⚠️  迁移失败，可手动处理"
+    fi
+
     install_wt
     deploy_file() {
         local src="$1" dst="$2"
