@@ -132,11 +132,11 @@ diagnose, tdd, triage, prototype, handoff, setup-matt-pocock-skills, review-cc-c
 
 ## Phase 4: 集成测试与文档（本版本）
 
-### 新增集成测试（49 用例）
+### 新增集成测试（51 用例）
 
 | 文件 | 用例 | 说明 |
 |------|:---:|------|
-| `tests/integration/routing.bats` | 17 | CLAUDE.md 路由规则 + workflow-gate 行为 |
+| `tests/integration/routing.bats` | 19 | CLAUDE.md 14 段关键内容 + workflow-gate 3 行为 + hook 注册 2 |
 | `tests/integration/hook-chain.bats` | 6 | workflow-gate→stage-tracker→trace 链 |
 | `tests/integration/migration.bats` | 13 | v2→v3 gate-state 迁移（9 Gate→5 阶段映射） |
 | `tests/integration/escape.bats` | 7 | 逃生机制（bypass 文件创建/删除/恢复） |
@@ -147,7 +147,7 @@ diagnose, tdd, triage, prototype, handoff, setup-matt-pocock-skills, review-cc-c
 | 文件 | 说明 |
 |------|------|
 | `docs/references/v2-to-v3-migration.md` | v2.1→v3.0 升级指南 |
-| `docs/references/testing-strategy.md` | 测试策略（4 层 49 用例） |
+| `docs/references/testing-strategy.md` | 测试策略（4 层 51 用例） |
 
 ### Bug 修复
 

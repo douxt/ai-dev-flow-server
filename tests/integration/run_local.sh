@@ -6,7 +6,9 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 export REPO_ROOT
 
-export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH"
+# 自动检测 npm 全局 bin 路径（兼容 nvm）
+NPM_BIN=$(npm config get prefix 2>/dev/null)/bin
+[ -d "$NPM_BIN" ] && export PATH="$NPM_BIN:$PATH"
 
 echo "=== Phase 4 集成测试 ==="
 echo "Repo: $REPO_ROOT"
