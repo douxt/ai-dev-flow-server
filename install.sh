@@ -1111,7 +1111,7 @@ fi
 echo "══════════════════════════════════════"
 echo "安装完成。"
 if [ "$FRONTEND" = true ]; then
-    echo "  gate 流程：/gate-1-grill → /gate-2-prd → /gate-3-issues → AFK 自动消化"
+    echo "  Gate 流程：/grill-with-docs → /to-spec → /to-tickets → /implement → AFK 自动消化"
 fi
 if [ "$BACKEND" = true ]; then
     echo "  后端管线：dispatch.sh + reconciler.sh 通过 $SCHEDULER 调度"

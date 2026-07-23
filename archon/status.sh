@@ -42,7 +42,7 @@ echo -e "│ Timers: dispatch $(icon $DISPATCH_TIMER)  reconcile $(icon $RECONCI
 
 # ── Gates ──
 GATES=""
-for g in gate-1 gate-2 gate-3 gate-4 gate-5 gate-6; do
+for g in explore spec tickets implement done; do
     STATUS=$(grep "$g:" "$GATE_FILE" 2>/dev/null | grep -oP 'status:\s*\K\w+' || echo "pending")
     GATES="$GATES $g$(icon $STATUS)"
 done
