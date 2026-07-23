@@ -9,7 +9,7 @@ L1 单元测试（bats + pytest，每 Phase 同步交付）
   └── check_constitution/（pytest，25+ 用例）— 15 项机器检查
 
 L2 集成测试（bats，Phase 4）
-  ├── routing.bats（17 用例）— CLAUDE.md 路由规则验证
+  ├── routing.bats（19 用例）— CLAUDE.md 14 段关键内容 + workflow-gate 行为
   ├── hook-chain.bats（6 用例）— workflow-gate→stage-tracker→trace 链
   ├── migration.bats（13 用例）— v2→v3 gate-state 迁移
   ├── escape.bats（7 用例）— 逃生机制

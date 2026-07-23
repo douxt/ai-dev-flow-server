@@ -30,9 +30,9 @@ bash install.sh <项目路径> --update
 | gate-2 (spec) | spec | 规格编写 |
 | gate-3+4 (issues) | tickets | 工单拆分 |
 | gate-5+6 (implement) | implement | 实现+审查 |
-| gate-7+8 (merge+retro) | done | PR 合入+复盘 |
+| gate-7+8 (merge+retro) | — | 人工步骤，不在迁移映射中 |
 
-迁移脚本取**最后通过的 gate** 映射到对应阶段。例如 gate-4 passed → `tickets:done`。
+迁移脚本取**最后通过的 gate**（gate-1~6）映射到 `{stage}:done`。gate-7/8 为人工审查/复盘步骤，不参与自动映射。例：gate-4 passed → `tickets:done`。
 
 ## 手动回滚
 

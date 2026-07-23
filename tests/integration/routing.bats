@@ -62,6 +62,7 @@ teardown() {
     grep -q "假设可证伪" "$HOME/.claude/CLAUDE.md"
     grep -q "证据不声称" "$HOME/.claude/CLAUDE.md"
     grep -q "不扩范围" "$HOME/.claude/CLAUDE.md"
+    grep -q "每个 Bug 都是永久升级" "$HOME/.claude/CLAUDE.md"
 }
 
 @test "CLAUDE.md 安装后包含上下文预算" {
@@ -90,6 +91,20 @@ teardown() {
     grep -q "禁止.*push --force" "$HOME/.claude/CLAUDE.md"
     grep -q "禁止.*commit --amend.*已推送" "$HOME/.claude/CLAUDE.md"
     grep -q "禁止直推.*master/main" "$HOME/.claude/CLAUDE.md"
+}
+
+@test "CLAUDE.md 安装后包含代码修改安全" {
+    bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
+    grep -q "代码修改安全" "$HOME/.claude/CLAUDE.md"
+    grep -q "修改前备份.*cp file file.bak" "$HOME/.claude/CLAUDE.md"
+    grep -q "永不.*git checkout" "$HOME/.claude/CLAUDE.md"
+}
+
+@test "CLAUDE.md 安装后包含计划文件管理" {
+    bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
+    grep -q "计划文件管理" "$HOME/.claude/CLAUDE.md"
+    grep -q "ADR-NNN" "$HOME/.claude/CLAUDE.md"
+    grep -q "已采纳.*已废弃" "$HOME/.claude/CLAUDE.md"
 }
 
 @test "CLAUDE.md 安装后包含 /wayfinder 使用边界" {
