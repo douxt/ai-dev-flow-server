@@ -89,6 +89,11 @@ merge_settings_local() {
 # 确保 $2 是指向 $1 的正确 symlink（断链/普通文件/不存在 均自动修复）
 ensure_symlink() {
     local src="$1" dst="$2"
+    # 源和目标为同一文件时跳过（--home 指向项目自身时发生）
+    local src_real dst_real
+    src_real=$(readlink -f "$src" 2>/dev/null || realpath "$src" 2>/dev/null || echo "$src")
+    dst_real=$(readlink -f "$dst" 2>/dev/null || realpath "$dst" 2>/dev/null || echo "$dst")
+    [ "$src_real" = "$dst_real" ] && return 0
     if [ ! -L "$dst" ] || [ "$(readlink -f "$dst" 2>/dev/null)" != "$src" ]; then
         mkdir -p "$(dirname "$dst")"
         ln -sf "$src" "$dst"
