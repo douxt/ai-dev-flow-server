@@ -307,6 +307,8 @@ if [ "$UPDATE_MODE" = true ]; then
         for py in "$SOURCE/scripts/"*.py; do
             [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
         done
+        deploy_file "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+        dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
     fi
 
     echo "  更新 knowledge/ ..."
@@ -814,7 +816,8 @@ if [ "$BACKEND" = true ]; then
     maybe_cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/notify.py"
     maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
     maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
-    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
+    maybe_cp "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" "$TARGET/.devflow/scripts/trace.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
 
     # .archon/workflows/
     echo "── 步骤 5b: 注册 Archon workflow ──"

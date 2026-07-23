@@ -323,6 +323,35 @@ def run(issue_path, issues_dir=None, json_out=False, workspace=None):
             icon = "✅" if r["severity"] == "pass" else "⚠️" if r["severity"] == "warning" else "❌"
             print(f"  {icon} [{r['rule']}] {r['desc']}")
 
+    # ── 追加 trace（自动推导项目根目录） ──
+    def _find_devflow_root():
+        # 从 issue_path 向上查找 .devflow/
+        d = os.path.dirname(os.path.abspath(issue_path))
+        for _ in range(5):
+            if os.path.isdir(os.path.join(d, ".devflow")):
+                return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+        return workspace  # fallback
+    project_root = _find_devflow_root()
+    if project_root:
+        trace_file = os.path.join(project_root, ".devflow", "trace.jsonl")
+        try:
+            trace_entry = json.dumps({
+                "event": "constitution.check",
+                "ts": __import__('datetime').datetime.now().isoformat(),
+                "file": os.path.basename(issue_path),
+                "passed": passed, "warned": warned, "failed": failed,
+                "safety_hits": sorted(safety_hits) if safety_hits else [],
+            })
+            os.makedirs(os.path.dirname(trace_file), exist_ok=True)
+            with open(trace_file, 'a') as tf:
+                tf.write(trace_entry + '\n')
+        except Exception:
+            pass  # trace 写入失败不影响主流程
+
     return 0 if failed == 0 else 1
 
 

@@ -16,9 +16,13 @@ TOOL_INPUT="$2"
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 ROUTE_FILE="$WORKSPACE/.workflow-route"
 BYPASS_FILE="$HOME/.claude/.emergency-bypass"
+TRACE_SCRIPT="$WORKSPACE/.devflow/scripts/trace.sh"
+
+trace() { bash "$TRACE_SCRIPT" "$@" 2>/dev/null || true; }
 
 # ── 逃生机制 ──
 if [ -f "$BYPASS_FILE" ]; then
+    trace "gate.bypass" reason="emergency_bypass_file" tool="$TOOL_NAME"
     exit 0
 fi
 
@@ -61,13 +65,16 @@ if [ -f "$ROUTE_FILE" ]; then
     route_content=$(cat "$ROUTE_FILE" 2>/dev/null || echo "")
     route_session=$(echo "$route_content" | cut -d'|' -f1)
     if [ "$route_session" = "$session_id" ]; then
+        trace "gate.pass" reason="route_exists" session_id="$session_id"
         exit 0
     fi
     # session 不匹配 → 清理过期 route，继续拦截
+    trace "gate.block" reason="session_expired" old_session="$route_session" current_session="$session_id"
     rm -f "$ROUTE_FILE"
 fi
 
 # ── 首次拦截：注入路由规则 → 写入 route 文件（信任 agent 会做评估）→ 退出 ──
+trace "gate.block" reason="first_edit" tool="$TOOL_NAME" session_id="$session_id"
 echo "${session_id}|pending|$(date +%s)" > "$ROUTE_FILE"
 
 cat >&2 <<'EOF'

@@ -50,4 +50,9 @@ else
     echo "   迁移完成: 无历史记录 → explore:done（默认起点）"
 fi
 
+# 追加 trace
+TRACE_FILE="$PROJECT_DIR/.devflow/trace.jsonl"
+mkdir -p "$(dirname "$TRACE_FILE")" 2>/dev/null || true
+echo "{\"event\":\"migration.v2_to_v3\",\"ts\":\"$(date -Iseconds)\",\"from\":\"gate-state\",\"to\":\"stage\",\"backup\":\"$BACKUP\",\"result\":\"${last_passed:-explore}:done\"}" >> "$TRACE_FILE" 2>/dev/null || true
+
 echo "✅ 迁移完成（旧文件保留在 $BACKUP，可安全删除）"
