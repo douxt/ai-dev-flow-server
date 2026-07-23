@@ -1,3 +1,185 @@
+# ai-dev-flow-server v3.0 变更说明
+
+> 发布日期：2026-07-23
+> 变更范围：Skill-Harness 分离架构 + Matt Pocock v1.1 五命令体系 + 基础设施约束层增强
+
+## 一句话总结
+
+吸收 Matt Pocock v1.1（16.2 万星事实标准）+ 社区最佳实践，采用"直接调用 + 基础设施兜底"架构，将 9-Gate 自研 skill 体系替换为 5 阶段轻量流程。
+
+## 核心理念：Skill-Harness 分离
+
+```
+v2.1 嵌套方式：gate skill → 底层 skill → 约束逻辑耦合在 skill 内
+v3.0 直接方式：Matt Pocock skill 直接干活 → 基础设施层（hooks/checkers）兜底约束
+```
+
+Agent = Model + Harness。约束由 Harness 保证，而非 Skill。Skill 保持简单直接；Hook/规则/配置提供确定性约束。
+
+---
+
+## Phase 1: Skill 层替换
+
+### 退役
+
+| 退役 | 原因 |
+|------|------|
+| gate-1-grill ~ gate-6-afk（7 个 gate skill） | 约束能力已下沉到 hook/checker |
+| grill-me, to-prd, to-issues（3 个 CC skill） | 由 v1.1 对应 skill 替代 |
+| caveman, zoom-out, write-a-skill（3 个） | Matt Pocock 已从仓库移除 |
+
+### 新增
+
+| skill | 来源 | 用途 |
+|-------|------|------|
+| `/grill-with-docs` | Matt Pocock v1.1 | 基于文档对话澄清需求（默认入口） |
+| `/wayfinder` | Matt Pocock v1.1 | 多会话大任务决策地图（~5%） |
+| `/research` | Matt Pocock v1.1 | 单 Agent 深度调研 |
+| `/to-spec` | Matt Pocock v1.1 | 需求→规格（可逆向） |
+| `/to-tickets` | Matt Pocock v1.1 | 规格→工单拆分 |
+| `/implement` | Matt Pocock v1.1 | 工单→代码+内建审查 |
+| `/code-review` | Matt Pocock v1.1 | 独立子代理审查全部 diff |
+
+### 保留
+
+diagnose, tdd, triage, prototype, handoff, setup-matt-pocock-skills, review-cc-cli, improve-codebase-architecture
+
+总计：15 个 skill（退役 13 个，新增 7 个，保留 8 个）
+
+---
+
+## Phase 2: 基础设施约束层增强
+
+### workflow-gate hook（PreToolUse）
+
+- 首次 Edit/Write/Bash(写入) 前拦截，强制工作流评估
+- `.workflow-route` 绑定 session_id，跨会话残留自动失效
+- 死锁防护：`.workflow-route` 自身写入不受限
+- 逃生机制：`~/.claude/.emergency-bypass` → 全部放行
+
+### stage-tracker hook（PostToolUse）
+
+- 产品检测（非 skill 调用检测）：spec.md → `spec:done`，issues/*.md → `tickets:done`，PR → `implement:done`
+- 阶段约束为 advisory 警告，不硬拦截
+- 阶段跳跃检测 + 无变化去重
+- 排除 TEMPLATE.md 模板文件干扰
+
+### suggest-rules hook（PostToolUse）
+
+- 检测 `.devflow/rule-suggestions.md` 待处理项
+- 30 分钟去重提醒
+- `grep -cE '^\s*\[x\]'` 精准匹配行首已完成项
+
+### check_constitution.py 重写（147→450 行）
+
+- 15 项机器检查（原 7 项 + 8 项新增）
+- 新增：安全红线扫描（auth/payment/crypto/delete/permission）
+- 新增：上下文窗口预算估算（≤48K tokens）
+- 新增：AC 验证级别校验（[auto]/[human-verify]/[decision]）
+- 新增：blocked_by DFS 循环依赖检测
+- 新增：Ponytail 可机器检查项 + Scope 边界 + 架构约束 + 前置准备 + 测试策略
+- `--batch` 目录批量扫描模式
+
+### 任务锁文件
+
+- `mkdir .devflow/locks/<ticket-id>` 原子锁防同机并发
+- reconciler.sh 回收：锁超过 6h → 自动清理
+
+### 全流程 trace 日志（`.devflow/trace.jsonl`）
+
+- hook: gate.pass / gate.block / gate.bypass / stage.transition / stage.skip
+- checker: constitution.check
+- migration: migration.v2_to_v3
+
+### 量化指标追踪（`scripts/metrics.py`）
+
+- ticket 状态统计 + PR 合并率 + 返工次数 + 平均消化时间
+- dispatch.sh 自动更新
+
+---
+
+## Phase 3: 方法论补全
+
+### CLAUDE.md 模板（156 行）
+
+- 工作流自动路由：评估三问 + 路由表（6 路径）+ 评估输出格式
+- 5 命令体系 + /wayfinder 使用边界
+- 引导词体系（6 条）
+- 模型路由建议
+- 安全红线（5 类）
+- 上下文预算（≤40%）
+
+### 知识宪法更新
+
+| 文档 | 变更 |
+|------|------|
+| `01-核心方法论.md` | v5.0 — 补充 v1.1 命令 + 引导词 + 安全红线 |
+| `02-Step-Gate流程.md` | v3.0 — 9 Gate → 5 阶段，标注各阶段 skill+ 约束 |
+| `03-Spec质量宪法.md` | **新增** — 11 项 + Ponytail 四问 + 三假设审计 + 5 级验证 |
+| `04-Ticket质量宪法.md` | **新增** — 15 项含窗口预算 + 三级 AC 分类 |
+| `08-安全红线宪法.md` | **新增** — 5 类红线 + 人工审查清单 + 逃生参考 |
+
+### 模板更新
+
+| 文件 | 变更 |
+|------|------|
+| `templates/spec-template.md` | 新增 — 121 行完整模板 + 19 项合规表 |
+| `templates/issue-template.md` | v3.0 — AC 级别 + 窗口预算自检 + safety 字段 |
+| `templates/gate-state.yml` | v3.0 — 5 阶段：explore→spec→tickets→implement→done |
+| `templates/CLAUDE.md.base.append` | v3.0 — 5 命令 + 5 阶段状态机 + 安全红线 |
+
+---
+
+## Phase 4: 集成测试与文档（本版本）
+
+### 新增集成测试（49 用例）
+
+| 文件 | 用例 | 说明 |
+|------|:---:|------|
+| `tests/integration/routing.bats` | 17 | CLAUDE.md 路由规则 + workflow-gate 行为 |
+| `tests/integration/hook-chain.bats` | 6 | workflow-gate→stage-tracker→trace 链 |
+| `tests/integration/migration.bats` | 13 | v2→v3 gate-state 迁移（9 Gate→5 阶段映射） |
+| `tests/integration/escape.bats` | 7 | 逃生机制（bypass 文件创建/删除/恢复） |
+| `tests/integration/rollback.bats` | 6 | 回滚验证（备份恢复 + hook 完整性 + trace 审计） |
+
+### 新增文档
+
+| 文件 | 说明 |
+|------|------|
+| `docs/references/v2-to-v3-migration.md` | v2.1→v3.0 升级指南 |
+| `docs/references/testing-strategy.md` | 测试策略（4 层 49 用例） |
+
+### Bug 修复
+
+- **workflow-gate.sh**: grep -oP lookbehind 中 `\s*` 导致 PCRE "not fixed length" 错误 → 改用 `\K` 重置匹配
+- **stage-tracker.sh**: `issues/TEMPLATE.md` 被误计为 ticket → 排除模板文件
+- **metrics.py**（Phase 3 审查修复）:
+  - `git_stats()` pr_count/pr_merged 使用同一 grep，合并率永为 100% → 已修
+  - `estimate_digest_time()` 用阶段名做 key 跨事件无法配对 → 已修
+- **suggest-rules.sh**（Phase 3 审查修复）: `[x]` 匹配过宽 → 限制为行首模式
+
+---
+
+## 兼容性
+
+- **向前兼容**：`install.sh --update` 自动检测旧 `.gate-state` → 调用 `migrate-gate-state.sh` 迁移到 `.devflow/stage`
+- **备份保护**：迁移生成 `.gate-state.v2.bak`，可手动回滚
+- **已运行 AFK 管线不受影响**：迁移只改阶段追踪文件，不影响 dispatch/reconcile 逻辑
+- **旧 skill 保留**：退役 skill 在 `.archived/` 目录，不参与安装
+
+---
+
+## 影响范围
+
+| 组件 | 影响 |
+|------|------|
+| 新安装（v3.0） | 完整 v3.0 流程，15 个现代 skill |
+| `--update`（v2.1→v3.0） | 自动迁移 gate-state + 备份旧文件 + 替换 skill |
+| 已运行 AFK 管线 | 无影响（管线兼容新旧两种 ticket 格式） |
+| 已有项目 spec/issues | 无影响（宪法检查新增项为 warning，不阻断） |
+
+---
+
 # ai-dev-flow-server v2.1 变更说明
 
 > 发布日期：2026-06-30

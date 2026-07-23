@@ -38,8 +38,10 @@ teardown() {
     echo "old-session-999|assessed|1700000000" > "$TEST_DIR/.workflow-route"
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 1 ]
-    # 过期 route 已被清理
-    [ ! -f "$TEST_DIR/.workflow-route" ]
+    # 过期 route 已被清理，新 route 已写入当前 session
+    [ -f "$TEST_DIR/.workflow-route" ]
+    ! grep -q "old-session-999" "$TEST_DIR/.workflow-route"
+    grep -q "test-session-001" "$TEST_DIR/.workflow-route"
 }
 
 @test "逃生文件存在 → 全部放行" {
