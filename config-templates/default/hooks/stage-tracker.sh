@@ -62,6 +62,37 @@ done
 echo "$detected_stage" > "$STAGE_FILE"
 trace "stage.transition" from="$previous_stage" to="$detected_stage"
 
+# ── 阶段进入提醒（advisory，不拦截）──
+
+if [ "$detected_stage" = "spec:done" ] && [ "$detected_stage" != "$previous_stage" ]; then
+    cat >&2 <<'REMINDER'
+
+📋 spec:done — 下一步：spec 评审
+
+  按任务规模选择：
+  • 大型（spec >200 行 / 涉及 >3 模块 / 安全红线 / 工作量 >3d）
+    → /review-cc-cli --opus --rubric prd,plan \
+        --with ~/.claude/gate-checklists/spec-checklist.md spec.md
+  • 中型（spec 50-200 行 / 1-2 模块）
+    → 自查 ~/.claude/gate-checklists/spec-checklist.md（S1-S10）
+  • 简单 → 跳过评审，直接 /to-tickets
+
+REMINDER
+fi
+
+if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_stage" ]; then
+    cat >&2 <<'REMINDER'
+
+📋 tickets:done — 下一步：TDD 前置
+
+  每个 ticket 按序执行:
+  1. /tdd <ticket> — 按 AC 写失败测试 + 接口 stub → 🔴 RED
+  2. /implement <ticket> — 填实现逻辑 → 🟢 GREEN
+  3. 全部 ticket 通过后 → /code-review
+
+REMINDER
+fi
+
 # 阶段跳跃 → advisory 警告
 if [ "$current_index" -gt 0 ] && [ "$prev_index" -gt 0 ] && [ "$current_index" -gt "$((prev_index + 1))" ]; then
     trace "stage.skip" from="$previous_stage" to="$detected_stage" skipped="$((current_index - prev_index - 1))"

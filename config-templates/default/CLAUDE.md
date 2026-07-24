@@ -22,23 +22,34 @@
 ```
 单会话？
   ├── 有现有文档（CONTEXT.md / spec / ADR）？
-  │   ├── 有 → /grill-with-docs → /to-spec → /to-tickets → /implement
+  │   ├── 有 → /grill-with-docs → /to-spec → [spec 评审] → /to-tickets → /tdd → /implement
   │   └── 无 → 先进 Plan Mode 出初稿
-  │         ├── 初稿有雾 → /grill-with-docs（基于初稿）→ /to-spec → ...
-  │         └── 初稿清晰 → 直接 /to-spec → /to-tickets → /implement
+  │         ├── 初稿有雾 → /grill-with-docs（基于初稿）→ /to-spec → [spec 评审] → ...
+  │         └── 初稿清晰 → 直接 /to-spec → [spec 评审] → /to-tickets → /tdd → /implement
   │
   └── 否（~5%，一个窗口装不下）→ /wayfinder
-        └── 地图清晰后 → /to-spec → /to-tickets → /implement
+        └── 地图清晰后 → /to-spec → [spec 评审] → /to-tickets → /tdd → /implement
 ```
+
+**spec 评审（/to-spec 后，/to-tickets 前）：**
+
+| 任务规模 | 判断标准 | 操作 |
+|---------|---------|------|
+| 大型 | spec >200 行 / 涉及 >3 模块 / 安全红线标记 / 工作量 >3d | `/review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md` 独立 Opus 会话评审 |
+| 中型 | spec 50-200 行 / 1-2 模块 | 自查 `~/.claude/gate-checklists/spec-checklist.md` S1-S10，逐项确认 |
+| 简单 | spec <50 行 / 单文件改动 | 跳过评审，直接 /to-tickets |
+
+**TDD 前置（/to-tickets 后，/implement 前）：**
+每个 ticket：`/tdd`（按 AC 写失败测试 + 接口 stub → 🔴）→ `/implement`（填逻辑 → 🟢）
 
 | 任务特征 | 占比 | 推荐路径 |
 |---------|:---:|---------|
 | 简单改动（单文件、命名、小 bug） | 30% | 直接 /implement |
-| 无现有文档，先进 Plan Mode 出初稿 | 35% | **Plan Mode → /grill-with-docs → /to-spec → /to-tickets → /implement** ⬅ 默认 |
-| 有现有文档，直接 grill | 20% | /grill-with-docs → /to-spec → /to-tickets → /implement |
-| 需求明确、无雾、能直接写 spec | 10% | /to-spec → /to-tickets → /implement |
-| 多会话大型（一个窗口装不下） | 5% | /wayfinder → /to-spec → /to-tickets → /implement |
-| 已有代码逆向规格 | 按需 | /to-spec（逆向）→ /to-tickets → /implement |
+| 无现有文档，先进 Plan Mode 出初稿 | 35% | **Plan Mode → /grill-with-docs → /to-spec → 评审 → /to-tickets → /tdd → /implement** ⬅ 默认 |
+| 有现有文档，直接 grill | 20% | /grill-with-docs → /to-spec → 评审 → /to-tickets → /tdd → /implement |
+| 需求明确、无雾、能直接写 spec | 10% | /to-spec → 评审 → /to-tickets → /tdd → /implement |
+| 大型任务（多模块/安全红线/spec>200行） | 5% | /wayfinder → /to-spec → /spec-review → /to-tickets → /tdd → /implement → /code-review |
+| 已有代码逆向规格 | 按需 | /to-spec（逆向）→ 评审 → /to-tickets → /tdd → /implement |
 
 ### 评估输出格式
 
@@ -58,8 +69,10 @@
 | `/research` | 单 Agent 深度调研 | 按需 |
 | `/to-spec` | 需求 → 规格（可逆向） | grill 之后，或需求已明确 |
 | `/to-tickets` | 规格 → 工单拆分 | spec 之后，每工单 ≤ 上下文 40% |
-| `/implement` | 工单 → 代码 + 内建审查 | ticket 就绪后 |
+| `/tdd` | 按 AC 写失败测试 + 接口 stub | ticket 就绪后，implement 之前 |
+| `/implement` | 工单 → 代码（TDD GREEN 阶段） | TDD RED 🔴 之后 |
 | `/code-review` | 独立子代理审查全部 diff | implement 之后，PR 之前 |
+| `/review-cc-cli` | 独立会话评审（代码/文档/方案） | spec 大型任务独立评审，或代码合入前审查 |
 
 ### /wayfinder（仅 ~5% 的任务，上下文窗口装不下时）
 

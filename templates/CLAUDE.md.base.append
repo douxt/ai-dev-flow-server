@@ -1,18 +1,30 @@
 
-<!-- ai-dev-flow-server v3.0 -->
-## AI Dev Flow v3.0
+<!-- ai-dev-flow-server v3.1 -->
+## AI Dev Flow v3.1
 
 本项目已安装 ai-dev-flow-server 开发流程约束。
 
-### 五大命令
+### 核心命令
 
 | 命令 | 用途 | 默认入口 |
 |------|------|:---:|
 | `/grill-with-docs` | 基于文档对话澄清需求 | ⬅ 默认 |
 | `/to-spec` | 需求 → 规格（可逆向） | grill 之后 |
-| `/to-tickets` | 规格 → 工单拆分 | spec 之后 |
-| `/implement` | 工单 → 代码 + 内建审查 | ticket 就绪后 |
+| `/to-tickets` | 规格 → 工单拆分 | spec 评审之后 |
+| `/tdd` | 按 AC 写失败测试 + 接口 stub | ticket 就绪后 |
+| `/implement` | 工单 → 代码（TDD GREEN 阶段） | TDD RED 🔴 之后 |
 | `/code-review` | 独立子代理审查 diff | implement 之后 |
+| `/review-cc-cli` | 独立会话评审（代码/文档/方案） | spec 大型任务 / 代码合入前 |
+
+### 完整路径
+
+```
+grill → to-spec → [spec 评审] → to-tickets → /tdd → /implement → /code-review
+                       ↑
+              大型: /review-cc-cli 独立 Opus 评审
+              中型: 自查 spec-checklist (S1-S10)
+              简单: 跳过
+```
 
 ### 阶段状态机
 
