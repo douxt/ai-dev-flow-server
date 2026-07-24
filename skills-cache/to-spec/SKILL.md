@@ -18,16 +18,6 @@ Check with the user that these seams match their expectations.
 
 3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
-4. After writing the spec, evaluate the task scale and recommend a review approach:
-
-   | Task scale | Criteria | Action |
-   |-----------|----------|--------|
-   | Large | spec >200 lines, or >3 modules affected, or safety-redline tagged, or estimate >3d | `/review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md` — independent Opus session review |
-   | Medium | spec 50-200 lines, 1-2 modules | Self-check against S1-S10 in `~/.claude/gate-checklists/spec-checklist.md` |
-   | Simple | spec <50 lines, single file change | Skip review, proceed to `/to-tickets` |
-
-   State your assessment and recommendation to the user before moving on.
-
 <spec-template>
 
 ## Problem Statement
@@ -68,12 +58,10 @@ Exception: if a prototype produced a snippet that encodes a decision more precis
 
 ## Testing Decisions
 
-A list of testing decisions that were made. Use `issues/test-plan-template.md` as a fill-in template — expand each section:
+A list of testing decisions that were made. Include:
 
-- **Test seams**: which layer to test at (API probe → module interface → storage → unit), prioritized highest seam first
-- **Module test strategy**: each affected module, test approach, key behaviors
-- **Stub/mock decisions**: each external dependency, real vs mock, rationale
-- **Test scenarios**: at least one scenario per AC, covering normal path + empty state + error path + boundary condition + permission denied
+- A description of what makes a good test (only test external behavior, not implementation details)
+- Which modules will be tested
 - Prior art for the tests (i.e. similar types of tests in the codebase)
 
 ## Out of Scope

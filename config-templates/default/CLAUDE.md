@@ -39,8 +39,15 @@
 | 中型 | spec 50-200 行 / 1-2 模块 | 自查 `~/.claude/gate-checklists/spec-checklist.md` S1-S10，逐项确认 |
 | 简单 | spec <50 行 / 单文件改动 | 跳过评审，直接 /to-tickets |
 
+**阶段追踪（自动，stage-tracker hook 驱动）：**
+`explore:done → spec:done → tickets:done → tdd:done → implement:done → done`
+
 **TDD 前置（/to-tickets 后，/implement 前）：**
-每个 ticket：`/tdd`（按 AC 写失败测试 + 接口 stub → 🔴）→ `/implement`（填逻辑 → 🟢）
+每个 ticket：`/tdd`（按 AC 写失败测试 + stub → 🔴）→ C1-C4 确认 → RED commit
+→ `tdd:done` 自动检测 → `/implement`（自动重试，最多 3 次）
+
+**AFK 自动重试（/implement 阶段）：**
+填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation 人工介入
 
 | 任务特征 | 占比 | 推荐路径 |
 |---------|:---:|---------|

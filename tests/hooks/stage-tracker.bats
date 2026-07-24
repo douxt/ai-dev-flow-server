@@ -97,3 +97,37 @@ teardown() {
     [[ "$output" =~ "RED" ]]
     [[ "$output" =~ "GREEN" ]]
 }
+
+@test "TDD: RED commit → 检测到 tdd:done" {
+    # 创建 git repo 并提交 TDD: RED
+    cd "$TEST_DIR"
+    git init
+    git config user.email "test@test"
+    git config user.name "test"
+    echo "# Spec" > spec.md
+    mkdir -p issues
+    echo "status: ready" > issues/001-test.md
+    echo "test" > test_file.py
+    BYPASS_WT_CHECK=1 git add -A && BYPASS_WT_CHECK=1 git commit -m "TDD: RED — ticket 001"
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [ "$(cat "$TEST_DIR/.devflow/stage")" = "tdd:done" ]
+}
+
+@test "tdd:done 时 stderr 输出 implement 前置提醒" {
+    cd "$TEST_DIR"
+    git init
+    git config user.email "test@test"
+    git config user.name "test"
+    echo "# Spec" > spec.md
+    mkdir -p issues
+    echo "status: ready" > issues/001-test.md
+    echo "test" > test_file.py
+    BYPASS_WT_CHECK=1 git add -A && BYPASS_WT_CHECK=1 git commit -m "TDD: RED — ticket 001"
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "tdd:done" ]]
+    [[ "$output" =~ "tdd-readiness" ]]
+    [[ "$output" =~ "test-checklist" ]]
+    [[ "$output" =~ "C1-C4" ]]
+}

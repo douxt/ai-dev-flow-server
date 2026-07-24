@@ -32,6 +32,11 @@ if [ -d "$WORKSPACE/issues" ]; then
     fi
 fi
 
+# 检测 TDD RED commit → tdd:done（在 tickets 之后、implement 之前）
+if git -C "$WORKSPACE" log --oneline -1 2>/dev/null | grep -q "TDD: RED"; then
+    detected_stage="tdd:done"
+fi
+
 # 检测 PR 是否已创建
 if git -C "$WORKSPACE" log --oneline -1 2>/dev/null | grep -qiE "Merge pull request|\(#\d+\)"; then
     detected_stage="implement:done"
@@ -48,7 +53,7 @@ previous_stage=""
 [ "$detected_stage" = "$previous_stage" ] && exit 0
 
 # 阶段顺序校验（仅在状态变化时做 advisory 警告）
-stage_order="explore:done spec:done tickets:done implement:done done"
+stage_order="explore:done spec:done tickets:done tdd:done implement:done done"
 current_index=0
 prev_index=0
 i=1
@@ -89,6 +94,22 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   1. /tdd <ticket> — 按 AC 写失败测试 + 接口 stub → 🔴 RED
   2. /implement <ticket> — 填实现逻辑 → 🟢 GREEN
   3. 全部 ticket 通过后 → /code-review
+
+REMINDER
+fi
+
+if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage" ]; then
+    cat >&2 <<'REMINDER'
+
+📋 tdd:done — TDD RED 阶段完成，准备 /implement
+
+  /implement 启动前确认:
+  □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
+  □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
+  □ C1-C4 转换检查: 全部 RED、原因正确、commit 已提交、无实现混入
+  □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
+
+  自动重试: /implement 失败后自动修复重试，最多 3 次，超限后 escalation。
 
 REMINDER
 fi
