@@ -383,6 +383,7 @@ if [ "$UPDATE_MODE" = true ]; then
     echo "  更新 issue 模板 ..."
     dry_run "mkdir -p $TARGET/issues"
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
+    deploy_file "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
 
     for f in "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"; do
         [ -f "$f" ] && dry_run "chmod +x $f"
@@ -885,6 +886,7 @@ echo ""
 # ═══════════════════════════════════
 echo "── 步骤 6: 复制 issue 模板 ──"
 maybe_cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
+maybe_cp "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
 echo ""
 
 # ═══════════════════════════════════

@@ -7,9 +7,11 @@ disable-model-invocation: true
 ## Prerequisites
 
 Before implementing, ensure TDD RED phase is complete:
+
 - Tests exist (written via `/tdd`) and fail with meaningful assertions 🔴
-- Interface stubs exist (empty functions/classes, no logic)
+- Interface stubs return explicit "not implemented" signal (NotImplementedError / 501 / `throw new Error('Not implemented')`), not 404 or empty response
 - The ticket's `[auto]` AC items map to test assertions
+- Run the TDD gate checklist: `~/.claude/gate-checklists/test-checklist.md` — T1-T4 must pass
 
 If not done, run `/tdd <ticket>` first.
 
