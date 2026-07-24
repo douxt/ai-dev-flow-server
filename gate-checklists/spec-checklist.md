@@ -1,7 +1,7 @@
 # spec 阶段出口检查清单
 
 > 触发：/to-spec 完成后
-> 对应 v3.0 spec 阶段 → tickets 阶段转换
+> 对应 v3.2 spec 阶段 → tickets 阶段转换
 > 对照宪法：Spec 质量宪法（11 项 + Ponytail + 三假设 + 5 级验证层级）
 
 ## 检查项

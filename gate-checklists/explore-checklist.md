@@ -1,7 +1,7 @@
 # explore 阶段出口检查清单
 
 > 触发：/grill-with-docs 完成后（或直接跳过后）
-> 对应 v3.0 explore 阶段 → spec 阶段转换
+> 对应 v3.2 explore 阶段 → spec 阶段转换
 
 ## 检查项
 

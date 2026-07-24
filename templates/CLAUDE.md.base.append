@@ -33,10 +33,6 @@ explore → spec → tickets → tdd → implement → done
    ↑ 自动追踪，hook 驱动，无需手动操作
 ```
 
-```
-explore → spec → tickets → implement → done
-```
-
 ### Ticket 状态机
 
 ```

@@ -1,7 +1,7 @@
-# Step-Gate 开发流程规范 v3.0
+# Step-Gate 开发流程规范 v3.2
 
 > 基于 Matt Pocock v1.1 五命令体系 + DevFlow 基础设施约束。
-> 9 Gate → 5 阶段，简化流程同时保留机器硬约束。
+> 9 Gate → 6 阶段，TDD 独立为必经阶段，简化工单实现。
 
 ## 流程总图
 
@@ -22,32 +22,38 @@
                         │  拆分工单        │  每 ticket ≤ 上下文窗口 40%
                         └────────┬────────┘
                                  │
+                                │
+                       ┌────────v────────┐
+                       │  阶段 4: tdd     │  /tdd → RED commit
+                       │  TDD 前置        │  C1-C4 确认（唯一人工点）
+                       └────────┬────────┘
                         ┌────────v────────┐
-                        │  阶段 4: implement│  /implement → 代码+审查
+                        │  阶段 5: implement│  /implement → 代码（自动重试）
                         │  实现 + 内建审查  │  /code-review → diff 审查
                         └────────┬────────┘
                                  │
                         ┌────────v────────┐
-                        │  阶段 5: done    │  PR 合入 + 复盘
+                        │  阶段 6: done    │  PR 合入 + 复盘
                         │  合并 + 复盘     │  自动提取教训 → CLAUDE.md
                         └─────────────────┘
 ```
 
 ## 阶段与 Skill 对照
 
-| 阶段 | v3.0 Skill | 产出 | 基础设施约束 |
+| 阶段 | v3.2 Skill | 产出 | 基础设施约束 |
 |------|-----------|------|-------------|
 | explore | Plan Mode → /grill-with-docs | 需求理解/初稿 | workflow-gate hook 拦截（未评估不许写代码） |
 | spec | /to-spec | spec.md（含验证方案） | stage-tracker hook 检测 spec.md → spec:done |
 | tickets | /to-tickets | issues/*.md | check_constitution.py 自动检查 + 安全红线标记 |
-| implement | /implement → /code-review | PR | stage-tracker 检测 PR → implement:done |
+| tdd | /tdd | RED commit + C1-C4 签出 | stage-tracker 检测 RED commit → tdd:done |
+| implement | /implement（自动重试）→ /code-review（批次） | PR | stage-tracker 检测 PR → implement:done |
 | done | — | 合入 + 教训 | 复盘半自动 → CLAUDE.md # Lessons |
 
 ## 流转规则
 
 ### 正向
 
-5 阶段顺序依赖，前序阶段未完成（产出文件不存在），`stage-tracker` hook 输出 advisory 警告，不硬拦截。
+6 阶段顺序依赖，前序阶段未完成（产出文件不存在），`stage-tracker` hook 输出 advisory 警告，不硬拦截。
 
 **硬拦截仅在入口**：`workflow-gate` PreToolUse hook — agent 首次尝试 Edit/Write/Bash(修改类) 前，未完成工作流评估 → 拦截。
 
