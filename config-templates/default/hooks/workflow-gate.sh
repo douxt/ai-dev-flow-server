@@ -90,14 +90,23 @@ cat >&2 <<'EOF'
    简单改动 → 直接 /implement
 
 推荐路径:
-  默认 → Plan Mode → /grill-with-docs → /to-spec → 评审 → /to-tickets → /tdd → /implement → /code-review
+  默认 → Plan Mode → /grill-with-docs → /to-spec → 评审 → /to-tickets → /tdd → /implement(自动重试) → /code-review
   大型 → /wayfinder → /to-spec → /review-cc-cli（独立评审）→ /to-tickets → /tdd → /implement
   简单 → 直接 /implement
+
+阶段追踪（自动，hook 驱动）:
+  explore:done → spec:done → tickets:done → tdd:done → implement:done → done
 
 Spec 评审（/to-spec 后）:
   大型任务 → /review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md
   中型 → 自查 spec-checklist（S1-S10）
   简单 → 跳过
+
+TDD 前置（/to-tickets 后）:
+  每个 ticket → /tdd → C1-C4 确认 → RED commit → tdd:done 自动检测
+
+AFK 自动重试（/implement 阶段）:
+  填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation
 
 评估完成后重新执行即可。
 
