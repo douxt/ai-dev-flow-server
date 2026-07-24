@@ -90,9 +90,16 @@ fi
 if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_stage" ]; then
     cat >&2 <<'REMINDER'
 
-📋 tickets:done — 下一步：TDD 前置
+📋 tickets:done — 下一步：Ticket 审查 + TDD 前置
 
-  每个 ticket 按序执行:
+  🛑 进入 /tdd 前，先做 Ticket 宪法审查:
+     → 优先: python3 .devflow/scripts/check_constitution.py --batch issues/
+       (15 项 L1 自动检查: frontmatter/AC标注/estimate/blocked_by/安全红线)
+     → 补充: LLM 对照 ~/.claude/gate-checklists/tickets-checklist.md §自动审查 L2 语义层
+       (接口签名/前置准备具体性/AC覆盖完整性/DAG对齐)
+     → 输出审查报告，人工确认通过后方可进入 /tdd
+
+  审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
   2. RED commit（message 含 "TDD: RED"）
   3. 🛑 立即停止，执行 C1-C5 预检（~/.claude/gate-checklists/test-checklist.md §C1-C5）
@@ -100,7 +107,7 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
      → 等待人工确认，未经确认不得继续
      → 确认通过后方可进入 /implement
 
-  💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入 /tdd
+  💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入审查
 
 REMINDER
 fi

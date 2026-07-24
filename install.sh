@@ -299,6 +299,14 @@ if [ "$UPDATE_MODE" = true ]; then
         return 0
     }
 
+    echo "  更新 scripts/ ..."
+    deploy_file "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+    dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
+    deploy_file "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+    for py in "$SOURCE/scripts/"*.py; do
+        [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
+    done
+
     if [ "$BACKEND" = true ]; then
         echo "  更新 archon/ ..."
         deploy_file "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/dispatch.sh"
@@ -306,14 +314,7 @@ if [ "$UPDATE_MODE" = true ]; then
         deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
         dry_run "mkdir -p $TARGET/.archon/workflows"
         deploy_file "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.archon/workflows/auto-execute-afk.yaml"
-        echo "  更新 scripts/ ..."
         deploy_file "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
-        deploy_file "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
-        for py in "$SOURCE/scripts/"*.py; do
-            [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
-        done
-        deploy_file "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
-        dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
     fi
 
     echo "  更新 knowledge/ ..."
