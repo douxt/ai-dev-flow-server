@@ -93,9 +93,13 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 📋 tickets:done — 下一步：TDD 前置
 
   每个 ticket 按序执行:
-  1. /tdd <ticket> — 按 AC 写失败测试 + 接口 stub → 🔴 RED
-  2. /implement <ticket> — 填实现逻辑 → 🟢 GREEN
-  3. 全部 ticket 通过后 → /code-review
+  1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
+  2. RED commit（message 含 "TDD: RED"）
+  3. ⚡ C1-C4 自动预检: AI 跑 4 项检查输出报告 → 人工确认
+     详见 ~/.claude/gate-checklists/test-checklist.md §C1-C4 自动预检
+  4. /implement — 填实现逻辑（自动重试最多 3 次）
+  5. 同层全部 GREEN 后 → /code-review（审切片）
+     全部 ticket 完成后 → /code-review（PR 前最终审查）
 
   💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入 /tdd
 
@@ -110,7 +114,7 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   /implement 启动前确认:
   □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
-  □ C1-C4 转换检查: 全部 RED、原因正确、commit 已提交、无实现混入
+  ✅ C1-C4 预检: AI 已输出报告并经人工确认（如未完成 → 先跑预检再 /implement）
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
   🤖 自动重试循环（/implement 内建）:

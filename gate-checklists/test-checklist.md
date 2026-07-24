@@ -39,13 +39,45 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 [ ] 确认无跳过意图——不是先写实现再补测试
 ```
 
-## /tdd → /implement 转换检查
+## C1-C4 自动预检
 
-> /tdd 提交前逐条确认。不通过 → 不允许启动 /implement。
+> RED commit 后、人工确认前，AI 自动执行以下 4 项检查并输出结构化报告。
+> 人工只需看报告结论确认，无需手动跑命令。
+
+| # | 检查项 | 自动化命令 | 通过条件 |
+|:--|:--|:--|:--|
+| C1 | 全部失败 | 运行测试套件（pytest/jest/phpunit/go test/...） | 全部 🔴，0 通过/跳过 |
+| C2 | 原因正确 | 检查错误输出中 `NotImplemented` / `501` / `Not implemented` 命中数 | 命中数 = 测试数 |
+| C3 | Commit 正确 | `git log -1 --format=%s` | 含 "TDD: RED" |
+| C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
+
+### 预检报告格式
 
 ```
-[ ] 所有测试已执行且全部失败（🔴），无跳过、无忽略
-[ ] 失败原因 = 功能未实现（NotImplementedError/501），非语法错误/配置错误/import 失败
-[ ] RED commit 已提交，message 含 "TDD: RED"
-[ ] git diff RED-commit 仅含测试文件 + stub，无实现逻辑
+⚡ C1-C4 自动预检报告 — ticket NNN
+
+[C1] 测试执行: N/N 失败 🔴 — ✅ 全部失败
+[C2] 失败原因: N/N 为 NotImplemented/501 — ✅ 原因正确
+[C3] RED commit: <hash> "TDD: RED — ticket NNN" — ✅
+[C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
+
+结论: 4/4 通过，等待人工确认
+```
+
+### 异常处理
+
+- **C1 有通过/跳过** → 检查测试是否真的覆盖了对应 AC，未覆盖则补测试
+- **C2 有非 NotImplemented 错误**（ImportError/SyntaxError/配置错误）→ 修复测试代码后重新运行，不提交
+- **C3 无 RED commit** → 立即 `git commit -m "TDD: RED — ticket NNN"`
+- **C4 含业务逻辑文件** → `git reset HEAD~1`，仅保留测试+stub，重新提交
+
+## /tdd → /implement 转换检查（人工签出）
+
+> 看完 AI 预检报告后逐条确认。不通过 → 不允许启动 /implement。
+
+```
+[ ] C1: 确认测试全部失败（🔴），无意外通过
+[ ] C2: 确认失败原因 = 功能未实现，非语法/import 错误
+[ ] C3: 确认 RED commit 已提交，message 含 "TDD: RED"
+[ ] C4: 确认 RED commit 仅含测试+stub，无业务逻辑混入
 ```
