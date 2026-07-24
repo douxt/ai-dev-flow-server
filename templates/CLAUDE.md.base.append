@@ -13,16 +13,16 @@
 | `/to-tickets` | 规格 → 工单拆分 | spec 评审之后 |
 | `/tdd` | 按 AC 写失败测试 + 接口 stub | ticket 就绪后 |
 | `/implement` | 工单 → 代码（自动重试最多 3 次） | TDD RED 🔴 之后 |
-| `/code-review` | 独立子代理审查 diff | implement 之后 |
+| `/code-review` | 独立子代理审查 diff（每批次 + PR 前） | 同层 GREEN 后 / PR 前 |
 | `/review-cc-cli` | 独立会话评审（代码/文档/方案） | spec 大型任务 / 代码合入前 |
 
 ### 完整路径
 
 ```
-grill → to-spec → [spec 评审] → to-tickets → /tdd → [C1-C4] → /implement(自动重试) → /code-review
-                       ↑                          ↑                     ↑
-              大型: /review-cc-cli          唯一人工确认点          全自动
-              中型: 自查 S1-S10          确认 RED 为真
+grill → to-spec → [spec 评审] → to-tickets → /tdd → [C1-C4] → /implement(自动重试) → /code-review(批次)
+                       ↑                          ↑                     ↑                ↑
+              大型: /review-cc-cli          唯一人工确认点          全自动        同层 GREEN 后
+              中型: 自查 S1-S10          确认 RED 为真                       + PR 前最终审查
               简单: 跳过
 ```
 
