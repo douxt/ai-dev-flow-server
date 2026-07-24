@@ -19,7 +19,7 @@
 ### 完整路径
 
 ```
-grill → to-spec → [spec 评审] → to-tickets → /tdd → [C1-C4] → /implement(自动重试) → /code-review(批次)
+grill → to-spec → [spec 评审] → to-tickets → /tdd → [C1-C5] → /implement(自动重试) → /code-review(批次)
                        ↑                          ↑                     ↑                ↑
               大型: /review-cc-cli          唯一人工确认点          全自动        同层 GREEN 后
               中型: 自查 S1-S10          确认 RED 为真                       + PR 前最终审查
