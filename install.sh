@@ -360,7 +360,13 @@ if [ "$UPDATE_MODE" = true ]; then
             [ -d "$skill_dir" ] || continue
             skill_name=$(basename "$skill_dir")
             [[ "$skill_name" == .* ]] && continue
-            dry_run "cp -rL $skill_dir $CLAUDE_HOME/.claude/skills/$skill_name"
+            dst="$CLAUDE_HOME/.claude/skills/$skill_name"
+            if [ -d "$dst" ]; then
+                bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
+                dry_run "mv $dst $bak"
+                echo "  [update] backup: $skill_name → $(basename $bak)"
+            fi
+            dry_run "cp -rL $skill_dir $dst"
         done
 
         echo "  更新 gate skills + checklists ..."
@@ -368,7 +374,13 @@ if [ "$UPDATE_MODE" = true ]; then
             [ -d "$gs" ] || continue
             gs_name=$(basename "$gs")
             [[ "$gs_name" == .* ]] && continue
-            dry_run "cp -rL $gs $CLAUDE_HOME/.claude/skills/$gs_name"
+            dst="$CLAUDE_HOME/.claude/skills/$gs_name"
+            if [ -d "$dst" ]; then
+                bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
+                dry_run "mv $dst $bak"
+                echo "  [update] backup: $gs_name → $(basename $bak)"
+            fi
+            dry_run "cp -rL $gs $dst"
         done
         for gc in "$SOURCE/gate-checklists/"*.md; do
             [ -f "$gc" ] && deploy_file "$gc" "$CLAUDE_HOME/.claude/gate-checklists/$(basename "$gc")"
