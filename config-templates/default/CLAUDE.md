@@ -78,7 +78,7 @@
 | `/to-tickets` | 规格 → 工单拆分 | spec 之后，每工单 ≤ 上下文 40% |
 | `/tdd` | 按 AC 写失败测试 + 接口 stub | ticket 就绪后，implement 之前 |
 | `/implement` | 工单 → 代码（TDD GREEN 阶段） | TDD RED 🔴 之后 |
-| `/code-review` | 独立子代理审查全部 diff | implement 之后，PR 之前 |
+| `/code-review` | 独立子代理审查 diff（每批次 + PR 前） | 同层全部 GREEN 后审切片，全部完成后审合并 |
 | `/review-cc-cli` | 独立会话评审（代码/文档/方案） | spec 大型任务独立评审，或代码合入前审查 |
 
 ### /wayfinder（仅 ~5% 的任务，上下文窗口装不下时）

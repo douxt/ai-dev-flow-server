@@ -19,4 +19,13 @@ If tests fail after implementation:
 4. Retry up to 3 times
 5. After 3 failures: stop, summarize what failed, and escalate to human
 
-Once all tests pass, use /code-review to review the work. Commit your work to the current branch.
+Once all tests pass, commit your work to the current branch.
+
+## Code Review
+
+Code review runs at two points:
+
+1. **Per batch**: after all tickets in the same dependency layer are GREEN, run `/code-review` to review the complete functional slice
+2. **Pre-PR**: after all tickets across all layers are done, run `/code-review` for final pre-merge check
+
+Between batches (not per ticket) — tickets in the same layer run in parallel and their code is reviewed together.
