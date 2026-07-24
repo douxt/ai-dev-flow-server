@@ -103,7 +103,7 @@ Spec 评审（/to-spec 后）:
   简单 → 跳过
 
 TDD 前置（/to-tickets 后）:
-  每个 ticket → /tdd → C1-C4 确认 → RED commit → tdd:done 自动检测
+  每个 ticket → /tdd → C1-C5 确认 → RED commit → tdd:done 自动检测
 
 AFK 自动重试（/implement 阶段）:
   填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation

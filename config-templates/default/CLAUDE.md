@@ -44,7 +44,7 @@
 
 **TDD 前置（/to-tickets 后，/implement 前）：**
 每个 ticket：`/tdd`（按 AC 写失败测试 + stub → 🔴）→ RED commit
-→ C1-C4 自动预检 + 人工确认 → `tdd:done` 自动检测 → `/implement`（自动重试，最多 3 次）
+→ C1-C5 自动预检 + 人工确认 → `tdd:done` 自动检测 → `/implement`（自动重试，最多 3 次）
 
 **AFK 自动重试（/implement 阶段）：**
 填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation 人工介入

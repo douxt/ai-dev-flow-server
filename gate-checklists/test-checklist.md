@@ -39,9 +39,9 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 [ ] 确认无跳过意图——不是先写实现再补测试
 ```
 
-## C1-C4 自动预检
+## C1-C5 自动预检
 
-> RED commit 后、人工确认前，AI 自动执行以下 4 项检查并输出结构化报告。
+> RED commit 后、人工确认前，AI 自动执行以下 5 项检查并输出结构化报告。
 > 人工只需看报告结论确认，无需手动跑命令。
 
 | # | 检查项 | 自动化命令 | 通过条件 |
@@ -50,18 +50,20 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 | C2 | 原因正确 | 检查错误输出中 `NotImplemented` / `501` / `Not implemented` 命中数 | 命中数 = 测试数 |
 | C3 | Commit 正确 | `git log -1 --format=%s` | 含 "TDD: RED" |
 | C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
+| C5 | AC 全覆盖 | 逐条 AC 输出对应测试名（`AC1→test_x, AC2→test_y, ...`） | 每条 `[auto]` AC 至少 1 个测试，未覆盖标 ⚠️ |
 
 ### 预检报告格式
 
 ```
-⚡ C1-C4 自动预检报告 — ticket NNN
+⚡ C1-C5 自动预检报告 — ticket NNN
 
 [C1] 测试执行: N/N 失败 🔴 — ✅ 全部失败
 [C2] 失败原因: N/N 为 NotImplemented/501 — ✅ 原因正确
 [C3] RED commit: <hash> "TDD: RED — ticket NNN" — ✅
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
+[C5] AC→测试映射: AC1→test_1, AC2→test_2, AC3→test_3 — ✅ 3/3 覆盖
 
-结论: 4/4 通过，等待人工确认
+结论: 5/5 通过，等待人工确认
 ```
 
 ### 异常处理
@@ -70,6 +72,7 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 - **C2 有非 NotImplemented 错误**（ImportError/SyntaxError/配置错误）→ 修复测试代码后重新运行，不提交
 - **C3 无 RED commit** → 立即 `git commit -m "TDD: RED — ticket NNN"`
 - **C4 含业务逻辑文件** → `git reset HEAD~1`，仅保留测试+stub，重新提交
+- **C5 有 AC 未覆盖** → 标注 ⚠️，人工判断是否需要补测试；`[human-verify]` AC 可无测试
 
 ## /tdd → /implement 转换检查（人工签出）
 
@@ -80,4 +83,5 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 [ ] C2: 确认失败原因 = 功能未实现，非语法/import 错误
 [ ] C3: 确认 RED commit 已提交，message 含 "TDD: RED"
 [ ] C4: 确认 RED commit 仅含测试+stub，无业务逻辑混入
+[ ] C5: 确认 AC→测试映射完整，无遗漏的 [auto] AC
 ```

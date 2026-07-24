@@ -25,7 +25,7 @@
                                 │
                        ┌────────v────────┐
                        │  阶段 4: tdd     │  /tdd → RED commit
-                       │  TDD 前置        │  C1-C4 确认（唯一人工点）
+                       │  TDD 前置        │  C1-C5 确认（唯一人工点）
                        └────────┬────────┘
                         ┌────────v────────┐
                         │  阶段 5: implement│  /implement → 代码（自动重试）
@@ -45,7 +45,7 @@
 | explore | Plan Mode → /grill-with-docs | 需求理解/初稿 | workflow-gate hook 拦截（未评估不许写代码） |
 | spec | /to-spec | spec.md（含验证方案） | stage-tracker hook 检测 spec.md → spec:done |
 | tickets | /to-tickets | issues/*.md | check_constitution.py 自动检查 + 安全红线标记 |
-| tdd | /tdd | RED commit + C1-C4 签出 | stage-tracker 检测 RED commit → tdd:done |
+| tdd | /tdd | RED commit + C1-C5 签出 | stage-tracker 检测 RED commit → tdd:done |
 | implement | /implement（自动重试）→ /code-review（批次） | PR | stage-tracker 检测 PR → implement:done |
 | done | — | 合入 + 教训 | 复盘半自动 → CLAUDE.md # Lessons |
 
