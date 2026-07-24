@@ -117,6 +117,16 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   ✅ C1-C5 预检: AI 已输出报告并经人工确认（如未完成 → 先跑预检再 /implement）
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
+  🐴 Ponytail 决策阶梯（写实现代码前逐级检查）:
+     1. 这真的需要存在？（YAGNI — 只为 ticket AC 写代码）
+     2. 代码库里已有了？→ 复用已有工具/类型/模式
+     3. 标准库能做？→ 用 stdlib，不自己写
+     4. 原生平台功能覆盖？→ CSS>JS, DB约束>应用代码
+     5. 已安装的依赖能解决？→ 不加新依赖
+     6. 能一行搞定？→ 就一行
+     7. 都不行 → 写最小可工作代码
+     有意简化时标记: # ponytail: <简化描述>, <升级条件>
+
   🤖 自动重试循环（/implement 内建）:
      测试失败 → 读错误输出 → 修复实现（不改测试）→ 重试
      最多 3 次，超限后 escalation 人工介入
