@@ -82,6 +82,8 @@ if [ "$detected_stage" = "spec:done" ] && [ "$detected_stage" != "$previous_stag
     → 自查 ~/.claude/gate-checklists/spec-checklist.md（S1-S10）
   • 简单 → 跳过评审，直接 /to-tickets
 
+  💡 上下文管理: 评审前建议 /compact；大型任务写 handoff 到 .devflow/handoff/
+
 REMINDER
 fi
 
@@ -94,6 +96,8 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   1. /tdd <ticket> — 按 AC 写失败测试 + 接口 stub → 🔴 RED
   2. /implement <ticket> — 填实现逻辑 → 🟢 GREEN
   3. 全部 ticket 通过后 → /code-review
+
+  💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入 /tdd
 
 REMINDER
 fi
@@ -110,6 +114,8 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
   自动重试: /implement 失败后自动修复重试，最多 3 次，超限后 escalation。
+
+  💡 上下文管理: 同层全部 GREEN 后 /code-review；进入下一层前 /compact + 写 handoff
 
 REMINDER
 fi
