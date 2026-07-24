@@ -886,6 +886,7 @@ echo ""
 # ═══════════════════════════════════
 echo "── 步骤 6: 复制 issue 模板 ──"
 maybe_cp "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
+maybe_cp "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
 echo ""
 
 # ═══════════════════════════════════
