@@ -38,3 +38,14 @@ T1-T4 必须通过。T5-T6 为 advisory 警告。
 [ ] 测试 commit 已提交（非暂存区）
 [ ] 确认无跳过意图——不是先写实现再补测试
 ```
+
+## /tdd → /implement 转换检查
+
+> /tdd 提交前逐条确认。不通过 → 不允许启动 /implement。
+
+```
+[ ] 所有测试已执行且全部失败（🔴），无跳过、无忽略
+[ ] 失败原因 = 功能未实现（NotImplementedError/501），非语法错误/配置错误/import 失败
+[ ] RED commit 已提交，message 含 "TDD: RED"
+[ ] git diff RED-commit 仅含测试文件 + stub，无实现逻辑
+```
