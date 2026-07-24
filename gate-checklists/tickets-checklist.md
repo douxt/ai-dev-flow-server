@@ -1,7 +1,7 @@
 # tickets 阶段出口检查清单
 
 > 触发：/to-tickets 完成后 + check_constitution.py 检查通过
-> 对应 v3.0 tickets 阶段 → implement 阶段转换
+> 对应 v3.2 tickets 阶段 → implement 阶段转换
 > 对照宪法：Ticket 质量宪法（15 项 + 安全红线）
 
 ## 检查项

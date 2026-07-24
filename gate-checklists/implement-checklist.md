@@ -1,7 +1,7 @@
 # implement 阶段出口检查清单
 
 > 触发：/implement + /code-review 完成后
-> 对应 v3.0 implement 阶段 → done 阶段转换
+> 对应 v3.2 implement 阶段 → done 阶段转换
 > 含内建 Maker-Checker + 独立子代理审查
 
 ## 检查项

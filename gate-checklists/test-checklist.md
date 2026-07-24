@@ -1,7 +1,7 @@
 # TDD 门禁检查清单
 
 > 触发：/tdd 完成后（每个 ticket）
-> 对应 v3.1 implement 阶段入口条件
+> 对应 v3.2 implement 阶段入口条件
 > 用途：确保 TDD RED 阶段不可绕过、不可造假
 
 ## 硬性规则

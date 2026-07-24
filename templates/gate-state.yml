@@ -1,6 +1,6 @@
-# AI Dev Flow v3.0 — 阶段状态追踪
+# AI Dev Flow v3.2 — 6 阶段状态追踪
 # stage-tracker hook 自动更新；人手动设定 blocked 触发回退
-# implement 含内建 Maker-Checker，审查由 /code-review 子代理完成
+# 阶段: explore → spec → tickets → tdd → implement → done
 
 project: ""
 version: "3.0"
