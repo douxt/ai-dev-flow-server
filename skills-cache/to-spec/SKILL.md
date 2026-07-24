@@ -18,6 +18,16 @@ Check with the user that these seams match their expectations.
 
 3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
+4. After writing the spec, evaluate the task scale and recommend a review approach:
+
+   | Task scale | Criteria | Action |
+   |-----------|----------|--------|
+   | Large | spec >200 lines, or >3 modules affected, or safety-redline tagged, or estimate >3d | `/review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md` — independent Opus session review |
+   | Medium | spec 50-200 lines, 1-2 modules | Self-check against S1-S10 in `~/.claude/gate-checklists/spec-checklist.md` |
+   | Simple | spec <50 lines, single file change | Skip review, proceed to `/to-tickets` |
+
+   State your assessment and recommendation to the user before moving on.
+
 <spec-template>
 
 ## Problem Statement

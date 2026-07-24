@@ -119,6 +119,19 @@ teardown() {
     grep -q "建议路径" "$HOME/.claude/CLAUDE.md"
 }
 
+@test "CLAUDE.md 安装后包含 spec 评审路由（分级）" {
+    bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
+    grep -q "spec.*评审\|/review-cc-cli.*spec" "$HOME/.claude/CLAUDE.md"
+    grep -q "大型.*独立评审" "$HOME/.claude/CLAUDE.md"
+    grep -q "中型.*自查" "$HOME/.claude/CLAUDE.md"
+}
+
+@test "CLAUDE.md 安装后包含 TDD 前置步骤" {
+    bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
+    grep -q "/tdd" "$HOME/.claude/CLAUDE.md"
+    grep -q "RED.*GREEN\|TDD.*测试.*前置" "$HOME/.claude/CLAUDE.md"
+}
+
 @test "workflow-gate hook 已注册到 settings.json" {
     bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
     grep -q "workflow-gate" "$HOME/.claude/settings.local.json"

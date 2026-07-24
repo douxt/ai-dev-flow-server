@@ -2,6 +2,7 @@
 # 单元测试: stage-tracker hook — 产物检测 + 阶段追踪
 
 setup() {
+    REPO_ROOT="${REPO_ROOT:-$(cd "$BATS_TEST_DIRNAME/../.." && pwd)}"
     TEST_DIR=$(mktemp -d)
     export WORKSPACE="$TEST_DIR"
     mkdir -p "$TEST_DIR/.devflow"
@@ -73,4 +74,26 @@ teardown() {
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_DIR/.devflow/stage" ]
+}
+
+@test "spec:done 时 stderr 输出评审提醒" {
+    echo "# Test Spec" > "$TEST_DIR/spec.md"
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "spec:done" ]]
+    [[ "$output" =~ "review-cc-cli" ]]
+    [[ "$output" =~ "spec-checklist" ]]
+    [[ "$output" =~ "大型" ]]
+}
+
+@test "tickets:done 时 stderr 输出 TDD 提醒" {
+    echo "# Spec" > "$TEST_DIR/spec.md"
+    mkdir -p "$TEST_DIR/issues"
+    echo "status: ready" > "$TEST_DIR/issues/001-test.md"
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "tickets:done" ]]
+    [[ "$output" =~ "/tdd" ]]
+    [[ "$output" =~ "RED" ]]
+    [[ "$output" =~ "GREEN" ]]
 }

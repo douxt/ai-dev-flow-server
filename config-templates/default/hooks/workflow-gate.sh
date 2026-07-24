@@ -89,6 +89,16 @@ cat >&2 <<'EOF'
 3. 有雾吗？ 有雾 → /grill-with-docs | 无雾 → /to-spec
    简单改动 → 直接 /implement
 
+推荐路径:
+  默认 → Plan Mode → /grill-with-docs → /to-spec → 评审 → /to-tickets → /tdd → /implement → /code-review
+  大型 → /wayfinder → /to-spec → /review-cc-cli（独立评审）→ /to-tickets → /tdd → /implement
+  简单 → 直接 /implement
+
+Spec 评审（/to-spec 后）:
+  大型任务 → /review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md
+  中型 → 自查 spec-checklist（S1-S10）
+  简单 → 跳过
+
 评估完成后重新执行即可。
 
 EOF
