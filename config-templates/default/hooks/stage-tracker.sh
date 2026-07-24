@@ -95,8 +95,10 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
   2. RED commit（message 含 "TDD: RED"）
-  3. ⚡ C1-C5 自动预检: AI 跑 5 项检查输出报告 → 人工确认
-     详见 ~/.claude/gate-checklists/test-checklist.md §C1-C5 自动预检
+  3. 🛑 立即停止，执行 C1-C5 预检（~/.claude/gate-checklists/test-checklist.md §C1-C5）
+     → 运行 5 项检查，输出结构化报告
+     → 等待人工确认，未经确认不得继续
+     → 确认通过后方可进入 /implement
 
   💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入 /tdd
 
@@ -111,7 +113,7 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   /implement 启动前确认:
   □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
-  ✅ C1-C5 预检: AI 已输出报告并经人工确认（如未完成 → 先跑预检再 /implement）
+  🛑 C1-C5 预检: 必须已输出报告并经人工确认。如未完成 → 立即退回执行 C1-C5，禁止跳过
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
   🐴 Ponytail 决策阶梯（写实现代码前逐级检查）:
