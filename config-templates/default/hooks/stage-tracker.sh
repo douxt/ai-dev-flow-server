@@ -97,9 +97,6 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   2. RED commit（message 含 "TDD: RED"）
   3. ⚡ C1-C5 自动预检: AI 跑 5 项检查输出报告 → 人工确认
      详见 ~/.claude/gate-checklists/test-checklist.md §C1-C5 自动预检
-  4. /implement — 填实现逻辑（自动重试最多 3 次）
-  5. 同层全部 GREEN 后 → /code-review（审切片）
-     全部 ticket 完成后 → /code-review（PR 前最终审查）
 
   💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入 /tdd
 
@@ -130,10 +127,6 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   🤖 自动重试循环（/implement 内建）:
      测试失败 → 读错误输出 → 修复实现（不改测试）→ 重试
      最多 3 次，超限后 escalation 人工介入
-
-  🔍 代码审查:
-     同层全部 GREEN 后 → /code-review（审完整功能切片）
-     全部 ticket 完成后 → /code-review（PR 前最终审查）
 
   💡 上下文管理: 进入下一层前 /compact + 写 handoff
 
