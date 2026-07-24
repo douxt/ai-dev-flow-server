@@ -113,9 +113,15 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   □ C1-C4 转换检查: 全部 RED、原因正确、commit 已提交、无实现混入
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
-  自动重试: /implement 失败后自动修复重试，最多 3 次，超限后 escalation。
+  🤖 自动重试循环（/implement 内建）:
+     测试失败 → 读错误输出 → 修复实现（不改测试）→ 重试
+     最多 3 次，超限后 escalation 人工介入
 
-  💡 上下文管理: 同层全部 GREEN 后 /code-review；进入下一层前 /compact + 写 handoff
+  🔍 代码审查:
+     同层全部 GREEN 后 → /code-review（审完整功能切片）
+     全部 ticket 完成后 → /code-review（PR 前最终审查）
+
+  💡 上下文管理: 进入下一层前 /compact + 写 handoff
 
 REMINDER
 fi
