@@ -79,6 +79,21 @@ backlog → ready → in_progress → done
 | `in_progress` | dispatch 正在消化 | dispatch.sh |
 | `done` | 完成，PR 已合并 | 人 |
 
+### 分支策略
+
+多 ticket 任务的分支模型——**默认 A，按需 B**：
+
+| 模式 | 场景 | 做法 |
+|------|------|------|
+| **A（默认）** | ticket 有 blocked_by 顺序依赖 | `wt create <任务名>` → 所有 ticket 在同一 worktree 上顺序 commit → 全部 GREEN + review + 验收 → PR → main |
+| **B（并行）** | 同层无依赖 ticket 可并行开发 | 从任务分支开子 worktree：`wt create <任务名>-ticketNN --from <任务名>` → 各自独立 → 逐层合并回任务分支 |
+| **C（堆叠）** | ticket 间有深度代码依赖 | ticket02 基于 ticket01 分支创建，合并时逐层 rebase（尽量少用） |
+
+**核心原则：**
+- 每个 ticket 的 commit 提交到任务分支，**不直接推 main**
+- 全部 ticket 完成、整体验收通过后才 PR → main
+- 单个 ticket 不是可交付单元——整个任务才是
+
 ## 上下文预算
 
 /to-tickets 拆分时，每个 ticket 内容不超过上下文窗口的 40%（~48K token），确保 agent 在智能区内工作。

@@ -109,6 +109,8 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 
   💡 上下文管理: 建议写 handoff（完成/待处理/约束/文件）→ /clear → 新会话进入审查
 
+  🌿 分支: 所有 ticket commit 提交到当前 worktree 分支，全部完成+验收后 PR→main
+
 REMINDER
 fi
 
