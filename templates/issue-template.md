@@ -26,7 +26,8 @@ safety: ""               # 安全敏感 → auth|payment|crypto|delete|permissio
 
 ## 前置准备
 
-- [ ] <外部服务/Token/文件>
+<!-- 写具体 ID/名称/值，禁止占位符如 "准备一条测试数据" -->
+- [ ] <外部服务/Token/文件/测试数据: 具体值>
 
 ## 代码目录
 
