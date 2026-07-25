@@ -280,7 +280,13 @@ class DefaultEventListener(EventListener):
                     plugin_runtime_handler=self.plugin.plugin_runtime_handler,
                 )
 
-                # 时间线
+                # 等待当前消息的 vision 识图完成（防时序竞态：inject 先于 vision upsert）
+                if trigger_doc_id and self.vision_enabled:
+                    for _ in range(60):  # 最多等 60s
+                        cached = self._image_cache.get(trigger_doc_id)
+                        if cached and cached['status'] == 'done':
+                            break
+                        await asyncio.sleep(0.5)
                 items = await self._get_recent_messages(api, session_name, 200)
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
@@ -302,7 +308,7 @@ class DefaultEventListener(EventListener):
                 while lines and total_chars > max_chars:
                     total_chars -= len(lines.pop(0))
 
-                # 🔖 强化 timeline 中图片识别标记
+                # 🔖 强化 timeline 中图片识别标记（仅行内标记，不追加全局总结防 LLM 混淆）
                 import re
                 _identified = 0
                 _pending = 0
@@ -330,10 +336,6 @@ class DefaultEventListener(EventListener):
                                 _after = _rest[len(f'{_img_prefix}：[图片{_desc}]'):]
                                 lines[_i] = _pfx + f'{_img_prefix_new}：[{_desc}]' + _after
                                 _identified += 1
-                if _identified:
-                    lines.append(f'📌 [AI识图] 以上含 {_identified} 张已识别图片，请据此回答。')
-                if _failed:
-                    lines.append(f'⚠️ [AI识图] 以上含 {_failed} 张图片识别失败（超时/错误），如实说明并建议用户重发。')
 
                 # DEBUG: dump prompt for analysis
                 query_vars2 = await api.get_query_vars()
@@ -829,12 +831,42 @@ class DefaultEventListener(EventListener):
         return result
 
     async def _describe_one(self, idx, img, model_uuid, trace_id):
-        logs = []
         t_start = time.time()
+
+        # 优先用 URL 直传（vision API 服务端下载，零本地下载开销）
+        img_url = getattr(img, 'url', None) or ''
+        if img_url:
+            try:
+                t_api_start = time.time()
+                async with _VISION_SEMAPHORE:
+                    resp = await asyncio.wait_for(
+                        self.plugin.invoke_llm(
+                            llm_model_uuid=model_uuid,
+                            messages=[
+                                provider_message.Message(
+                                    role='user',
+                                    content=[
+                                        provider_message.ContentElement.from_text('请用一句话描述这张图片的内容（直接描述，不要前缀如"这张图片"）。'),
+                                        provider_message.ContentElement.from_image_url(img_url),
+                                    ]
+                                )
+                            ],
+                        ),
+                        timeout=45,
+                    )
+                t_total = time.time() - t_start
+                raw_text = self._extract_llm_text(resp)
+                desc = _clean_description(raw_text)
+                _log_gate(f'[{trace_id}] vision: img[{idx}] url_ok lat={t_total:.1f}s desc="{desc}"')
+                self._record_vision_result(True)
+                return desc
+            except Exception as e:
+                _log_gate(f'[{trace_id}] vision: img[{idx}] url failed ({type(e).__name__}: {str(e)[:80]}), fallback to base64')
+
+        # URL 不可用时走 base64 下载路径
         try:
             bytes_data, mime = await asyncio.wait_for(img.get_bytes(), timeout=5)
             t_get = time.time() - t_start
-            logs.append(f'get_bytes={mime} size={len(bytes_data) // 1024}KB ({t_get:.2f}s)')
         except asyncio.TimeoutError:
             _log_gate(f'[{trace_id}] vision: img[{idx}] get_bytes timeout')
             return '[图片(下载失败)]'
@@ -864,7 +896,6 @@ class DefaultEventListener(EventListener):
             try:
                 loop = asyncio.get_running_loop()
                 bytes_data = await loop.run_in_executor(None, _resize_image, bytes_data)
-                logs.append(f'resized ({time.time() - t_start:.2f}s)')
             except Exception as e:
                 _log_gate(f'[{trace_id}] vision: img[{idx}] resize error {type(e).__name__}')
                 return '[图片(处理错误)]'
@@ -896,7 +927,7 @@ class DefaultEventListener(EventListener):
             t_api = time.time() - t_api_start
             raw_text = self._extract_llm_text(resp)
             desc = _clean_description(raw_text)
-            logs.append(f'llm_ok lat={t_api:.1f}s desc="{desc}"')
+            _log_gate(f'[{trace_id}] vision: img[{idx}] b64_ok get={t_get:.1f}s llm={t_api:.1f}s desc="{desc}"')
             self._record_vision_result(True)
             return desc
         except asyncio.TimeoutError:
