@@ -4,11 +4,11 @@ from tests.conftest import FakePlain, FakeFace, FakeUnknown, FakeImage, FakeQuot
 
 
 class TestStripBase64:
-    def test_image_base64_cleared(self, listener):
-        img = FakeImage(url='https://x.com/i.png', base64='data:image/png;base64,AAAA')
-        chain = [img]
-        listener._strip_base64(chain)
-        assert img.base64 == ''
+    def test_top_level_base64_preserved(self, listener):
+        """顶层 Image 的 base64 必须保留，供 vision 下载使用"""
+        img = FakeImage(url='', base64='data:image/png;base64,AAAA')
+        listener._strip_base64([img])
+        assert img.base64 == 'data:image/png;base64,AAAA'
 
     def test_url_preserved(self, listener):
         img = FakeImage(url='https://x.com/i.png', base64='xxx')
@@ -16,12 +16,14 @@ class TestStripBase64:
         assert img.url == 'https://x.com/i.png'
 
     def test_quote_recursive(self, listener):
+        """Quote 嵌套中的 Image base64 仍需清除"""
         img = FakeImage(url='https://x.com/i.png', base64='xxx')
         quote = FakeQuote(origin=[img])
         listener._strip_base64([quote])
         assert img.base64 == ''
 
     def test_forward_recursive(self, listener):
+        """Forward 嵌套中的 Image base64 仍需清除"""
         img = FakeImage(url='https://x.com/i.png', base64='xxx')
         node = FakeForwardNode(message_chain=[img])
         fwd = FakeForward(node_list=[node])
@@ -30,6 +32,15 @@ class TestStripBase64:
 
     def test_none_safe(self, listener):
         listener._strip_base64(None)  # 不抛异常
+
+    def test_top_level_with_nested(self, listener):
+        """顶层保留、嵌套清除：组合场景"""
+        top_img = FakeImage(url='', base64='top_base64')
+        nested_img = FakeImage(url='', base64='nested_base64')
+        quote = FakeQuote(origin=[nested_img])
+        listener._strip_base64([top_img, quote])
+        assert top_img.base64 == 'top_base64'
+        assert nested_img.base64 == ''
 
 
 class TestExtractFaces:
