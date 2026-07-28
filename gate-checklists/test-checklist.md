@@ -63,8 +63,9 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 [C3] RED commit: <hash> "TDD: RED — ticket NNN" — ✅
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
 [C5] AC→测试映射: AC1→test_1, AC2→test_2, AC3→test_3 — ✅ 3/3 覆盖
+[CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 5/5 通过，等待人工确认
+结论: 6/6 通过，等待人工确认
 ```
 
 ### 异常处理

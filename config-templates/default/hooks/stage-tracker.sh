@@ -123,6 +123,7 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
   🛑 C1-C5 预检: 必须已输出报告并经人工确认。如未完成 → 立即退回执行 C1-C5，禁止跳过
+  ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
   🐴 Ponytail 决策阶梯（写实现代码前逐级检查）:

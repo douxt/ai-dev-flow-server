@@ -10,7 +10,7 @@
 |:-:|--------|------|
 | I1 | 所有 AC 逐条实现（[auto] 类全部通过测试） | grep AC + pytest |
 | I2 | /code-review 完成（独立子代理审查 diff） | review 报告存在 |
-| I3 | 测试不是假测试（有断言、覆盖边界） | 人工抽查 |
+| I3 | 测试不是假测试（有断言、覆盖边界、断言已切换为 GREEN 版） | 人工抽查 |
 | I4 | 安全红线 PR 已标记（safety frontmatter → PR description） | 检查 PR body |
 | I5 | 无越界文件（diff 文件全部在 ticket Scope:In 范围内） | 对比 scope |
 | I6 | 认知债务解释已写入 PR（每个改动动机+影响） | 检查 PR description |
@@ -18,7 +18,7 @@
 
 ## 通过条件
 
-I1 + I2 + I7 必须通过。I3-I6 为 advisory 警告。
+I1 + I2 + I3 + I7 必须通过。I4-I6 为 advisory 警告。
 
 ## 产物
 

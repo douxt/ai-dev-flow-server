@@ -62,6 +62,11 @@
 | `[human-verify]` | L4-L5 | 人 | 主观判断 / UX |
 | `[decision]` | — | 人 | 技术选型 / 范围取舍 |
 
+<!--
+详细测试方案按 ~/.devflow/templates/test-plan-template.md 六段完整填写：
+接缝选择 → 模块策略 → Stub决策 → 场景清单（含可执行性标注）→ 冒烟验证 → AC覆盖度矩阵
+-->
+
 ## Out of Scope
 
 - <不含 Phase N+1 内容>
