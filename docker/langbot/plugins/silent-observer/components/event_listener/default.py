@@ -2,7 +2,33 @@ import asyncio, base64, hashlib, io, json, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
-_ROLE_CN = {'OWNER': '群主', 'ADMINISTRATOR': '管理员', 'MEMBER': '成员'}
+
+from langbot_plugin.api.definition.components.common.event_listener import EventListener
+from langbot_plugin.api.entities import events, context
+from langbot_plugin.api.entities.builtin.platform.message import Plain as PlatformPlain
+from langbot_plugin.api.entities.builtin.provider import message as provider_message
+from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
+
+from util.face import QQ_FACE_NAME, extract_faces, face_to_text, is_face_component, normalize_face_components
+from util.image import open_image, resize_image
+from util.logs import safe_log
+from util.text import ROLE_CN, build_document_id, build_msg_metadata, clean_description, format_timeline, norm_role
+
+_ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+_MAX_PIXELS = 1024 * 1024
+_VISION_SEMAPHORE = None  # lazy init in _describe_images
+_API_SEM = asyncio.Semaphore(3)  # 限制并发 WS 调用，防止 plugin runtime 断连
+
+# 兼容旧代码的别名
+_QQ_FACE_NAME = QQ_FACE_NAME
+_ROLE_CN = ROLE_CN
+_log_gate = lambda msg: safe_log('gate', msg)
+_build_document_id = build_document_id
+_build_msg_metadata = build_msg_metadata
+_format_timeline = format_timeline
+_norm_role = norm_role
+_resize_image = resize_image
+_clean_description = clean_description
 
 def _get_db():
     """获取 SQLite 连接（WAL + 超时，防并发锁）"""
@@ -10,48 +36,8 @@ def _get_db():
     db.execute('PRAGMA journal_mode=WAL')
     return db
 
-# QQ 经典黄脸表情 face_id → 中文名，napcat 偶尔不提供 face_name 时的 fallback
-_QQ_FACE_NAME = {
-    0:'微笑',1:'撇嘴',2:'色',3:'发呆',4:'得意',5:'流泪',6:'害羞',7:'闭嘴',8:'睡',9:'大哭',
-    10:'尴尬',11:'发怒',12:'调皮',13:'呲牙',14:'惊讶',15:'难过',16:'酷',18:'偷笑',19:'可爱',
-    20:'白眼',21:'傲慢',22:'饥饿',23:'困',24:'惊恐',25:'流汗',26:'憨笑',27:'大兵',28:'奋斗',
-    29:'咒骂',30:'疑问',31:'嘘',32:'晕',33:'折磨',34:'衰',35:'骷髅',36:'敲打',37:'再见',
-    38:'擦汗',39:'抠鼻',40:'鼓掌',41:'糗大了',42:'坏笑',43:'左哼哼',44:'右哼哼',45:'哈欠',
-    46:'鄙视',47:'委屈',48:'快哭了',49:'阴险',50:'亲亲',51:'吓',52:'可怜',53:'菜刀',54:'西瓜',
-    55:'啤酒',56:'篮球',57:'乒乓',58:'咖啡',59:'饭',60:'猪头',61:'玫瑰',62:'凋谢',63:'示爱',
-    64:'爱心',65:'心碎',66:'蛋糕',67:'闪电',68:'炸弹',69:'刀',70:'足球',71:'瓢虫',72:'便便',
-    73:'月亮',74:'太阳',75:'礼物',76:'拥抱',77:'强',78:'弱',79:'握手',80:'胜利',81:'抱拳',
-    82:'勾引',83:'拳头',84:'差劲',85:'爱你',86:'NO',87:'OK',88:'爱情',89:'飞吻',90:'跳跳',
-    91:'发抖',92:'怄火',93:'转圈',94:'磕头',95:'回头',96:'跳绳',97:'挥手',98:'激动',99:'街舞',
-    100:'献吻',101:'左太极',102:'右太极',103:'双喜',104:'鞭炮',105:'灯笼',106:'发财',107:'K歌',
-    108:'购物',109:'邮件',110:'帅',111:'喝彩',112:'祈祷',113:'爆筋',114:'棒棒糖',115:'喝奶',
-    116:'下面',117:'香蕉',118:'飞机',119:'开车',120:'高铁左车头',121:'车厢',122:'高铁右车头',
-    123:'多云',124:'下雨',125:'钞票',126:'熊猫',127:'灯泡',128:'风车',129:'闹钟',130:'打伞',
-    131:'彩球',132:'钻戒',133:'沙发',134:'纸巾',135:'药',136:'手枪',137:'青蛙',
-    # napcat 常见但有 face_name 的高频 ID，以防万一
-    178:'斜眼笑',264:'捂脸',
-}
-
 def _now():
     return datetime.now(BJT)
-from langbot_plugin.api.definition.components.common.event_listener import EventListener
-from langbot_plugin.api.entities import events, context
-from langbot_plugin.api.entities.builtin.platform.message import Plain as PlatformPlain
-from langbot_plugin.api.entities.builtin.provider import message as provider_message
-from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
-
-_ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-_MAX_PIXELS = 1024 * 1024
-_VISION_SEMAPHORE = None  # lazy init in _describe_images
-_API_SEM = asyncio.Semaphore(3)  # 限制并发 WS 调用，防止 plugin runtime 断连
-
-
-def _log_gate(msg):
-    try:
-        with open('/tmp/silent_gate.log', 'a') as f:
-            f.write(msg + '\n')
-    except:
-        pass
 
 
 class DefaultEventListener(EventListener):
@@ -467,38 +453,16 @@ class DefaultEventListener(EventListener):
 
     @staticmethod
     def _is_face_component(c):
-        """判断组件是否为 QQ 表情（兼容 Unknown 降级）"""
-        return c.type == 'Face' or hasattr(c, 'face_id')
+        return is_face_component(c)
 
     def _extract_faces(self, message_chain):
-        """从 message_chain 提取所有 Face 文本，逗号分隔"""
-        if not message_chain:
-            return ''
-        texts = []
-        for c in message_chain:
-            if self._is_face_component(c):
-                texts.append(self._face_to_text(c))
-        return ', '.join(texts) if texts else ''
+        return extract_faces(message_chain)
 
     def _face_to_text(self, c):
-        """Face 组件 → Plain 文本，防止 pipeline 渲染为 [Unknown]"""
-        name = getattr(c, 'face_name', '') or _QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
-        if name:
-            return f'[QQ表情:{name}]'
-        return f'[QQ表情:{getattr(c, "face_id", "?")}]'
+        return face_to_text(c)
 
     def _normalize_face_components(self, message_chain):
-        """原地替换 message_chain 中的 Face 组件为 Plain（递归处理 Quote.origin）"""
-        if message_chain is None:
-            return
-        for i, c in enumerate(message_chain):
-            if self._is_face_component(c):
-                text = self._face_to_text(c)
-                message_chain[i] = PlatformPlain(text=text)
-            elif c.type == 'Quote':
-                origin = getattr(c, 'origin', None)
-                if origin is not None:
-                    self._normalize_face_components(origin)
+        normalize_face_components(message_chain)
 
     async def _extract_text(self, message_chain, max_length=300, image_descriptions=None, depth=0):
         if message_chain is None:
@@ -1266,87 +1230,3 @@ class DefaultEventListener(EventListener):
             db.close()
         except Exception as e:
             print(f'[silent] chat_index init error: {e}', file=sys.stderr, flush=True)
-
-
-def _build_document_id(session_name, time_str, sender_id, text):
-    raw = f"{session_name}|{time_str}|{sender_id}|{text}"
-    return f"chat:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
-
-
-def _build_msg_metadata(session_name, sender_name, sender_id, time_str, text, sender_role, sender_title):
-    label = sender_name
-    if sender_title:
-        label += f'[{sender_title}]'
-    if sender_role and sender_role != 'MEMBER':
-        label += f'({_ROLE_CN.get(sender_role, sender_role)})'
-    return {
-        'text': f"[{time_str}] {label}: {text}",
-        'sender_name': sender_name,
-        'sender_id': sender_id,
-        'timestamp': time_str,
-        'timestamp_unix': time.time(),
-        'session_id': session_name,
-        'type': 'chat_history',
-    }
-
-
-def _format_timeline(items):
-    lines = []
-    for item in items:
-        meta = item.get('metadata', {})
-        text = meta.get('text', '') or item.get('document', '')
-        if not text:
-            for ce in item.get('content', []) or []:
-                if isinstance(ce, dict) and ce.get('type') == 'text':
-                    text = ce.get('text', '')
-                    break
-        if text:
-            lines.append(text)
-    return lines
-
-
-def open_image(bytes_data):
-    from PIL import Image
-    return Image.open(io.BytesIO(bytes_data))
-
-
-def _resize_image(bytes_data):
-    from PIL import Image
-    img = Image.open(io.BytesIO(bytes_data))
-    try:
-        w, h = img.size
-        max_dim = max(w, h)
-        if max_dim > 1024:
-            ratio = 1024 / max_dim
-            new_size = (int(w * ratio), int(h * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-        buf = io.BytesIO()
-        img_format = img.format or 'JPEG'
-        if img_format == 'PNG' and img.mode in ('RGBA', 'P'):
-            img = img.convert('RGB')
-            img_format = 'JPEG'
-        img.save(buf, format=img_format, quality=70)
-        return buf.getvalue()
-    finally:
-        img.close()
-
-
-def _norm_role(perm) -> str:
-    if perm is None:
-        return ''
-    if hasattr(perm, 'value'):
-        return perm.value
-    return str(perm)
-
-
-def _clean_description(text):
-    text = (text or '').strip().strip('"').strip("'")
-    for prefix in ['这张图片', '图片中', '图中', 'This image', 'The image', 'Image']:
-        if text.startswith(prefix):
-            text = text[len(prefix):]
-            text = text.lstrip('是').lstrip('展示了').lstrip('显示').lstrip()
-            break
-    if not text or any(kw in text for kw in ['不能描述', '无法识别', 'cannot describe', 'violates']):
-        return '[图片]'
-    text = text.split('\n')[0][:60]
-    return f'[图片: {text}]'
