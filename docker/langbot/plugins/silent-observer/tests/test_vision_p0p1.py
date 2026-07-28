@@ -1,11 +1,17 @@
 """P0+P1 验证测试：semaphore 限并发 + 1024px 缩放阈值"""
 import io, sys, os, time, asyncio
+import pytest
 from PIL import Image
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'components', 'event_listener'))
-from default import _resize_image
 
-def test_resize_large_image():
+@pytest.fixture
+def _resize_image():
+    """延迟导入，等 patch_sdk fixture 先注入 mock"""
+    from components.event_listener.default import _resize_image
+    return _resize_image
+
+
+def test_resize_large_image(_resize_image):
     """P1: 大图 >1024px 应被缩放到 ≤1024px"""
     img = Image.new('RGB', (3000, 2000), color='red')
     buf = io.BytesIO()
@@ -20,7 +26,7 @@ def test_resize_large_image():
     assert len(result) < len(original), f'FAIL: resized {len(result)} >= original {len(original)}'
     print(f'  PASS: {3000}x{2000} → {w}x{h}, {len(original)//1024}KB → {len(result)//1024}KB')
 
-def test_no_resize_small_image():
+def test_no_resize_small_image(_resize_image):
     """P1: 小图 ≤1024px 不应被缩放"""
     img = Image.new('RGB', (800, 600), color='blue')
     buf = io.BytesIO()
@@ -34,7 +40,7 @@ def test_no_resize_small_image():
     assert w == 800 and h == 600, f'FAIL: {800}x{600} was resized to {w}x{h}'
     print(f'  PASS: {800}x{600} unchanged')
 
-def test_resize_jumbo_pixels():
+def test_resize_jumbo_pixels(_resize_image):
     """P1: 超大像素量 (4096*4096) 应触发缩放"""
     img = Image.new('RGB', (3000, 3000), color='green')
     buf = io.BytesIO()
@@ -49,7 +55,7 @@ def test_resize_jumbo_pixels():
     assert w * h <= 1024 * 1024, f'FAIL: {w*h} pixels exceeds 1024*1024'
     print(f'  PASS: {3000}x{3000} → {w}x{h}, {len(original)//1024}KB → {len(result)//1024}KB')
 
-def test_png_to_jpeg():
+def test_png_to_jpeg(_resize_image):
     """P1: RGBA PNG → JPEG 转换 + 缩放"""
     img = Image.new('RGBA', (2000, 1500), color=(255, 0, 0, 128))
     buf = io.BytesIO()

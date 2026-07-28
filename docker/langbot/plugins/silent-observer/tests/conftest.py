@@ -1,5 +1,5 @@
 """共享 fixtures：SDK mock 树 + Fake 消息组件 + DefaultEventListener 实例"""
-import sys, types
+import sys, os, types
 from unittest.mock import MagicMock, AsyncMock
 from types import SimpleNamespace
 
@@ -170,8 +170,10 @@ def listener(monkeypatch):
     # 重载模块以确保干净的 sys.modules 状态
     if 'components.event_listener.default' in sys.modules:
         del sys.modules['components.event_listener.default']
-    # 添加 tests 的父目录到 sys.path
-    sys.path.insert(0, '/home/dou/dev/ai-dev-flow-server/.claude/worktrees/test-suite/docker/langbot/plugins/silent-observer')
+    # 添加 tests 的父目录（插件根目录）到 sys.path
+    _plugin_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if _plugin_root not in sys.path:
+        sys.path.insert(0, _plugin_root)
     from components.event_listener.default import DefaultEventListener
     obj = DefaultEventListener.__new__(DefaultEventListener)
     obj.bot_qq = '3228649756'
