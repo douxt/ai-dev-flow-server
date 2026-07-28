@@ -6,6 +6,7 @@ project:
 
 tech_stack:
   language: node                # --tech-stack 设置
+  tags: playwright,react        # 技术栈标签，驱动 knowledge/stacks/ 选择性部署
   package_manager: npm          # --pkg-mgr 覆盖
   test_command: npm test        # --test-cmd 覆盖
   lint_command: npm run lint    # --lint-cmd 覆盖

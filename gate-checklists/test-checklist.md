@@ -24,10 +24,11 @@
 | T4 | `git log --oneline` 中测试 commit 在实现 commit 之前 | R1 |
 | T5 | `[human-verify]` AC 在测试文件中有 TODO 注释标注，不遗漏 | — |
 | T6 | 测试按接缝分层：API 契约测试使用最高可用 seam，不穿透实现细节 | 测试宪法 |
+| T7 | 断言/交互不在条件分支内静默跳过 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中 | — |
 
 ## 通过条件
 
-T1-T4 必须通过。T5-T6 为 advisory 警告。
+T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 
 ## 签出检查（/implement 前逐条确认）
 

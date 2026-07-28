@@ -322,6 +322,25 @@ if [ "$UPDATE_MODE" = true ]; then
         [ -f "$md" ] && deploy_file "$md" "$TARGET/.devflow/knowledge/$(basename "$md")"
     done
 
+    # 按 tech_stack.tags 部署技术栈模块
+    TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//')
+    if [ -n "$TAGS" ]; then
+        echo "  更新 knowledge/stacks/ ..."
+        IFS=',' read -ra TAG_LIST <<< "$TAGS"
+        for tag in "${TAG_LIST[@]}"; do
+            tag=$(echo "$tag" | xargs)
+            stack_src="$SOURCE/knowledge/stacks/$tag"
+            stack_dst="$TARGET/.devflow/knowledge/stacks/$tag"
+            if [ -d "$stack_src" ]; then
+                dry_run "mkdir -p $stack_dst"
+                for md in "$stack_src"/*.md; do
+                    [ -f "$md" ] && deploy_file "$md" "$stack_dst/$(basename "$md")"
+                done
+                echo "  ✅ stacks/$tag"
+            fi
+        done
+    fi
+
     # 从 config.yaml 读取 tech_stack 参数（merge_settings_local 需要）
     if [ -f "$CONFIG_YAML" ]; then
         [ -z "$PKG_MGR" ] && PKG_MGR=$(grep -E '^[[:space:]]*package_manager:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*//;s/[[:space:]]*$//' || echo "")
@@ -820,6 +839,22 @@ dry_run "mkdir -p $TARGET/.devflow/knowledge"
 
 # knowledge/ — 所有 mode
 maybe_cp_dir "$SOURCE/knowledge" "$TARGET/.devflow/knowledge"
+
+# 按 tech_stack.tags 部署技术栈模块
+TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//')
+if [ -n "$TAGS" ]; then
+    IFS=',' read -ra TAG_LIST <<< "$TAGS"
+    for tag in "${TAG_LIST[@]}"; do
+        tag=$(echo "$tag" | xargs)
+        stack_src="$SOURCE/knowledge/stacks/$tag"
+        stack_dst="$TARGET/.devflow/knowledge/stacks/$tag"
+        if [ -d "$stack_src" ]; then
+            mkdir -p "$stack_dst"
+            cp "$stack_src"/*.md "$stack_dst/" 2>/dev/null || true
+            echo "  ✅ stacks/$tag"
+        fi
+    done
+fi
 
 # archon/ + scripts/ — backend + full
 if [ "$BACKEND" = true ]; then
