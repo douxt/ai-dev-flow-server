@@ -207,4 +207,22 @@ def listener(monkeypatch):
     obj._inject_random = 0
     obj._inject_at = 0
     obj._stats_start = 0
+    # 服务层
+    obj.vision_model_uuid = ''
+    from service.vision import VisionService
+    obj.vision_service = VisionService(
+        MagicMock(), obj.vision_model_uuid, obj.vision_daily_limit,
+        vision_max_images=obj.vision_max_images,
+        daily_count_ref=[obj._vision_daily_count],
+        daily_date_ref=[obj._vision_daily_date],
+        fail_streak_ref=[obj._vision_fail_streak],
+        circuit_open_ref=[obj._vision_circuit_open_until],
+        stats_ref=obj._vision_stats,
+    )
+    from service.timeline import TimelineService
+    obj.timeline_service = TimelineService(obj.timeline_max_chars, obj.history_count)
+    from service.quote import QuoteService
+    obj.quote_service = QuoteService(obj.timeline_service.extract_text)
+    obj.store = None
+    obj.retrieval_service = None
     return obj
