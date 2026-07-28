@@ -1,0 +1,53 @@
+# KB Metadata Schema Baseline — recorded 2026-07-28
+# Must remain backward-compatible during refactoring
+
+# === doc_id format ===
+# Pattern: chat:<16 hex chars>
+# Construction: sha256(f"{session_name}|{time_str}|{sender_id}|{text}")[:16]
+DOC_ID_PATTERN = "chat:<sha256_hex_16>"
+
+# === metadata dict ===
+METADATA_SCHEMA = {
+    "text": "[{time_str}] {display_name}: {content}",  # formatted display text
+    "sender_name": "string",       # member_name or sender_id
+    "sender_id": "string",         # QQ number as string
+    "timestamp": "YYYY-MM-DD HH:MM",  # formatted time string
+    "timestamp_unix": 0.0,         # float, epoch seconds
+    "session_id": "{launcher_type}_{launcher_id}",  # e.g. group_116381172
+    "type": "chat_history",        # fixed value
+}
+
+# === display_name format ===
+# Plain: sender_name
+# With title: sender_name[title]
+# With role: sender_name(群主|管理员|成员)
+# With both: sender_name[title](群主|管理员)
+
+# === vector_upsert call signature ===
+# await plugin.vector_upsert(
+#     collection_id=kb_id,
+#     vectors=vectors,          # from invoke_embedding
+#     ids=[doc_id],             # list of doc_id strings
+#     metadata=[metadata_dict], # list of metadata dicts
+#     documents=[text],         # list of text strings
+# )
+
+# === vector_search call signature ===
+# await plugin.vector_search(
+#     collection_id=kb_id,
+#     query_vector=qv,          # normalized embedding vector
+#     top_k=N,
+#     filters=filter_dict,      # {"$and": [...]} or {"type": "chat_history"}
+# )
+
+# === chat_index SQLite schema ===
+CHAT_INDEX_SCHEMA = """
+CREATE TABLE IF NOT EXISTS chat_index (
+    doc_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    timestamp_unix REAL NOT NULL,
+    formatted_text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_session_time
+    ON chat_index(session_id, timestamp_unix DESC);
+"""

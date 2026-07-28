@@ -1,0 +1,43 @@
+# Inject Prompt Baseline — recorded 2026-07-28 from production
+# Captures the expected format of system prompt injection
+
+# === Timezone injection (MUST be preserved during refactoring) ===
+# Pattern: 北京时间 <YYYY-MM-DD HH:MM:SS> (UTC <HH:MM:SS>)
+# Note: dual timezone to prevent LLM timezone hallucination
+TIMEZONE_FORMAT = "北京时间 {bj_time} (UTC {utc_time})。以下【】中所有时间戳均为北京时间,禁止转换为UTC或其他时区。"
+
+# === Trigger modes ===
+# @ mode (normal): user @mentioned bot with text
+AT_MODE_PROMPT = "[@模式]"
+# @ mode (empty): user @mentioned bot without text, with quote
+EMPTY_AT_QUOTE_PROMPT = "[空@模式] 用户空@了你，但引用了消息。你必须优先结合上面引用的内容直接回答（20-50字）。不要回复"在线""收到"等状态确认。"
+# @ mode (empty): user @mentioned bot without text, no quote
+EMPTY_AT_NO_QUOTE_PROMPT = "[空@模式] 用户空@了你。你必须从【】内群聊最近记录中挑选一个具体话题直接评论（20-50字）。不要回复"在线""收到"等状态确认，不要打招呼，直接说话题。"
+# Random interject mode
+RANDOM_PROMPT = "[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。"
+
+# === Timeline format ===
+# Pattern: [MM-DD HH:MM] sender_name: content
+# Face in timeline: [QQ表情:<name>]
+TIMELINE_LINE_FORMAT = "[{MM-DD} {HH:MM}] {display_name}: {content}"
+TIMELINE_IMAGE_MARKERS = "AI识图, AI识图中, AI识图失败"
+
+# === Face injection (gate phase, injected into inject phase) ===
+FACE_INJECTION = "[表情] 用户发送了 QQ 表情：{comma_separated_face_texts}"
+
+# === Full prompt assembly order ===
+# 1. system: timezone
+# 2. system: face text (if any)
+# 3. system: trigger mode marker
+# 4. system: timeline in 【】
+# 5. system: closing instruction (for random mode)
+# 6. system: "以上是群聊历史..." (for random mode)
+
+# === PROMPT DUMP debug format ===
+# [1] time: <timezone string>
+# [2] trigger: at|random|empty_at
+# [3] ai_identified=N ai_pending=N ai_failed=N
+# [4] timeline (N lines):
+# <timeline content>
+# [5] user: <user message text>
+# [6] face: <face text or "(无)">
