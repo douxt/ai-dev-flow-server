@@ -61,6 +61,76 @@ spec:
         zh_Hans: 嵌入模型的 UUID（如 seekdb-local）。填写 kb_id 时必填。
       default: ""
       required: false
+    - name: timeline_max_chars
+      type: integer
+      label:
+        en_US: Timeline Max Chars
+        zh_Hans: 时间线最大字符数
+      description:
+        en_US: Max total characters in the timeline injected into prompt. Older messages are dropped first.
+        zh_Hans: 注入 prompt 的时间线最大总字符数，超出时从最旧消息开始丢弃
+      default: 2000
+      required: false
+    - name: vision_max_images
+      type: integer
+      label:
+        en_US: Vision Max Images
+        zh_Hans: 视觉识图最大张数
+      description:
+        en_US: Max number of images to describe per message via vision API.
+        zh_Hans: 每条消息最多调用视觉 API 识别的图片数量
+      default: 5
+      required: false
+    - name: vision_enabled
+      type: boolean
+      label:
+        en_US: Enable Vision
+        zh_Hans: 启用视觉识别
+      description:
+        en_US: Enable AI image description via vision LLM. Requires vision_model_uuid to be set.
+        zh_Hans: 启用 AI 图片识别（需配置视觉模型 UUID）
+      default: false
+      required: false
+    - name: vision_model_uuid
+      type: string
+      label:
+        en_US: Vision Model UUID
+        zh_Hans: 视觉模型 UUID
+      description:
+        en_US: UUID of the vision-capable LLM (e.g. qwen3.6-flash). Required if vision_enabled is true.
+        zh_Hans: 视觉模型的 UUID（如 qwen3.6-flash）。启用 vision_enabled 时必填
+      default: ""
+      required: false
+    - name: vision_all_messages
+      type: boolean
+      label:
+        en_US: Vision All Messages
+        zh_Hans: 所有消息都识图
+      description:
+        en_US: If enabled, describe images in ALL messages (not just triggered ones). Requires vision_enabled.
+        zh_Hans: 开启后所有消息的图片都会识别（不仅限于触发消息）。需先启用 vision_enabled
+      default: false
+      required: false
+    - name: vision_daily_limit
+      type: integer
+      label:
+        en_US: Vision Daily Limit
+        zh_Hans: 每日识图上限
+      description:
+        en_US: Max vision API calls per day. 0 = unlimited.
+        zh_Hans: 每日视觉 API 调用上限，0 = 不限制
+      default: 0
+      required: false
+    - name: debug_dump
+      type: boolean
+      label:
+        en_US: Debug Dump
+        zh_Hans: 调试输出
+      description:
+        en_US: Dump full prompt to /tmp/silent_prompt_dump.log for debugging.
+        zh_Hans: 将完整 prompt 输出到 /tmp/silent_prompt_dump.log 用于调试
+      default: false
+      required: false
   components:
     EventListener:
       fromDirs:
