@@ -1,5 +1,7 @@
 """P3: SQLite chat_index 操作测试"""
 import sqlite3, os, tempfile
+from unittest.mock import MagicMock
+
 import pytest
 
 
@@ -31,16 +33,20 @@ class TestGetDb:
 
 
 class TestInitChatIndex:
-    def test_creates_table(self, listener, monkeypatch, temp_db):
-        monkeypatch.setattr('components.event_listener.default._DB_PATH', temp_db)
-        listener._init_chat_index()
+    def test_creates_table(self, monkeypatch, temp_db):
+        from store.kb_store import KBStore
+        plugin = MagicMock(kb_id='test', emb_uuid='test')
+        store = KBStore(plugin, 'test', 'test', temp_db)
+        store.init_chat_index()
         db = sqlite3.connect(temp_db)
         tables = [r[0] for r in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")]
         assert 'chat_index' in tables
         db.close()
 
-    def test_idempotent(self, listener, monkeypatch, temp_db):
-        monkeypatch.setattr('components.event_listener.default._DB_PATH', temp_db)
-        listener._init_chat_index()
-        listener._init_chat_index()  # 不抛异常
+    def test_idempotent(self, monkeypatch, temp_db):
+        from store.kb_store import KBStore
+        plugin = MagicMock(kb_id='test', emb_uuid='test')
+        store = KBStore(plugin, 'test', 'test', temp_db)
+        store.init_chat_index()
+        store.init_chat_index()  # 不抛异常

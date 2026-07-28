@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import json, logging, time
+import asyncio, json, logging, time
 from typing import Any
 
 from langbot_plugin.api.definition.components.tool.tool import Tool
 from langbot_plugin.api.entities.builtin.provider import session as provider_session
-from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
+
+from store import KBStore
 
 logger = logging.getLogger(__name__)
+_DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
+_API_TIMEOUT = 30
 
 
 class SearchChatHistory(Tool):
@@ -22,10 +25,7 @@ class SearchChatHistory(Tool):
         if not kb_id or not embedding_model_uuid:
             return "Error: kb_id and embedding_model_uuid must be configured in plugin settings."
 
-        api = QueryBasedAPIProxy(
-            query_id=query_id,
-            plugin_runtime_handler=self.plugin.plugin_runtime_handler,
-        )
+        store = KBStore(self.plugin, kb_id, embedding_model_uuid, _DB_PATH)
 
         query = params.get('query', '')
         if not isinstance(query, str) or not query.strip():
@@ -46,23 +46,11 @@ class SearchChatHistory(Tool):
             if not isinstance(days, int) or days <= 0:
                 return "Error: days must be a positive integer."
 
-        # 会话隔离：从 session 构造 session_id
         lt = session.launcher_type
         if hasattr(lt, 'value'):
             lt = lt.value
         session_id = f'{lt}_{session.launcher_id}'
 
-        filters: list[dict] = [
-            {"session_id": session_id},
-            {"type": "chat_history"},
-        ]
-        if sender_name:
-            filters.append({"sender_name": sender_name})
-        if days:
-            from_time = time.time() - days * 86400
-            filters.append({"timestamp_unix": {"$gte": from_time}})
-
-        # 调用计数
         try:
             with open('/tmp/silent_tool_calls.log', 'a') as f:
                 from datetime import datetime, timezone, timedelta
@@ -76,22 +64,14 @@ class SearchChatHistory(Tool):
             query_id, session_id, query[:80], sender_name, days,
         )
 
-        # 对标 LTM：invoke_embedding + vector_search 直连 ChromaDB
+        # RRF 混合搜索（优先）
         try:
-            vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query.strip()])
-            qv = vectors[0]
-            import math
-            norm = math.sqrt(sum(v*v for v in qv))
-            if norm > 0:
-                qv = [v / norm for v in qv]
-            raw = await self.plugin.vector_search(
-                collection_id=kb_id,
-                query_vector=qv,
-                top_k=top_k,
-                filters={"$and": filters},
+            raw = await asyncio.wait_for(
+                store.search_history([query.strip()], session_name=session_id, top_k=top_k),
+                timeout=_API_TIMEOUT,
             )
         except Exception as e:
-            logger.error("[silent] search_chat_history error: %s", e)
+            logger.error("[silent] search_chat_history RRF error: %s", e)
             return f"Error: retrieval failed: {e}"
 
         if not raw:

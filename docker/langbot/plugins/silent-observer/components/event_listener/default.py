@@ -1,4 +1,4 @@
-import asyncio, base64, hashlib, io, json, random, sqlite3, sys, time
+import asyncio, base64, io, json, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
@@ -13,6 +13,7 @@ from util.face import QQ_FACE_NAME, extract_faces, face_to_text, is_face_compone
 from util.image import open_image, resize_image
 from util.logs import safe_log
 from util.text import ROLE_CN, build_document_id, build_msg_metadata, clean_description, format_timeline, norm_role
+from store import KBStore
 
 _ALLOWED_MIME = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 _MAX_PIXELS = 1024 * 1024
@@ -52,12 +53,6 @@ class DefaultEventListener(EventListener):
                 types['Face'] = LangBotFace
             return types
         MessageChain._get_component_types = classmethod(_patched)
-        # 启用 WAL 模式防并发写锁
-        try:
-            _db = _get_db()
-            _db.execute('PRAGMA journal_mode=WAL')
-            _db.close()
-        except: pass
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
@@ -70,10 +65,12 @@ class DefaultEventListener(EventListener):
             self.kb_enabled = True
             self.kb_id = kb_id
             self.embedding_model_uuid = emb_uuid
+            self.store = KBStore(self.plugin, kb_id, emb_uuid, _DB_PATH)
         else:
             self.kb_enabled = False
             self.kb_id = ''
             self.embedding_model_uuid = ''
+            self.store = None
             if kb_id or emb_uuid:
                 print('[silent] WARNING: kb_id and embedding_model_uuid must both be set, KB disabled', file=sys.stderr, flush=True)
         self.vision_enabled = bool(config.get('vision_enabled', False))
@@ -128,7 +125,8 @@ class DefaultEventListener(EventListener):
         except:
             pass
 
-        self._init_chat_index()
+        if self.kb_enabled:
+            self.store.init_chat_index()
 
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
@@ -218,7 +216,7 @@ class DefaultEventListener(EventListener):
                 time_str = _now().strftime('%Y-%m-%d %H:%M')
                 meta = _build_msg_metadata(session_name, '机器豆', '0', time_str, text, 'BOT', '')
                 doc_id = _build_document_id(session_name, time_str, '0', text)
-                self._run_background(self._store_message(meta, doc_id))
+                self._run_background(self.store.store_message(meta, doc_id))
             self._last_trigger.pop(session_name, None)
             print(f'[silent] bot reply saved: {text[:30]}', file=sys.stderr, flush=True)
 
@@ -273,7 +271,7 @@ class DefaultEventListener(EventListener):
                         if cached and cached['status'] == 'done':
                             break
                         await asyncio.sleep(0.5)
-                items = await self._get_recent_messages(api, session_name, 200)
+                items = await self.store.get_recent_messages(session_name, 200)
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
                     if trigger_doc_id:
@@ -625,9 +623,9 @@ class DefaultEventListener(EventListener):
         doc_id = _build_document_id(session_name, time_str, str(event.sender_id), text)
         if self.kb_enabled:
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
-            await self._store_message(meta, doc_id)
+            await self.store.store_message(meta, doc_id)
             if sender_title or (sender_role and sender_role not in ('Permission.MEMBER', 'MEMBER')):
-                self._run_background(self._backfill_sender(str(event.sender_id), sender_name, sender_title, sender_role))
+                self._run_background(self.store.backfill_sender(str(event.sender_id), sender_name, sender_title, sender_role))
         return doc_id
 
     async def _save_with_vision(self, event, doc_id):
@@ -662,7 +660,7 @@ class DefaultEventListener(EventListener):
             if len(text) > 500:
                 text = text[:300] + '...[truncated]...' + text[-100:]
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
-            await self._store_message(meta, doc_id)
+            await self.store.store_message(meta, doc_id)
             _log_gate(f'[{trace_id}] vision: KB upserted, text len={len(meta["text"])}')
             # 更新缓存：存所有图片描述（不只用第一张）
             descs = [d for d in image_descs.values() if d != '[图片]']
@@ -691,31 +689,10 @@ class DefaultEventListener(EventListener):
         time_str = _now().strftime('%Y-%m-%d %H:%M')
         doc_id = _build_document_id(session_name, time_str, str(event.sender_id), text)
         meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
-        await self._store_message(meta, doc_id)
+        await self.store.store_message(meta, doc_id)
 
     async def _store_message(self, metadata, doc_id):
-        try:
-            async with _API_SEM:
-                vectors = await self.plugin.invoke_embedding(self.embedding_model_uuid, [metadata['text']])
-                await self.plugin.vector_upsert(
-                    collection_id=self.kb_id,
-                    vectors=vectors,
-                    ids=[doc_id],
-                    metadata=[metadata],
-                    documents=[metadata['text']],
-                )
-        except Exception as e:
-            print(f'[silent] store error: {e}', file=sys.stderr, flush=True)
-        try:
-            db = _get_db()
-            db.execute(
-                "INSERT OR REPLACE INTO chat_index (doc_id, session_id, timestamp_unix, formatted_text) VALUES (?, ?, ?, ?)",
-                (doc_id, metadata['session_id'], metadata['timestamp_unix'], metadata['text'])
-            )
-            db.commit()
-            db.close()
-        except Exception as e:
-            print(f'[silent] chat_index write error: {e}', file=sys.stderr, flush=True)
+        return await self.store.store_message(metadata, doc_id)
 
     @staticmethod
     def _strip_base64(message_chain, top_level=True):
@@ -953,250 +930,14 @@ class DefaultEventListener(EventListener):
         return True
 
     async def _backfill_sender(self, sender_id, new_name, title, role):
-        """回填历史消息中该 sender_id 的裸名，替换为含群名片/头衔的名字"""
-        label = new_name
-        if title:
-            label += f'[{title}]'
-        if role and role != 'MEMBER':
-            label += f'({_ROLE_CN.get(role, role)})'
-        try:
-            raw = await self.plugin.vector_list(
-                self.kb_id,
-                filters={"$and": [{"sender_id": sender_id}, {"type": "chat_history"}]},
-                limit=200, offset=0,
-            )
-            items = raw.get('items', []) if isinstance(raw, dict) else []
-        except Exception as e:
-            print(f'[silent] backfill query error: {e}', file=sys.stderr, flush=True)
-            return
-
-        ids_to_update = []
-        metas_to_update = []
-        for item in items:
-            meta = item.get('metadata', {})
-            old_name = meta.get('sender_name', '')
-            if old_name == label:
-                continue
-            if '[' in old_name or '(' in old_name:
-                continue
-            old_text = meta.get('text', '')
-            new_text = f"[{meta.get('timestamp', '?')}] {label}: {old_text.split(']: ', 1)[-1] if ']: ' in old_text else old_text}"
-            meta['sender_name'] = label
-            meta['text'] = new_text
-            ids_to_update.append(item.get('id'))
-            metas_to_update.append(meta)
-
-        if ids_to_update:
-            try:
-                await self.plugin.vector_upsert(
-                    collection_id=self.kb_id,
-                    ids=ids_to_update,
-                    metadata=metas_to_update,
-                    documents=[m['text'] for m in metas_to_update],
-                )
-                print(f'[silent] backfill: {sender_id} → {label} ({len(ids_to_update)} 条)', file=sys.stderr, flush=True)
-            except Exception as e:
-                print(f'[silent] backfill update error: {e}', file=sys.stderr, flush=True)
-
+        return await self.store.backfill_sender(sender_id, new_name, title, role)
     async def _get_recent_messages(self, api, session_name, limit):
-        try:
-            db = _get_db()
-            rows = db.execute(
-                "SELECT doc_id, formatted_text, timestamp_unix FROM chat_index WHERE session_id = ? ORDER BY timestamp_unix DESC LIMIT ?",
-                (session_name, limit)
-            ).fetchall()
-            db.close()
-            return [
-                {'id': row[0], 'metadata': {'text': row[1], 'timestamp_unix': row[2]}, 'document': row[1]}
-                for row in rows
-            ]
-        except Exception as e:
-            print(f'[silent] chat_index read error: {e}', file=sys.stderr, flush=True)
-            return []
-
+        return await self.store.get_recent_messages(session_name, limit)
     async def _search_history(self, api, queries, session_name='', top_k=10):
-        """混合搜索：Vector + Keyword（RRF融合），对标 LTM + 业界最佳实践"""
-        try:
-            with open('/tmp/silent_gate.log', 'a') as f:
-                f.write('[silent] _search_history ENTER: %d queries\n' % len(queries))
-        except:
-            pass
-        if not queries:
-            return []
-        valid_queries = [q for q in queries if q and q.strip()]
-        if not valid_queries:
-            return []
-        import math
-        q = valid_queries[0]
-        rrf_scores = {}
-        doc_map = {}
-        K = 60
-
-        # === Vector 通道 ===
-        try:
-            vectors = await self.plugin.invoke_embedding(self.embedding_model_uuid, [q])
-            qv = vectors[0]
-            norm = math.sqrt(sum(v*v for v in qv))
-            if norm > 0:
-                qv = [v / norm for v in qv]
-            vec_filters = {"type": "chat_history"}
-            if session_name:
-                vec_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
-            vec_raw = await self.plugin.vector_search(
-                collection_id=self.kb_id,
-                query_vector=qv,
-                top_k=top_k,
-                filters=vec_filters,
-            )
-            for rank, entry in enumerate(vec_raw or []):
-                if not isinstance(entry, dict):
-                    continue
-                doc_id = entry.get('id', '')
-                meta = entry.get('metadata', {})
-                doc_text = meta.get('text', '') or entry.get('document', '')
-                rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1.0 / (K + rank + 1)
-                if doc_id not in doc_map:
-                    doc_map[doc_id] = {'id': doc_id, 'document': doc_text, 'metadata': meta,
-                                       'distance': entry.get('distance', 99)}
-            try:
-                with open('/tmp/silent_gate.log', 'a') as f:
-                    f.write('[silent] vector: %d results\n' % len(vec_raw or []))
-            except:
-                pass
-        except Exception as e:
-            try:
-                with open('/tmp/silent_gate.log', 'a') as f:
-                    f.write('[silent] vector error: %s\n' % e)
-            except:
-                pass
-
-        # === Keyword 通道：逐词搜索，RRF 合并 ===
-        try:
-            import jieba
-            words = [w for w in jieba.cut(q) if len(w) >= 2]
-            stopwords = {'之前', '有没有', '没有人', '有人', '聊过', '吗', '什么', '怎么', '为什么', '可以', '这个', '那个', '一下', '在吗', '能不能', '是否', '还有', '以及', '或者', '不过', '但是', '因为', '所以', '如果', '虽然', '而且', '然后', '的话', '吧', '呢', '啊', '哈', '哦', '嗯', '一个', '哪些', '哪个', '那种', '什么样', '真是', '就是', '不是'}
-            words = [w for w in words if w not in stopwords]
-            words = list(set(words))
-            kw_rank = 0
-            for kw in words:
-                try:
-                    kw_filters = {"type": "chat_history"}
-                    if session_name:
-                        kw_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
-                    kw_raw = await self.plugin.vector_search(
-                        collection_id=self.kb_id,
-                        query_vector=[0.0] * 384,
-                        top_k=5,
-                        filters=kw_filters,
-                        search_type='full_text',
-                        query_text=kw,
-                    )
-                    for entry in (kw_raw or []):
-                        if not isinstance(entry, dict):
-                            continue
-                        doc_id = entry.get('id', '')
-                        meta = entry.get('metadata', {})
-                        doc_text = meta.get('text', '') or entry.get('document', '')
-                        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1.0 / (K + kw_rank + 1)
-                        if doc_id not in doc_map:
-                            doc_map[doc_id] = {'id': doc_id, 'document': doc_text, 'metadata': meta,
-                                               'distance': entry.get('distance', 99)}
-                        kw_rank += 1
-                except:
-                    pass
-            try:
-                with open('/tmp/silent_gate.log', 'a') as f:
-                    kw_count = sum(1 for did in rrf_scores if did in doc_map and doc_map[did].get('distance', 99) < 0.01)
-                    f.write('[silent] keyword: %d docs from %d words\n' % (kw_count, len(words)))
-            except:
-                pass
-        except Exception as e:
-            try:
-                with open('/tmp/silent_gate.log', 'a') as f:
-                    f.write('[silent] keyword error: %s\n' % e)
-            except:
-                pass
-
-        # RRF 排序
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
-        results = [doc_map[did] for did in sorted_ids if did in doc_map]
-        return results[:5]
+        return await self.store.search_history(queries, session_name, top_k)
 
     async def _migrate_buffer_if_needed(self):
-        """一次性迁移：buffer 消息 → KB（仅在 KB 为空时执行）"""
-        def _log(msg):
-            print(msg, file=sys.stderr, flush=True)
-            try:
-                with open('/tmp/silent_init.log', 'a') as f:
-                    f.write(msg + '\n')
-            except:
-                pass
-        try:
-            result = await self.plugin.vector_list(self.kb_id, filters={"type": "chat_history"}, limit=1, offset=0)
-            total = result.get('total', -1) if isinstance(result, dict) else -1
-            if total > 0:
-                _log(f'[silent] migration: KB already has {total} docs, skip')
-                return
-        except Exception as e:
-            _log(f'[silent] migration: vector_list check failed: {e}')
-        migrated = 0
-        try:
-            raw = await self.plugin.get_plugin_storage('buffer:group_1104330614')
-            data = json.loads(raw if isinstance(raw, str) else raw.decode('utf-8'))
-            msgs = data.get('messages', [])
-            for m in msgs:
-                time_str = m.get('time', '?')
-                sender_name = m.get('sender_name', '?')
-                sender_id = str(m.get('sender_id', ''))
-                text = m.get('text', '')
-                label = sender_name
-                title = m.get('sender_title', '')
-                role = m.get('sender_role', '')
-                if title:
-                    label += f'[{title}]'
-                elif role and role not in ('Permission.MEMBER', 'MEMBER'):
-                    label += f'({role})'
-                display = f"[{time_str}] {label}: {text}"
-                doc_id = _build_document_id('group_1104330614', time_str, sender_id, text)
-                meta = {
-                    'text': display, 'sender_name': sender_name, 'sender_id': sender_id,
-                    'timestamp': time_str, 'timestamp_unix': 0.0,
-                    'session_id': 'group_1104330614', 'type': 'chat_history',
-                }
-                await self._store_message(meta, doc_id)
-                migrated += 1
-            _log(f'[silent] migration: {migrated} msgs from group_1104330614')
-        except Exception as e:
-            _log(f'[silent] migration skip group_1104330614: {e}')
-        try:
-            raw = await self.plugin.get_plugin_storage('buffer:group_116381172')
-            data = json.loads(raw if isinstance(raw, str) else raw.decode('utf-8'))
-            msgs = data.get('messages', [])
-            for m in msgs:
-                time_str = m.get('time', '?')
-                sender_name = m.get('sender_name', '?')
-                sender_id = str(m.get('sender_id', ''))
-                text = m.get('text', '')
-                label = sender_name
-                title = m.get('sender_title', '')
-                role = m.get('sender_role', '')
-                if title:
-                    label += f'[{title}]'
-                elif role and role not in ('Permission.MEMBER', 'MEMBER'):
-                    label += f'({role})'
-                display = f"[{time_str}] {label}: {text}"
-                doc_id = _build_document_id('group_116381172', time_str, sender_id, text)
-                meta = {
-                    'text': display, 'sender_name': sender_name, 'sender_id': sender_id,
-                    'timestamp': time_str, 'timestamp_unix': 0.0,
-                    'session_id': 'group_116381172', 'type': 'chat_history',
-                }
-                await self._store_message(meta, doc_id)
-                migrated += 1
-            _log(f'[silent] migration: {migrated} total msgs migrated to KB')
-        except Exception as e:
-            _log(f'[silent] migration skip group_116381172: {e}')
-
+        await self.store.migrate_buffer_if_needed()
     def _run_background(self, coro):
         """将协程放入有界后台队列，由 worker pool 消费。"""
         try:
@@ -1213,20 +954,3 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] bg worker error: {e}', file=sys.stderr, flush=True)
             finally:
                 self._bg_queue.task_done()
-
-    def _init_chat_index(self):
-        try:
-            db = _get_db()
-            db.execute("PRAGMA journal_mode=WAL")
-            db.execute("PRAGMA synchronous=NORMAL")
-            db.execute("""CREATE TABLE IF NOT EXISTS chat_index (
-                doc_id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                timestamp_unix REAL NOT NULL,
-                formatted_text TEXT NOT NULL
-            )""")
-            db.execute("CREATE INDEX IF NOT EXISTS idx_chat_session_time ON chat_index(session_id, timestamp_unix DESC)")
-            db.commit()
-            db.close()
-        except Exception as e:
-            print(f'[silent] chat_index init error: {e}', file=sys.stderr, flush=True)
