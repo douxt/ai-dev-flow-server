@@ -107,7 +107,7 @@ RUN printf '[program:bgutil-pot]\ncommand=bgutil-pot server\ndirectory=/tmp\nuse
     > /etc/supervisor/conf.d/bgutil-pot.conf
 
 # youtube-kb 启动包装脚本（含错误检查 + bgutil-pot 就绪等待）
-RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$(jq -r ".anthropicAuthToken // empty" "$CONFIG" 2>/dev/null)\nif [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: anthropicAuthToken empty in $CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nfor i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
+RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$(jq -r ".env.ANTHROPIC_AUTH_TOKEN // empty" "$CONFIG" 2>/dev/null)\nif [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: ANTHROPIC_AUTH_TOKEN empty in $CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nfor i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
     > /usr/local/bin/youtube-kb-start.sh && \
     chmod +x /usr/local/bin/youtube-kb-start.sh
 
