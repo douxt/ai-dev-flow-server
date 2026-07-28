@@ -355,6 +355,10 @@ if [ "$UPDATE_MODE" = true ]; then
     if [ "$FRONTEND" = true ]; then
         echo "  更新 workflows/ ..."
         dry_run "mkdir -p $CLAUDE_HOME/.claude/workflows"
+        # 清理旧 v1.0 gate-* 工作流（v3.2 已废弃）
+        for old in "$CLAUDE_HOME/.claude/workflows"/gate-*.js; do
+            [ -f "$old" ] && { dry_run "rm $old"; echo "  [cleanup] $(basename "$old") — v1.0 残留已清理"; }
+        done
         for js in "$SOURCE/workflows/"*.js; do
             [ -f "$js" ] && deploy_file "$js" "$CLAUDE_HOME/.claude/workflows/$(basename "$js")"
         done
