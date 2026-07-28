@@ -41,8 +41,42 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
 RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-frontmatter
 
 # youtube-kb 开发依赖（2026-07-04）
+# yt-dlp + yt-dlp-ejs 版本锁定（2026-07-28），防 PO Token 插件不兼容
 RUN pip3 install --no-cache-dir --break-system-packages \
-    yt-dlp openai google-auth-oauthlib google-api-python-client
+    yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client
+
+# ====== PO Token 体系（2026-07-28）======
+# 防 YouTube 字幕 429；SHA256 校验防供应链攻击
+
+# deno（yt-dlp-ejs JS 运行时，~106MB）
+RUN curl -fsSL --retry 3 https://github.com/denoland/deno/releases/download/v2.9.2/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip && \
+    echo "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a  /tmp/deno.zip" | sha256sum -c - && \
+    unzip -o /tmp/deno.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/deno && \
+    rm /tmp/deno.zip
+
+# bgutil-pot（PO Token HTTP server，端口 4416，~51MB）
+RUN curl -fsSL --retry 3 https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-pot-linux-x86_64 -o /usr/local/bin/bgutil-pot && \
+    echo "e7c264a574fa2705b6e5dc62283a8a4e80130f27b9d7e9df44e6b09aa6151a87  /usr/local/bin/bgutil-pot" | sha256sum -c - && \
+    chmod +x /usr/local/bin/bgutil-pot
+
+# bgutil pot provider 插件（yt-dlp extractor）
+RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
+    curl -fsSL --retry 3 https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-ytdlp-pot-provider-rs.zip -o /tmp/plugin.zip && \
+    echo "99fd83b98fa93b193d6a3b69dc74410d76e7a2b889868c54d16121cac9060344  /tmp/plugin.zip" | sha256sum -c - && \
+    unzip -o /tmp/plugin.zip -d /home/coder/.config/yt-dlp/plugins/bgutil-ytdlp-pot-provider-rs/ && \
+    rm /tmp/plugin.zip && \
+    chown -R coder:coder /home/coder/.config/yt-dlp
+
+# ====== Klore Wiki 编译体系（2026-07-28）======
+# venv + 源码补丁（models.py 3处 + ingester.py 1处）；pip upgrade 会覆盖需重打
+
+RUN python3 -m venv /home/coder/.venvs/klore && \
+    /home/coder/.venvs/klore/bin/pip install --no-cache-dir klore==0.1.1 && \
+    chown -R coder:coder /home/coder/.venvs/klore
+
+COPY patch-klore.py /tmp/patch-klore.py
+RUN python3 /tmp/patch-klore.py && rm /tmp/patch-klore.py
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 RUN curl -fsSL https://archon.diy/install | bash
@@ -64,5 +98,34 @@ EXPOSE 8420
 RUN mkdir -p /etc/supervisor/conf.d && \
     printf '[program:archon]\ncommand=archon serve --port 8420\ndirectory=/home/coder/project\nuser=coder\nautostart=true\nautorestart=true\nenvironment=HOME="/home/coder",ARCHON_HOME="/home/coder/.archon"\n' \
     > /etc/supervisor/conf.d/archon.conf
+
+# ====== Supervisor 增量（2026-07-28）======
+# bgutil-pot + youtube-kb 进程守护；archon 暂不启用
+
+# bgutil-pot（代理仅注入此进程，通过 supervisor 的 %(ENV_VAR)s 从 compose 继承）
+RUN printf '[program:bgutil-pot]\ncommand=bgutil-pot server\ndirectory=/tmp\nuser=coder\nautostart=true\nautorestart=true\npriority=10\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\nenvironment=HTTP_PROXY="%(ENV_CLASH_PROXY_URL)s",HTTPS_PROXY="%(ENV_CLASH_PROXY_URL)s",ALL_PROXY="%(ENV_CLASH_PROXY_URL)s"\n' \
+    > /etc/supervisor/conf.d/bgutil-pot.conf
+
+# youtube-kb 启动包装脚本（含错误检查 + bgutil-pot 就绪等待）
+RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$(jq -r ".anthropicAuthToken // empty" "$CONFIG" 2>/dev/null)\nif [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: anthropicAuthToken empty in $CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nfor i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
+    > /usr/local/bin/youtube-kb-start.sh && \
+    chmod +x /usr/local/bin/youtube-kb-start.sh
+
+# youtube-kb supervisor program
+RUN printf '[program:youtube-kb]\ncommand=/usr/local/bin/youtube-kb-start.sh\ndirectory=/home/coder/project/youtube-kb\nuser=coder\nautostart=true\nautorestart=true\npriority=20\nstartsecs=30\nstartretries=5\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\n' \
+    > /etc/supervisor/conf.d/youtube-kb.conf
+
+# ENTRYPOINTD：容器启动时自动拉起 supervisord
+# base image 的 /usr/bin/entrypoint.sh 内置此机制，创建目录即可
+RUN mkdir -p /entrypoint.d && \
+    printf '#!/bin/bash\nsudo supervisord -c /etc/supervisor/supervisord.conf\n' \
+    > /entrypoint.d/supervisord.sh && \
+    chmod +x /entrypoint.d/supervisord.sh
+
+# Docker HEALTHCHECK：诊断 supervisord + 2 个 program 状态
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD pgrep -x supervisord >/dev/null && \
+        supervisorctl status bgutil-pot | grep -q RUNNING && \
+        supervisorctl status youtube-kb | grep -q RUNNING || exit 1
 
 USER coder

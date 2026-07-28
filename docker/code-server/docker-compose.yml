@@ -2,13 +2,17 @@ services:
   code-server:
     build: .
     container_name: code-server
+    env_file:
+      - .env
     environment:
       - TZ=Asia/Shanghai
-      - PASSWORD=cc9d5d9b82a7fc
+      - PASSWORD=${CODE_SERVER_PASSWORD}
+      - CLASH_PROXY_URL=${CLASH_PROXY_URL}
     volumes:
       - /volume7/docker/codeserver/config:/home/coder/.config
       - /volume7/docker/codeserver/projects:/home/coder/project
       - /volume7/docker/codeserver/config/code-server-data:/home/coder/.local/share/code-server
+      - /volume7/docker/codeserver/data:/data
     ports:
       - '127.0.0.1:8686:8080'
       - '0.0.0.0:25252:8080'
