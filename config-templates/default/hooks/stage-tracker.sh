@@ -101,6 +101,9 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 
   审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
+  1.5 C0 提交前秒检（~/.claude/gate-checklists/test-checklist.md §C0）
+       → 3 条 grep（调试残留/恒真断言/硬编码端口），秒级
+       → 通过后 RED commit
   2. RED commit（message 含 "TDD: RED"）
   3. 🛑 立即停止，执行 C1-C5 预检（~/.claude/gate-checklists/test-checklist.md §C1-C5）
      → 运行 5 项检查，输出结构化报告

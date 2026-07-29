@@ -24,7 +24,7 @@
 | T4 | `git log --oneline` 中测试 commit 在实现 commit 之前 | R1 |
 | T5 | `[human-verify]` AC 在测试文件中有 TODO 注释标注，不遗漏 | — |
 | T6 | 测试按接缝分层：API 契约测试使用最高可用 seam，不穿透实现细节 | 测试宪法 |
-| T7 | 断言/交互不在条件分支内静默跳过 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中 | — |
+| T7 | 断言/交互不在条件分支内静默跳过，且无恒真断言 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中；禁止 `toBeGreaterThanOrEqual(0)`/`typeof toBe('number')`/`>=0 toBeTruthy` | — |
 
 ## 通过条件
 
@@ -39,6 +39,16 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 [ ] 测试 commit 已提交（非暂存区）
 [ ] 确认无跳过意图——不是先写实现再补测试
 ```
+
+## C0: 提交前秒检
+
+> RED commit 前，AI 跑 3 条 grep，秒级完成。不通过 → 修复后再提交。
+
+| # | 检查 | 命令 | 标准 |
+|:--|------|------|:--:|
+| C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/` | 零命中 |
+| C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/` | 零命中 |
+| C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/` | 零命中 |
 
 ## C1-C5 自动预检
 

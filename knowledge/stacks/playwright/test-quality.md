@@ -13,6 +13,7 @@
 | G6 | fixture/helper 中有 `console.error` 监听 | 🔴 阻断 | grep `msg.type() === 'error'` |
 | G7 | 无裸 `waitForTimeout` 替代条件等待 | 🟡 警告 | grep `waitForTimeout(` 排除合理用途 |
 | G8 | 测试数据源有完整性验证注释 | 🟡 警告 | 检查 sale_id/测试用户 附近有无数据来源说明 |
+| G9 | 无调试残留提交 — `test.only`/`describe.only`/`page.pause()` 零容忍 | 🔴 阻断 | grep `test\.only\|describe\.only\|it\.only\|page\.pause` |
 
 ## 通过标准
 
@@ -65,3 +66,18 @@ await expect(page.locator('.result')).toBeVisible();
 - 基于 UMES3 喷涂单/穿条单 46 条 E2E 实战踩坑（29 条假通过根因分析）
 - fixture 参考实现：`react-scaffold/tests/e2e/helpers.js`（gotoSellDetail + clickMenuTab 模式）
 - `memory/playwright-spa-wait-timing.md` — domcontentloaded 问题详细记录
+
+## 项目级 pre-commit 硬门禁（参考）
+
+> DevFlow 不强制安装。项目需要硬阻断时，复制以下脚本到 `.git/hooks/pre-commit`：
+
+```bash
+#!/bin/bash
+# C0 硬门禁版 — .git/hooks/pre-commit
+# 阻断：调试残留 / 恒真断言 / 硬编码端口
+git diff --cached | grep -E "test\.only|describe\.only|page\.pause" \
+  && echo "❌ C0.1: 调试残留" && exit 1
+git diff --cached | grep -E "toBeGreaterThanOrEqual\(0\)|typeof.*toBe\('number'\)" \
+  && echo "❌ C0.2: 恒真断言" && exit 1
+exit 0
+```
