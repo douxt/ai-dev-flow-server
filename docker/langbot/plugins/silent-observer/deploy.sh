@@ -12,8 +12,14 @@ NAS_VOL="/volume1/docker/langbot/data/plugins/dou__langbot-silent-observer"
 DOCKER="/volume1/@appstore/ContainerManager/usr/bin/docker"
 
 echo "=== 1. 上传代码 ==="
-scp "$SCRIPT_DIR/components/event_listener/default.py" "$NAS:$NAS_VOL/components/event_listener/"
-scp "$SCRIPT_DIR/main.py" "$NAS:$NAS_VOL/"
+# 打包上传完整插件目录，NAS 端解压（保留目录结构）
+tar -czf /tmp/so-deploy.tar.gz \
+  -C "$SCRIPT_DIR" \
+  main.py manifest.yaml \
+  components/ store/ service/ util/
+scp /tmp/so-deploy.tar.gz "$NAS:/tmp/"
+ssh "$NAS" "tar -xzf /tmp/so-deploy.tar.gz -C $NAS_VOL && rm /tmp/so-deploy.tar.gz"
+rm -f /tmp/so-deploy.tar.gz
 
 echo "=== 2. 清除 __pycache__ ==="
 ssh "$NAS" "$DOCKER exec langbot-plugin sh -c 'find /app/data/plugins/dou__langbot-silent-observer -name __pycache__ -exec rm -rf {} +'"
