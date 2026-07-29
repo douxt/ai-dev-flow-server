@@ -91,12 +91,31 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] WARNING: cannot verify vision model: {e}, keeping enabled', file=sys.stderr, flush=True)
         if self.vision_all_messages and not self.vision_enabled:
             print('[silent] INFO: vision_all_messages=true ignored (vision_enabled=false)', file=sys.stderr, flush=True)
+        # 状态默认值（持久化前）
         self._vision_daily_count = 0
         self._vision_daily_date = _now().date()
         self._vision_fail_streak = 0
         self._vision_circuit_open_until = None
         self._vision_stats = {'total': 0, 'success': 0, 'fail': 0, 'total_tokens': 0}
-        # 服务层初始化（依赖注入）
+        self._last_trigger = {}
+        self._lock_set_ts = {}
+        self._reply_ts = {}
+        self._last_msg_ts = {}
+        self._gate_hits = 0
+        self._gate_misses = 0
+        self._lock_skips = 0
+        self._inject_random = 0
+        self._inject_at = 0
+        self._stats_start = time.time()
+
+        # 持久化：恢复上次运行时状态
+        from store import StateStore
+        self._state_store = StateStore(self.plugin)
+        saved = await self._state_store.load()
+        if saved:
+            self._restore_state(saved)
+
+        # 服务层初始化（依赖注入，使用恢复后的状态值）
         self.vision_service = VisionService(
             self.plugin, self.vision_model_uuid, self.vision_daily_limit,
             vision_max_images=self.vision_max_images,
@@ -109,27 +128,21 @@ class DefaultEventListener(EventListener):
         self.timeline_service = TimelineService(self.timeline_max_chars, self.history_count)
         self.quote_service = QuoteService(self.timeline_service.extract_text)
         self.retrieval_service = RetrievalService(self.store, self.timeline_max_chars, self.history_count) if self.store else None
-        self._image_cache = {}  # doc_id → {status, desc, time}
-        self._last_trigger = {}
-        self._lock_set_ts = {}  # session → lock设置时间戳
-        self._reply_ts = {}  # session → 上次保存时间戳 (流式去重)
-        self._reply_pending = {}  # session → 缓存的最后一个 ctx
-        self._reply_tasks = {}  # session → debounce task
+
+        # 运行时状态（不持久化）
+        self._image_cache = {}
+        self._reply_pending = {}
+        self._reply_tasks = {}
+        self._face_cache = {}
         self._bg_queue = asyncio.Queue(maxsize=10)
         self._bg_workers = [asyncio.create_task(self._bg_worker()) for _ in range(3)]
-        # 触发统计
-        self._gate_hits = 0
-        self._gate_misses = 0
-        self._lock_skips = 0
-        self._inject_random = 0
-        self._inject_at = 0
-        self._last_msg_ts = {}  # session → 上一条消息时间戳
-        self._face_cache = {}  # session → face_text（gate 提取，inject 注入）
-        self._stats_start = time.time()
-        # 迁移已完成，禁用避免重复
-        # if self.kb_enabled:
-        #     asyncio.create_task(self._migrate_buffer_if_needed())
+
+        # 周期持久化（每 5 分钟）
+        asyncio.create_task(self._periodic_save())
+
         init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled}'
+        if saved:
+            init_msg += f' [restored: gate={self._gate_hits}/{self._gate_misses} vision={self._vision_daily_count}]'
         print(init_msg, file=sys.stderr, flush=True)
         try:
             with open('/tmp/silent_init.log', 'w') as f:
@@ -428,6 +441,54 @@ class DefaultEventListener(EventListener):
                 except:
                     pass
         asyncio.create_task(stats_report_loop())
+
+    def _collect_state(self) -> dict:
+        """收集持久化状态。_last_trigger 剥离不可序列化的 message_chain。"""
+        return {
+            'vision_daily_count': self._vision_daily_count,
+            'vision_daily_date': self._vision_daily_date.isoformat() if self._vision_daily_date else None,
+            'vision_fail_streak': self._vision_fail_streak,
+            'vision_circuit_open_until': self._vision_circuit_open_until,
+            'vision_stats': self._vision_stats,
+            'last_trigger': {k: [v[0], v[1]] for k, v in self._last_trigger.items()},
+            'lock_set_ts': self._lock_set_ts,
+            'reply_ts': self._reply_ts,
+            'last_msg_ts': self._last_msg_ts,
+            'gate_hits': self._gate_hits,
+            'gate_misses': self._gate_misses,
+            'lock_skips': self._lock_skips,
+            'inject_random': self._inject_random,
+            'inject_at': self._inject_at,
+            'stats_start': self._stats_start,
+        }
+
+    def _restore_state(self, state: dict) -> None:
+        """从持久化 dict 恢复状态。缺失字段保留默认值。"""
+        self._vision_daily_count = state.get('vision_daily_count', 0)
+        date_str = state.get('vision_daily_date')
+        self._vision_daily_date = datetime.fromisoformat(date_str).date() if date_str else _now().date()
+        self._vision_fail_streak = state.get('vision_fail_streak', 0)
+        self._vision_circuit_open_until = state.get('vision_circuit_open_until')
+        self._vision_stats = state.get('vision_stats', {'total': 0, 'success': 0, 'fail': 0, 'total_tokens': 0})
+        self._last_trigger = {k: (v[0], v[1], None) for k, v in state.get('last_trigger', {}).items()}
+        self._lock_set_ts = state.get('lock_set_ts', {})
+        self._reply_ts = state.get('reply_ts', {})
+        self._last_msg_ts = state.get('last_msg_ts', {})
+        self._gate_hits = state.get('gate_hits', 0)
+        self._gate_misses = state.get('gate_misses', 0)
+        self._lock_skips = state.get('lock_skips', 0)
+        self._inject_random = state.get('inject_random', 0)
+        self._inject_at = state.get('inject_at', 0)
+        self._stats_start = state.get('stats_start', time.time())
+
+    async def _periodic_save(self):
+        """每 5 分钟将运行时状态持久化到 plugin storage。"""
+        while True:
+            await asyncio.sleep(300)
+            try:
+                await self._state_store.save(self._collect_state())
+            except Exception as e:
+                print(f'[silent] periodic save failed: {e}', file=sys.stderr, flush=True)
 
     def _log_event(self, kind, session, **kwargs):
         now = time.time()

@@ -209,9 +209,12 @@ def listener(monkeypatch):
     obj._stats_start = 0
     # 服务层
     obj.vision_model_uuid = ''
+    _mock_plugin = MagicMock()
+    _mock_plugin.set_plugin_storage = AsyncMock()
+    _mock_plugin.get_plugin_storage = AsyncMock(return_value=None)
     from service.vision import VisionService
     obj.vision_service = VisionService(
-        MagicMock(), obj.vision_model_uuid, obj.vision_daily_limit,
+        _mock_plugin, obj.vision_model_uuid, obj.vision_daily_limit,
         vision_max_images=obj.vision_max_images,
         daily_count_ref=[obj._vision_daily_count],
         daily_date_ref=[obj._vision_daily_date],
@@ -225,4 +228,7 @@ def listener(monkeypatch):
     obj.quote_service = QuoteService(obj.timeline_service.extract_text)
     obj.store = None
     obj.retrieval_service = None
+    # 持久化
+    from store import StateStore
+    obj._state_store = StateStore(_mock_plugin)
     return obj
