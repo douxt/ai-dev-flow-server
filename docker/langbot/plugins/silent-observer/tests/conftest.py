@@ -1,5 +1,5 @@
 """共享 fixtures：SDK mock 树 + Fake 消息组件 + DefaultEventListener 实例"""
-import sys, types
+import sys, os, types
 from unittest.mock import MagicMock, AsyncMock
 from types import SimpleNamespace
 
@@ -170,8 +170,10 @@ def listener(monkeypatch):
     # 重载模块以确保干净的 sys.modules 状态
     if 'components.event_listener.default' in sys.modules:
         del sys.modules['components.event_listener.default']
-    # 添加 tests 的父目录到 sys.path
-    sys.path.insert(0, '/home/dou/dev/ai-dev-flow-server/.claude/worktrees/test-suite/docker/langbot/plugins/silent-observer')
+    # 添加 tests 的父目录（插件根目录）到 sys.path
+    _plugin_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if _plugin_root not in sys.path:
+        sys.path.insert(0, _plugin_root)
     from components.event_listener.default import DefaultEventListener
     obj = DefaultEventListener.__new__(DefaultEventListener)
     obj.bot_qq = '3228649756'
@@ -205,4 +207,28 @@ def listener(monkeypatch):
     obj._inject_random = 0
     obj._inject_at = 0
     obj._stats_start = 0
+    # 服务层
+    obj.vision_model_uuid = ''
+    _mock_plugin = MagicMock()
+    _mock_plugin.set_plugin_storage = AsyncMock()
+    _mock_plugin.get_plugin_storage = AsyncMock(return_value=None)
+    from service.vision import VisionService
+    obj.vision_service = VisionService(
+        _mock_plugin, obj.vision_model_uuid, obj.vision_daily_limit,
+        vision_max_images=obj.vision_max_images,
+        daily_count_ref=[obj._vision_daily_count],
+        daily_date_ref=[obj._vision_daily_date],
+        fail_streak_ref=[obj._vision_fail_streak],
+        circuit_open_ref=[obj._vision_circuit_open_until],
+        stats_ref=obj._vision_stats,
+    )
+    from service.timeline import TimelineService
+    obj.timeline_service = TimelineService(obj.timeline_max_chars, obj.history_count)
+    from service.quote import QuoteService
+    obj.quote_service = QuoteService(obj.timeline_service.extract_text)
+    obj.store = None
+    obj.retrieval_service = None
+    # 持久化
+    from store import StateStore
+    obj._state_store = StateStore(_mock_plugin)
     return obj

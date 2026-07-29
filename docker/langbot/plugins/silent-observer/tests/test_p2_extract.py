@@ -61,12 +61,12 @@ class TestExtractQuote:
 
     @pytest.mark.asyncio
     async def test_source_only(self, listener):
-        """仅含 Source 的 origin = 合并转发群聊记录"""
+        """仅含 Source 的 origin = 转发消息（内容未展开）"""
         class FakeSource:
             type = 'Source'
         quote = FakeQuote(origin=[FakeSource()])
         result = await listener._extract_quote([quote])
-        assert '合并转发' in result
+        assert '转发消息' in result
 
     @pytest.mark.asyncio
     async def test_forward_with_nested_quote(self, listener):

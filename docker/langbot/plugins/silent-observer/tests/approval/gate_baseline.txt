@@ -1,0 +1,36 @@
+# Gate Decision Baseline — recorded 2026-07-28 from group_116381172
+# Format: <unix_ts> <session> <decision> <attrs>
+# Fields: gap=Xs trigger=at|random locked=True|False doc_id=chat:<sha256[:16]>|None
+
+# === gate hit: @mention with KB ===
+# Expected: doc_id != None, locked=False (first trigger in window)
+group_116381172 hit trigger=at locked=False doc_id=chat:5576cbe53c2694ad
+
+# === gate hit: random trigger (not locked) ===
+# Expected: doc_id != None, locked=False
+group_116381172 hit trigger=random locked=False doc_id=chat:a3054bf07fb150e9
+
+# === gate hit: random trigger (locked — within cooldown) ===
+# Expected: gap=0.0s, locked=True
+group_116381172 hit trigger=random locked=True doc_id=chat:a329e87646096d89
+
+# === gate miss: no trigger ===
+# Expected: no doc_id, no trigger
+group_116381172 miss
+
+# === gate hit: @mention without KB (doc_id=None) ===
+group_116381172 hit trigger=at locked=False doc_id=None
+
+# === inject: @mention follow-through ===
+# Expected: trigger=at, lock_dur ~30s
+group_116381172 inject trigger=at lock_dur=30.1s
+
+# === inject: random trigger follow-through ===
+group_116381172 inject trigger=random lock_dur=0.1s
+
+# === lock_skip: random trigger blocked by active lock ===
+group_116381172 lock_skip doc_id=chat:48bda05acac0c788
+
+# === doc_id format verification ===
+# Pattern: chat:<16 hex chars from sha256(session|time|sender|text)
+# Example: chat:5576cbe53c2694ad
