@@ -83,12 +83,12 @@ fi
 log "容器就绪 (${STATUS})"
 
 # ── 上传并执行验证脚本 ────────────────────────────────────────
-log "上传 verify_core.py 到 napcat 容器..."
+log "上传 verify_core.py 到 langbot-plugin 容器..."
 if ! scp -q "$VERIFY_PY" "$NAS:/tmp/verify_core_tmp.py"; then
     err "上传失败"
     exit 1
 fi
-if ! ssh "$NAS" "$DOCKER cp /tmp/verify_core_tmp.py napcat:/tmp/verify_core.py"; then
+if ! ssh "$NAS" "$DOCKER cp /tmp/verify_core_tmp.py langbot-plugin:/tmp/verify_core.py"; then
     err "docker cp 失败"
     exit 1
 fi
@@ -96,8 +96,8 @@ fi
 log "执行验证 (mode=$VERIFY_MODE)..."
 echo ""
 
-# 在 napcat 容器内执行（--json 便于解析）
-RESULT=$(ssh "$NAS" "$DOCKER exec napcat python3 /tmp/verify_core.py --json $SCENE_ARGS 2>&1") || true
+# 在 langbot-plugin 容器内执行（可访问 langbot:5300 + 可读 gate log）
+RESULT=$(ssh "$NAS" "$DOCKER exec langbot-plugin python3 /tmp/verify_core.py --json $SCENE_ARGS 2>&1") || true
 
 # ── 解析结果 ──────────────────────────────────────────────────
 if echo "$RESULT" | python3 "$PARSE_PY" check 2>/dev/null; then
