@@ -1,5 +1,29 @@
 # Silent Observer 插件开发日志
 
+> 2026-07-08 ~ 2026-07-29
+
+## 2026-07-29 — 自动化验证体系 + LTM 故障诊断
+
+### 自动化验证基础设施
+
+新建 4 个文件，实现"修完代码 30 秒自检，不等人验证"：
+
+- `tests/verify_core.py` — 7 场景核心验证（connectivity/core/ltm/face/quote/vision/noise）
+- `scripts/verify-fix.sh` — 一键入口（--quick/--ltm/--scene），容器就绪探测
+- `scripts/watch-logs.sh` — 实时日志监控（--errors/--metrics/--inject）
+- `deploy.sh` 增强 — 新增 --verify/--verify-ltm/--verify-quick 参数
+
+验证流程：`/sync` 端点模拟用户消息 → 结构化断言 → 红/绿报告。
+详见 [automated-testing-guide.md](automated-testing-guide.md) 第十章。
+
+### LTM 故障诊断
+
+根因：LangRAG 插件被禁用（`enabled=0`）+ 文件在 `plugins.v3-bak` 备份目录。
+恢复后 QQ 群路径 LTM 正常，`/sync` 路径受限于 `list_pipeline_knowledge_bases()` 的 pipeline 上下文。
+详见 [ltm-langrag-restoration-20260729.md](ltm-langrag-restoration-20260729.md)。
+
+---
+
 > 2026-07-08 ~ 2026-07-09 | KB 归档 + 混合搜索 全链路开发
 
 ---

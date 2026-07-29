@@ -33,6 +33,7 @@
 | 🧪 **自动化测试指南** | [automated-testing-guide.md](automated-testing-guide.md) | 测试金字塔(单元/集成/E2E)+lbp run+CI 方案 |
 | 💥 **事故报告** | [incident-20260713-docker-hang.md](incident-20260713-docker-hang.md) | Docker 僵尸会话崩守护进程——时间线/根因/修复/预防 |
 | 💥 **MCP 超时事故** | [incident-20260714-mcp-timeout.md](incident-20260714-mcp-timeout.md) | MCP 工具调用超时导致会话锁死 9 小时 |
+| 🔧 **LTM 故障诊断** | [ltm-langrag-restoration-20260729.md](ltm-langrag-restoration-20260729.md) | LTM 不工作根因——LangRAG 被禁用+文件在 bak 目录 |
 
 ---
 
