@@ -14,6 +14,7 @@
 | G7 | 无裸 `waitForTimeout` 替代条件等待 | 🟡 警告 | grep `waitForTimeout(` 排除合理用途 |
 | G8 | 测试数据源有完整性验证注释 | 🟡 警告 | 检查 sale_id/测试用户 附近有无数据来源说明 |
 | G9 | 无调试残留提交 — `test.only`/`describe.only`/`page.pause()` 零容忍 | 🔴 阻断 | grep `test\.only\|describe\.only\|it\.only\|page\.pause` |
+| G10 | TDD RED 用 `test.fail()` 非 `test.skip()` — 预期失败必须用 `test.fail()`，禁止用 `test.skip()`/`test.fixme()` 绕过 RED 阶段 | 🔴 阻断 | grep `test\.skip\|test\.fixme` tests/e2e/ |
 
 ## 通过标准
 
@@ -60,6 +61,35 @@ await expect(page.locator('.result')).toBeVisible();
 await page.waitForSelector('.result', { timeout: 5000 });
 await expect(page.locator('.result')).toBeVisible();
 ```
+
+### G10: TDD RED 用 test.skip 冒充
+
+```javascript
+// ❌ 阻断 — test.skip() 不运行测试，无法验证功能缺失
+test.skip('AC1: pack Tab 有 checkbox 列', async ({ page }) => {
+  await gotoSellDetail(page);
+  await expect(page.locator('.ant-table-tbody input[type="checkbox"]').first())
+    .toBeVisible();
+});
+
+// ❌ 阻断 — 裸超时等 RED，无明确 RED 标记
+test('AC1: pack Tab 有 checkbox 列', async ({ page }) => {
+  await gotoSellDetail(page);
+  // 元素不存在时超时 → 测试报告为普通失败，无法区分"预期 RED"和"意外失败"
+  await expect(page.locator('.ant-table-tbody input[type="checkbox"]').first())
+    .toBeVisible({ timeout: 10000 });
+});
+
+// ✅ test.fail() — Playwright 官方 TDD RED 机制
+test('AC1: pack Tab 有 checkbox 列', async ({ page }) => {
+  test.fail(); // 🔴 AC1: 待实现 — pack Tab 勾选+checkbox
+  await gotoSellDetail(page);
+  await expect(page.locator('.ant-table-tbody input[type="checkbox"]').first())
+    .toBeVisible();
+});
+```
+
+> `test.fail()` 行为：失败 → "expected failure ✅"；意外通过 → "unexpected pass ❌"（GREEN 后忘删标记会报错）。既验证功能确实缺失，又防止假 GREEN。
 
 ## 参考
 

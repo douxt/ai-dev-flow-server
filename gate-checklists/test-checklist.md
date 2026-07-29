@@ -59,7 +59,7 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 | # | 检查项 | 自动化命令 | 通过条件 |
 |:--|:--|:--|:--|
 | C1 | 全部失败 | 运行测试套件（pytest/jest/phpunit/go test/...） | 全部 🔴，0 通过/跳过 |
-| C2 | 原因正确 | 检查错误输出中 `NotImplemented` / `501` / `Not implemented` 命中数 | 命中数 = 测试数 |
+| C2 | 原因正确 | 单元/API 层: grep `NotImplemented` / `501` / `Not implemented` 命中数；E2E 层: 以框架预期失败机制为准（如 Playwright `test.fail()`），不以 NotImplemented/501 为 RED 信号 | 单元/API: 命中数 = 测试数；E2E: 预期失败标记覆盖数 ≥ 预期 RED 数 |
 | C3 | Commit 正确 | `git log -1 --format=%s` | 含 "TDD: RED" |
 | C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
 | C5 | AC 全覆盖 | 逐条 AC 输出对应测试名（`AC1→test_x, AC2→test_y, ...`） | 每条 `[auto]` AC 至少 1 个测试，未覆盖标 ⚠️ |
@@ -82,7 +82,7 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 ### 异常处理
 
 - **C1 有通过/跳过** → 检查测试是否真的覆盖了对应 AC，未覆盖则补测试
-- **C2 有非 NotImplemented 错误**（ImportError/SyntaxError/配置错误）→ 修复测试代码后重新运行，不提交
+- **C2 有非预期 RED 信号** — 单元/API: 非 NotImplemented 错误（ImportError/SyntaxError/配置错误）→ 修复测试代码后重新运行；E2E: 非 `test.fail()` 导致的失败（基础设施错误/配置错误）→ 修复后重新运行，不提交
 - **C3 无 RED commit** → 立即 `git commit -m "TDD: RED — ticket NNN"`
 - **C4 含业务逻辑文件** → `git reset HEAD~1`，仅保留测试+stub，重新提交
 - **C5 有 AC 未覆盖** → 标注 ⚠️，人工判断是否需要补测试；`[human-verify]` AC 可无测试
