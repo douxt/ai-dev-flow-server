@@ -2,7 +2,7 @@
 # 本地入口 → ssh NAS → docker cp 烟雾测试 → 执行 → 回报结果
 set -euo pipefail
 NAS="root@nas"
-TEST_FILE="$(dirname "$0")/test_deploy_smoke.py"
+TEST_FILE="$(dirname "$0")/scripts/test_deploy_smoke.py"
 
 echo "=== 上传烟雾测试 ==="
 scp "$TEST_FILE" "$NAS:/tmp/test_deploy_smoke.py"
