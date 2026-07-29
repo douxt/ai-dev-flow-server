@@ -105,8 +105,8 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
        → 3 条 grep（调试残留/恒真断言/硬编码端口），秒级
        → 通过后 RED commit
   2. RED commit（message 含 "TDD: RED"）
-  3. 🛑 立即停止，执行 C1-C5 预检（~/.claude/gate-checklists/test-checklist.md §C1-C5）
-     → 运行 5 项检查，输出结构化报告
+  3. 🛑 立即停止，执行完整预检（Read ~/.claude/gate-checklists/test-checklist.md 全文，含 C0 + C1-C5 + 项目扩展）
+     → 逐项运行全部检查，输出结构化报告
      → 等待人工确认，未经确认不得继续
      → 确认通过后方可进入 /implement
 
@@ -125,7 +125,7 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   /implement 启动前确认:
   □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
-  🛑 C1-C5 预检: 必须已输出报告并经人工确认。如未完成 → 立即退回执行 C1-C5，禁止跳过
+  🛑 test-checklist 完整预检: 必须已 Read 全文并按全部检查项（C0 + C1-C5 + 项目扩展）执行并输出报告，经人工确认。如未完成 → 立即退回执行，禁止跳过
   ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
