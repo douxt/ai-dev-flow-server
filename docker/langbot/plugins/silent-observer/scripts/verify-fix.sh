@@ -1,0 +1,126 @@
+#!/bin/bash
+# ===========================================================================
+# verify-fix.sh — Silent Observer 一键验证，修完代码 30s 知道结果
+#
+# 用法:
+#   bash scripts/verify-fix.sh              # 全部场景
+#   bash scripts/verify-fix.sh --quick      # 仅 L1+L2 快速确认
+#   bash scripts/verify-fix.sh --ltm        # 仅 LTM 专项
+#   bash scripts/verify-fix.sh --scene face # 跑单个场景
+#
+# 前置条件:
+#   - NAS Docker 已部署最新代码
+#   - SSH root@nas 可用
+#   - langbot + napcat 容器运行中
+# ===========================================================================
+set -euo pipefail
+
+NAS="root@nas"
+DOCKER="/volume1/@appstore/ContainerManager/usr/bin/docker"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIFY_PY="$SCRIPT_DIR/../tests/verify_core.py"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log()    { echo -e "${GREEN}[verify]${NC} $*"; }
+warn()   { echo -e "${YELLOW}[verify]${NC} $*"; }
+err()    { echo -e "${RED}[verify]${NC} $*"; }
+
+# ── 参数解析 ──────────────────────────────────────────────────
+SCENE_ARGS=""
+VERIFY_MODE="all"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --quick)
+            SCENE_ARGS="--scene connectivity --scene core"
+            VERIFY_MODE="quick"
+            shift ;;
+        --ltm)
+            SCENE_ARGS="--scene ltm"
+            VERIFY_MODE="ltm"
+            shift ;;
+        --scene)
+            SCENE_ARGS="--scene $2"
+            VERIFY_MODE="$2"
+            shift 2 ;;
+        --all)
+            SCENE_ARGS=""
+            VERIFY_MODE="all"
+            shift ;;
+        *)
+            err "未知参数: $1"
+            echo "用法: bash scripts/verify-fix.sh [--quick|--ltm|--scene <name>|--all]"
+            exit 1 ;;
+    esac
+done
+
+# ── 容器就绪探测 ──────────────────────────────────────────────
+log "容器就绪探测..."
+PROBE_START=$(date +%s)
+PROBE_TIMEOUT=60
+READY=false
+
+while [[ $(($(date +%s) - PROBE_START)) -lt $PROBE_TIMEOUT ]]; do
+    STATUS=$(ssh "$NAS" "$DOCKER exec napcat curl -s -o /dev/null -w '%{http_code}' \
+        http://langbot:5300/bots/dcbe70d9-af11-4624-908a-9928e4a08bdb/sync \
+        -X POST -H 'Content-Type: application/json' \
+        -d '{\"session_id\":\"probe\",\"session_type\":\"group\",\"sender\":{\"id\":\"0\"},\"message\":[{\"type\":\"Plain\",\"text\":\"probe\"}]}' \
+        --connect-timeout 3 --max-time 10 2>/dev/null || echo '000')"
+
+    if [[ "$STATUS" != "000" ]]; then
+        READY=true
+        break
+    fi
+    sleep 2
+done
+
+if [[ "$READY" != "true" ]]; then
+    err "容器未就绪（${PROBE_TIMEOUT}s 超时），请检查 langbot 状态"
+    exit 1
+fi
+log "容器就绪 (${STATUS})"
+
+# ── 上传并执行验证脚本 ────────────────────────────────────────
+log "上传 verify_core.py 到 napcat 容器..."
+scp -q "$VERIFY_PY" "$NAS:/tmp/verify_core_tmp.py" || {
+    err "上传失败"
+    exit 1
+}
+ssh "$NAS" "$DOCKER cp /tmp/verify_core_tmp.py napcat:/tmp/verify_core.py" || {
+    err "docker cp 失败"
+    exit 1
+}
+
+log "执行验证 (mode=$VERIFY_MODE)..."
+echo ""
+
+# 在 napcat 容器内执行（--json 便于解析）
+RESULT=$(ssh "$NAS" "$DOCKER exec napcat python3 /tmp/verify_core.py --json $SCENE_ARGS 2>&1") || true
+
+# ── 解析结果 ──────────────────────────────────────────────────
+if echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d['failed']==0 else 1)" 2>/dev/null; then
+    PASSED=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['passed'])")
+    TOTAL=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])")
+    ELAPSED=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['elapsed_s'])")
+    echo ""
+    log "✅ ${PASSED}/${TOTAL} 通过 (${ELAPSED}s)"
+    exit 0
+else
+    # 提取失败详情
+    echo "$RESULT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for r in d.get('results', []):
+        if r['status'] == 'FAIL':
+            print(f\"  ❌ {r['name']}: {r['detail']}\")
+    print(f\"\n❌ {d['failed']}/{d['total']} 失败 ({d['elapsed_s']}s)\")
+except:
+    print(sys.stdin.read())
+" 2>/dev/null || echo "$RESULT"
+    exit 1
+fi
