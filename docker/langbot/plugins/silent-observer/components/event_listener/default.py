@@ -526,7 +526,7 @@ class DefaultEventListener(EventListener):
         is_forward_only = chain_types == ['Source']
         text = ''
         if is_forward_only:
-            text = '[合并转发群聊记录]'
+            text = '[转发消息（内容未展开，无法查看具体消息和图片）]'
             _log_gate(f'_save_text_only: forward-only (Source only) from {event.sender_id}')
         else:
             text = await self.timeline_service.extract_text(event.message_chain) or getattr(event, 'text_message', '')
