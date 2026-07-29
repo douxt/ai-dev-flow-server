@@ -166,31 +166,7 @@ class DefaultEventListener(EventListener):
             face_text = self._extract_faces(ctx.event.message_chain)
             if face_text:
                 self._face_cache[session_name] = face_text
-            if is_trigger and self.kb_enabled:
-                doc_id = await self._save_text_only(ctx.event)
-                has_img = self._has_image(ctx.event.message_chain)
-                has_img_in_quote = quote_has_img
-                if doc_id and self.vision_enabled and (has_img or has_img_in_quote):
-                    self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
-                    self._run_background(self._save_with_vision(ctx.event, doc_id))
-                trigger = 'at' if is_at else 'random'
-                locked = session_name in self._last_trigger and not is_at
-                if not locked:
-                    self._last_trigger[session_name] = (trigger, doc_id, ctx.event.message_chain)
-                    self._lock_set_ts[session_name] = time.time()
-                else:
-                    self._lock_skips += 1
-                    self._log_event('lock_skip', session_name, doc_id=doc_id)
-                self._gate_hits += 1
-                self._log_event('hit', session_name, trigger=trigger, locked=str(locked), doc_id=doc_id)
-                gate_msg = f'[silent] gate: allowed ({trigger}) doc_id={doc_id}'
-                print(gate_msg, file=sys.stderr, flush=True)
-                try:
-                    with open('/tmp/silent_gate.log', 'a') as f:
-                        f.write(gate_msg + '\n')
-                except:
-                    pass
-            elif is_trigger:
+            if is_trigger:
                 doc_id = await self._save_text_only(ctx.event)
                 trigger = 'at' if is_at else 'random'
                 locked = session_name in self._last_trigger and not is_at
@@ -202,13 +178,15 @@ class DefaultEventListener(EventListener):
                     self._log_event('lock_skip', session_name, doc_id=doc_id)
                 self._gate_hits += 1
                 self._log_event('hit', session_name, trigger=trigger, locked=str(locked), doc_id=doc_id)
-                gate_msg = f'[silent] gate: allowed ({trigger}) [no kb]'
-                print(gate_msg, file=sys.stderr, flush=True)
-                try:
-                    with open('/tmp/silent_gate.log', 'a') as f:
-                        f.write(gate_msg + '\n')
-                except:
-                    pass
+                if self.kb_enabled:
+                    has_img = self._has_image(ctx.event.message_chain)
+                    has_img_in_quote = quote_has_img
+                    if doc_id and self.vision_enabled and (has_img or has_img_in_quote):
+                        self._image_cache[doc_id] = {'status': 'pending', 'desc': '[图片]', 'time': time.time()}
+                        self._run_background(self._save_with_vision(ctx.event, doc_id))
+                    self._log_gate_msg(f'[silent] gate: allowed ({trigger}) doc_id={doc_id}')
+                else:
+                    self._log_gate_msg(f'[silent] gate: allowed ({trigger}) [no kb]')
             else:
                 if self.kb_enabled:
                     doc_id = await self._save_text_only(ctx.event)
@@ -219,10 +197,7 @@ class DefaultEventListener(EventListener):
                         self._run_background(self._save_and_store(ctx.event))
                 self._gate_misses += 1
                 self._log_event('miss', session_name)
-                try:
-                    with open('/tmp/silent_gate.log', 'a') as f:
-                        f.write(f'[silent] gate: prevented\n')
-                except: pass
+                self._log_gate_msg('[silent] gate: prevented')
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
 
@@ -304,71 +279,19 @@ class DefaultEventListener(EventListener):
                     items = items[-self.history_count:]
 
                 lines = _format_timeline(items)
-                # 去重：连续相同 bot 消息只保留第一条（防 relay 重复污染 + 自我引用级联放大）
-                _deduped = []
-                for _l in lines:
-                    if not _deduped or _l != _deduped[-1]:
-                        _deduped.append(_l)
-                lines = _deduped
-
-                # 字符数限制：从最旧开始丢弃完整消息
-                max_chars = self.timeline_max_chars
-                total_chars = sum(len(l) for l in lines)
-                while lines and total_chars > max_chars:
-                    total_chars -= len(lines.pop(0))
-
-                # 🔖 强化 timeline 中图片识别标记（仅行内标记，不追加全局总结防 LLM 混淆）
-                import re
-                _identified = 0
-                _pending = 0
-                _failed = 0
-                for _i, _line in enumerate(lines):
-                    if '🖼️ 图' not in _line:
-                        continue
-                    _idx = _line.index('🖼️ 图')
-                    _pfx = _line[:_idx]
-                    _rest = _line[_idx:]
-                    if '：⏳ 识别中' in _rest:
-                        lines[_i] = _pfx + _rest.replace('🖼️ 图', '⏳ [AI识图中] 图', 1)
-                        _pending += 1
-                    else:
-                        _m = re.match(r'🖼️ 图\d+：\[图片([^\]]*)\]', _rest)
-                        if _m:
-                            _img_prefix = _rest[:_rest.index('：')]
-                            _desc = _m.group(1).strip()
-                            if _desc.startswith('('):
-                                _reason = _desc.strip('()')
-                                lines[_i] = _pfx + _rest.replace('🖼️ 图', f'❌ [AI识图失败:{_reason}] 图', 1)
-                                _failed += 1
-                            else:
-                                _img_prefix_new = _img_prefix.replace('🖼️ 图', '🤖 [AI识图] 图', 1)
-                                _after = _rest[len(f'{_img_prefix}：[图片{_desc}]'):]
-                                lines[_i] = _pfx + f'{_img_prefix_new}：[{_desc}]' + _after
-                                _identified += 1
+                lines = self.timeline_service.deduplicate(lines)
+                lines = self.timeline_service.truncate_by_chars(lines)
+                lines, _identified, _pending, _failed = self.timeline_service.enhance_image_markers(lines)
 
                 # DEBUG: dump prompt for analysis
-                query_vars2 = await api.get_query_vars()
-                at_text2 = str(query_vars2.get('user_message_text', '') or '')
-                try:
-                    with open('/tmp/silent_prompt_dump.log', 'a') as f:
-                        f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
-                        f.write(f'[1] time: {now_str}\n')
-                        f.write(f'[2] trigger: {trigger}\n')
-                        f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
-                        f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
-                        f.write(f'[5] user: {at_text2[:200]}\n')
-                        _face_in_timeline = sum(1 for l in lines if '[QQ表情:' in l)
-                        _face_info = face_text if face_text else (f'timeline 含 {_face_in_timeline} 条' if _face_in_timeline else '(无)')
-                        f.write(f'[6] face: {_face_info}\n')
-                except:
-                    pass
+                await self._dump_prompt_debug(api, now_str, trigger, _identified, _pending, _failed, lines, face_text)
 
                 lock_dur = time.time() - self._lock_set_ts.pop(session_name, time.time())
                 self._log_event('inject', session_name, trigger=trigger, lock_dur=f'{lock_dur:.1f}s')
                 if trigger == 'random':
                     self._inject_random += 1
                     ctx.event.prompt.append(provider_message.Message(role='system', content='[随机插话] 从【】内群聊历史中挑选最值得评论的话题自由发挥。'))
-                    ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                    self._emit_timeline(ctx, lines)
                     ctx.event.prompt.append(provider_message.Message(role='system', content='以上是群聊历史。接下来有一条用户消息——它只是随机触发器，不是你该回复的内容。无视它，用历史中的话题回应。'))
                 else:
                     self._inject_at += 1
@@ -378,14 +301,14 @@ class DefaultEventListener(EventListener):
                     _log_gate(f'[{session_name}] quote_text={quote_text[:100] if quote_text else "(empty)"}')
                     if at_text.strip():
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[@模式]'))
-                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        self._emit_timeline(ctx, lines)
                     elif quote_text:
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你，但引用了消息。你必须优先结合上面引用的内容直接回答（20-50字）。不要回复"在线""收到"等状态确认。'))
-                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        self._emit_timeline(ctx, lines)
                         trigger = 'empty_at'
                     else:
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你。你必须从【】内群聊最近记录中挑选一个具体话题直接评论（20-50字）。不要回复"在线""收到"等状态确认，不要打招呼，直接说话题。'))
-                        ctx.event.prompt.append(provider_message.Message(role='system', content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'))
+                        self._emit_timeline(ctx, lines)
                         trigger = 'empty_at'
 
             except Exception as e:
@@ -398,16 +321,7 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] vision stats: total={stats["total"]} ok={stats["success"]} fail={stats["fail"]}', file=sys.stderr, flush=True)
             print(f'[silent] inject: timeline={len(items)} ({trigger})', file=sys.stderr, flush=True)
             # DEBUG: dump full prompt
-            try:
-                with open('/tmp/silent_gate.log', 'a') as f:
-                    f.write(f'=== LLM RAW PROMPT [{_now().strftime("%H:%M:%S")}] ===\n')
-                    for i, msg in enumerate(ctx.event.prompt):
-                        role = getattr(msg, 'role', '?')
-                        content = str(getattr(msg, 'content', ''))
-                        f.write(f'--- [{i}] role={role} ({len(content)}c) ---\n{content}\n')
-                    f.write('=== END RAW PROMPT ===\n\n')
-            except:
-                pass
+            self._dump_raw_prompt(ctx)
 
         # 定期清理 _image_cache
         async def cache_cleanup_loop():
@@ -490,6 +404,54 @@ class DefaultEventListener(EventListener):
             except Exception as e:
                 print(f'[silent] periodic save failed: {e}', file=sys.stderr, flush=True)
 
+    @staticmethod
+    def _emit_timeline(ctx, lines):
+        ctx.event.prompt.append(provider_message.Message(
+            role='system',
+            content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'
+        ))
+
+    async def _dump_prompt_debug(self, api, now_str, trigger, _identified, _pending, _failed, lines, face_text):
+        """DEBUG: dump inject prompt analysis 到 /tmp/silent_prompt_dump.log。"""
+        try:
+            query_vars = await api.get_query_vars()
+            at_text = str(query_vars.get('user_message_text', '') or '')
+            with open('/tmp/silent_prompt_dump.log', 'a') as f:
+                f.write(f'\n=== PROMPT DUMP [{_now().strftime("%H:%M:%S")}] ===\n')
+                f.write(f'[1] time: {now_str}\n')
+                f.write(f'[2] trigger: {trigger}\n')
+                f.write(f'[3] ai_identified={_identified} ai_pending={_pending} ai_failed={_failed}\n')
+                f.write(f'[4] timeline ({len(lines)} lines):\n' + '\n'.join(lines) + '\n')
+                f.write(f'[5] user: {at_text[:200]}\n')
+                _face_in_timeline = sum(1 for l in lines if '[QQ表情:' in l)
+                _face_info = face_text if face_text else (f'timeline 含 {_face_in_timeline} 条' if _face_in_timeline else '(无)')
+                f.write(f'[6] face: {_face_info}\n')
+        except:
+            pass
+
+    @staticmethod
+    def _dump_raw_prompt(ctx):
+        """DEBUG: dump LLM raw prompt 到 /tmp/silent_gate.log。"""
+        try:
+            with open('/tmp/silent_gate.log', 'a') as f:
+                f.write(f'=== LLM RAW PROMPT [{datetime.now(BJT).strftime("%H:%M:%S")}] ===\n')
+                for i, msg in enumerate(ctx.event.prompt):
+                    role = getattr(msg, 'role', '?')
+                    content = str(getattr(msg, 'content', ''))
+                    f.write(f'--- [{i}] role={role} ({len(content)}c) ---\n{content}\n')
+                f.write('=== END RAW PROMPT ===\n\n')
+        except:
+            pass
+
+    def _log_gate_msg(self, msg: str):
+        """写 gate 日志到 stderr + /tmp/silent_gate.log（best-effort）。"""
+        print(msg, file=sys.stderr, flush=True)
+        try:
+            with open('/tmp/silent_gate.log', 'a') as f:
+                f.write(msg + '\n')
+        except:
+            pass
+
     def _log_event(self, kind, session, **kwargs):
         now = time.time()
         gap = ''
@@ -541,6 +503,21 @@ class DefaultEventListener(EventListener):
         return self.quote_service.has_image(message_chain)
     async def _extract_quote(self, message_chain, depth=0) -> str:
         return await self.quote_service.extract(message_chain, depth)
+
+    @staticmethod
+    def _extract_sender(event):
+        """从 event 提取 (sender_name, sender_title, sender_role)。"""
+        sender = getattr(event.message_event, 'sender', None)
+        if sender:
+            name = getattr(sender, 'member_name', '') or str(event.sender_id)
+            title = getattr(sender, 'special_title', '') or ''
+            role = _norm_role(getattr(sender, 'permission', None))
+        else:
+            name = str(event.sender_id)
+            title = ''
+            role = ''
+        return name, title, role
+
     async def _save_text_only(self, event):
         """只存文本到 KB，不等待识图。gate 触发路径使用。"""
         chain_types = [c.type for c in (event.message_chain or [])]
@@ -556,15 +533,7 @@ class DefaultEventListener(EventListener):
             if 'Unknown' in text:
                 mc_types = [f'{c.type}' for c in (event.message_chain or [])]
                 _log_gate(f'_save_text_only: HAS_UNKNOWN text_len={len(text)} chain_types={mc_types} text100={text[:100]}')
-        sender = getattr(event.message_event, 'sender', None)
-        if sender:
-            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
-            sender_title = getattr(sender, 'special_title', '') or ''
-            sender_role = _norm_role(getattr(sender, 'permission', None))
-        else:
-            sender_name = str(event.sender_id)
-            sender_title = ''
-            sender_role = ''
+        sender_name, sender_title, sender_role = self._extract_sender(event)
         if text.startswith('Unknown Message:') or text.strip() == f'@{self.bot_qq}':
             return None
         if len(text) > 500:
@@ -604,10 +573,7 @@ class DefaultEventListener(EventListener):
             # upsert KB
             session_name = f'{event.launcher_type}_{event.launcher_id}'
             time_str = _now().strftime('%Y-%m-%d %H:%M')
-            sender = getattr(event.message_event, 'sender', None)
-            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id) if sender else str(event.sender_id)
-            sender_title = getattr(sender, 'special_title', '') or '' if sender else ''
-            sender_role = _norm_role(getattr(sender, 'permission', None)) if sender else ''
+            sender_name, sender_title, sender_role = self._extract_sender(event)
             if len(text) > 500:
                 text = text[:300] + '...[truncated]...' + text[-100:]
             meta = _build_msg_metadata(session_name, sender_name, str(event.sender_id), time_str, text, sender_role, sender_title)
@@ -627,15 +593,7 @@ class DefaultEventListener(EventListener):
             return
         if len(text) > 500:
             text = text[:300] + '...[truncated]...' + text[-100:]
-        sender = getattr(event.message_event, 'sender', None)
-        if sender:
-            sender_name = getattr(sender, 'member_name', '') or str(event.sender_id)
-            sender_title = getattr(sender, 'special_title', '') or ''
-            sender_role = _norm_role(getattr(sender, 'permission', None))
-        else:
-            sender_name = str(event.sender_id)
-            sender_title = ''
-            sender_role = ''
+        sender_name, sender_title, sender_role = self._extract_sender(event)
         session_name = f'{event.launcher_type}_{event.launcher_id}'
         time_str = _now().strftime('%Y-%m-%d %H:%M')
         doc_id = _build_document_id(session_name, time_str, str(event.sender_id), text)
