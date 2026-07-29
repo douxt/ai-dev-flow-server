@@ -48,4 +48,5 @@ dev = [
     "coverage>=7.10",
     "pytest-cov>=7.0",
     "pillow>=10.0",
+    "pyyaml>=6.0.3",
 ]
