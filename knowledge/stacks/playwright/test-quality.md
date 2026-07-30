@@ -118,6 +118,37 @@ test('AC1: 发起喷涂创建', async ({ page }) => {
 
 > **Setup 例外**：`beforeAll`/`beforeEach` 中的 `apiCall` 用于创建测试数据/清理——合法。只有 `test()` 函数体内的 Action 才必须走 UI。
 
+## 性能优化
+
+### workers 并行度
+
+默认 `workers: 1` 串行执行。实测 47 条 E2E 耗时 430s → `workers: 2` 降为 237s（45% ↓）。
+
+```javascript
+// playwright.config.js
+export default defineConfig({
+  workers: 2,              // 并行 worker 数（建议 2，CI 环境按 CPU 核数调整）
+  fullyParallel: false,    // 同一 spec 文件内串行（避免 describe.serial 冲突）
+})
+```
+
+- `workers: 1` → 全串行，稳定但慢
+- `workers: 2` → 推荐默认值，提速 ~45%，风险低
+- `workers: 4+` → 仅在 CI 大机器上使用，注意 flaky 风险
+
+### 页面导航策略
+
+SPA 页面避免 `networkidle`——Webpack HMR WebSocket 可能无限等待。改用 `load` + `waitForSelector`：
+
+```javascript
+// ❌ 慢且可能超时
+await page.goto(url, { waitUntil: 'networkidle' });
+
+// ✅ 快且稳定
+await page.goto(url, { waitUntil: 'load' });
+await page.waitForSelector('.ant-table', { timeout: 10000 });
+```
+
 ## 参考
 
 - 基于 UMES3 喷涂单/穿条单 46 条 E2E 实战踩坑（29 条假通过根因分析）

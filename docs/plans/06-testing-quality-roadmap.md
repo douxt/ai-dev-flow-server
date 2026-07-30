@@ -22,12 +22,12 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 | # | 来源 | 摘要 | 优先级 | 日期 | 归类 |
 |:--|------|------|:--:|------|:--|
-| F1 | UMES3 `process-feedback-session-20260730.md` | G0 反向突变测试——补形式vs有效性缺口 | P0 | 07-30 | → 阶段四 |
-| F2 | 同上 | C0 扩展 waitForTimeout 扫描（100+ 残留） | P1 | 07-30 | → 阶段四 |
+| F1 | UMES3 `process-feedback-session-20260730.md` | G0 反向突变测试——补形式vs有效性缺口 | P0 | 07-30 | ✅ 已实施 |
+| F2 | 同上 | C0 扩展 waitForTimeout 扫描（100+ 残留） | P1 | 07-30 | ✅ 已实施 |
 | F3 | 同上 | C5 报告增加测试分类（烟雾/契约/交互/错误态） | P2 | 07-30 | → 阶段五 |
-| F4 | 同上 | playwright.config.js 模板默认 workers:2 | P1 | 07-30 | → 阶段六 |
+| F4 | 同上 | playwright.config.js 模板默认 workers:2 | P1 | 07-30 | ✅ 已实施 |
 | F5 | 同上 | 文档一致性检查（CLAUDE.md vs RULES.md 端口冲突） | P2 | 07-30 | → 阶段六 |
-| F6 | 同上 | 门禁"伤疤"增长模式 → 通用防线设计原则 | P0 | 07-30 | → ADR-006 |
+| F6 | 同上 | 门禁"伤疤"增长模式 → 通用防线设计原则 | P0 | 07-30 | ✅ ADR-006 |
 | F7 | P1 差距分析 | B1 触发时机：tickets:done → 改动前 | P2 | 07-30 | → 阶段七 |
 | F8 | 同上 | B2 生命周期文档：reconcile/删除/升级 | P2 | 07-30 | → 阶段七 |
 | F9 | 同上 | B3 多栈 Golden Master（Node/Python/Go） | P3 | 07-30 | → 阶段七 |
@@ -127,12 +127,17 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 **设计摘要**：门禁体系从单轴线（形式）扩展为双轴线（形式 + 有效性）。G0 是通用有效性防线——破坏代码 → 验证测试必须失败 → 恢复。不追加特化规则（C8/C9…），优先扩展通用防线。
 
+### 已完成
+
+| # | 产出 | 文件 |
+|:--|------|------|
+| 4.1 | G0 故障注入验证（流程+注入规则+预检报告+异常处理+人工签出） | `gate-checklists/test-checklist.md` |
+| 4.2 | C0.4 固定延时扫描（waitForTimeout 警告级） | `gate-checklists/test-checklist.md` |
+
 ### 待办
 
 | # | 事项 | 来源 | 优先级 |
 |:--|------|------|:--:|
-| 4.1 | G0 故障注入验证加入 `test-checklist.md`（流程：`C0-C7 → G0 → done`） | F1 | P0 |
-| 4.2 | C0 扩展 waitForTimeout 扫描（警告级——100+ 残留） | F2 | P1 |
 | 4.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | F1 | P1 |
 
 ---
@@ -157,16 +162,21 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 ## 阶段六：工程基础设施
 
-**状态**：⏳ 计划中
+**状态**：🔵 部分完成
 **触发事件**：47 条 E2E 耗时 430s / UMES3 测试数据硬编码 / 文档矛盾（CLAUDE.md vs RULES.md）
 
 **设计摘要**：性能优化（workers:2 默认，45% 提速）、数据管理（测试数据工厂）、文档治理（单一定义源）、Locator 质量标准。
+
+### 已完成
+
+| # | 产出 | 文件 |
+|:--|------|------|
+| 6.1 | 性能优化建议（workers:2 + 页面导航 load+waitForSelector） | `knowledge/stacks/playwright/test-quality.md` |
 
 ### 待办
 
 | # | 事项 | 来源 | 优先级 | 阻塞条件 |
 |:--|------|------|:--:|------|
-| 6.1 | playwright.config.js 模板默认 workers:2 + fullyParallel:false | F4 | P1 | — |
 | 6.2 | 文档一致性规则——同类约束只在一处定义，其余引用 | F5 | P2 | — |
 | 6.3 | 测试数据工厂标准化（fixture/factory/seeder 模板） | P3 远期 | P2 | — |
 | 6.4 | Locator 质量规则（role > text > testid > css） | P3 远期 | P3 | — |

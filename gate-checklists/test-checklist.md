@@ -41,17 +41,20 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] 测试 commit 已提交（非暂存区）
 [ ] 确认无跳过意图——不是先写实现再补测试
 [ ] R7: 对照 spec §Testing 分层分配，确认 /tdd 接缝选择与之一致（偏离有注释理由）
+[ ] G0: 已完成故障注入验证——核心路径测试在代码破坏后正确失败
+[ ] C0.4: 固定延时已扫描——waitForTimeout 标记处已人工确认必要
 ```
 
 ## C0: 提交前秒检
 
-> RED commit 前，AI 跑 3 条 grep，秒级完成。不通过 → 修复后再提交。
+> RED commit 前，AI 跑 4 条 grep，秒级完成。不通过 → 修复后再提交。
 
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
 | C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization` | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
 
@@ -107,9 +110,11 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
 [C5] AC→测试映射: AC1→test_1, AC2→test_2, AC3→test_3 — ✅ 3/3 覆盖
 [C7] E2E 可信度: C7.1 N处apiCall全确认Setup ✅ / C7.2 完整链路 ✅ / C7.3 结果断言 ✅
+[C0.4] 固定延时: N 处 waitForTimeout — N/N 确认必要 ✅
+[G0] 故障注入: 目标test_X → 注入Y → RED ✅ → 恢复GREEN ✅
 [CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 7/7 通过，等待人工确认
+结论: 9/9 通过，等待人工确认
 ```
 
 ### 异常处理
@@ -119,6 +124,52 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 - **C3 无 RED commit** → 立即 `git commit -m "TDD: RED — ticket NNN"`
 - **C4 含业务逻辑文件** → `git reset HEAD~1`，仅保留测试+stub，重新提交
 - **C5 有 AC 未覆盖** → 标注 ⚠️，人工判断是否需要补测试；`[human-verify]` AC 可无测试
+
+## G0: 故障注入验证（测试有效性）
+
+> 触发：C0-C7 全部通过后，`/implement` 标记 done 之前
+> 原理：Reverse Mutation Testing — 不信任从未见过失败的测试（EuroSTAR 2026）
+> ADR：[007-g0-reverse-mutation-testing](../../docs/decisions/007-g0-reverse-mutation-testing.md)
+> 级别：⚠️ 警告（advisory，需人工审查——部分测试不适用故障注入）
+
+| # | 步骤 | 操作 |
+|:--|------|------|
+| G0.1 | 选目标 | 选一条核心用户路径的测试（E2E 或集成测试） |
+| G0.2 | 注入故障 | 在被测代码中改一个关键值（参数名/字段名/条件值），使功能必错 |
+| G0.3 | 验证 RED | 跑该测试，**必须失败**。若仍通过 → 断言不够强 → 修复断言后重试 G0.2 |
+| G0.4 | 恢复 | 撤销故障注入，测试重新 GREEN |
+
+### 注入规则
+
+| 层级 | 注入方式 | 示例 |
+|------|---------|------|
+| E2E | 改前端 handler 中的参数名/URL | `sale_id` → `saleId_typo` |
+| API 集成 | 改后端 action 返回值字段名 | `code` → `status_code` |
+| 单元 | 改函数返回值/条件分支 | `return items` → `return []` |
+
+**注入的故障产生的影响必须是用户可感知的错误**（页面报错/数据不显示/操作失败）。若注入后测试仍通过（未感知到故障），则该测试断言不够强——修复断言后重新注入。
+
+### 范围与豁免
+
+- **范围**：每个 feature 选 1 条核心路径测试（不要求全覆盖）
+- **豁免**：`[hotfix]` ticket 跳过 G0；数据迁移/配置变更 `[no-test]` 不适用
+
+### G0 预检报告追加
+
+```
+[G0] 故障注入验证:
+  G0.1 目标: test_bundle_create（核心路径）
+  G0.2 注入: sale_id 参数名改为 saleId_typo
+  G0.3 RED: 测试失败 — ✅（"参数缺失"）
+  G0.4 恢复: 测试重新 GREEN — ✅
+```
+
+### G0 异常处理
+
+- **G0.3 测试未失败** → ⚠️ 断言不够强——加强断言后重新 G0.2。常见原因：`toBeVisible()` 只检查存在性、`toBeDefined()` 只检查非空、成功和失败路径走同一个断言
+- **G0.2 注入影响多条测试** → 只跑目标测试（`test.only`），不影响其他
+
+**G0 与 C7 的关系**：C7 确保"走用户的路"，G0 确保"这条路有护栏"。C7 查路径，G0 查断言强度。两者互补——C7 保证 Action 真实，G0 保证 Assertion 有效。
 
 ## /tdd → /implement 转换检查（人工签出）
 
@@ -132,4 +183,6 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] C5: 确认 AC→测试映射完整，无遗漏的 [auto] AC
 [ ] C7: (E2E 项目) 确认 Action 走 UI，apiCall 仅用于 Setup/Teardown
 [ ] R7: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致（偏离有注释理由）
+[ ] G0: 确认故障注入验证通过——核心路径测试在代码破坏后正确失败
+[ ] C0.4: 确认固定延时扫描通过——waitForTimeout 标记处已确认必要
 ```
