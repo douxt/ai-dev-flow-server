@@ -61,48 +61,31 @@ C7 为 advisory 警告级——`apiCall` 在 Setup/Teardown 中是合法的，�
 | 5 | UMES3 验证 | 在真实遗留 API 上跑通特征测试 | 1h |
 | **合计** | | | **~4h** |
 
-## P2: 测试分层指导
+## P2: 测试分层指导 ✅ 已完成（2026-07-30）
 
 **解决**：不该全写成 E2E——引导 AI 选择正确的测试层级。
 
-### 问题
-
-- UMES3 100% E2E（46 条），0 集成，0 单元 ← Ice Cream Cone 反模式
-- E2E 慢（46 条 ~10min）、脆（数据依赖）、边界覆盖差
-- Testing Trophy：E2E 5-10% + 集成 50-70% + 单元 20-30%
-
-### 设计决策（已确定）
+### 实施决策（v3 终版）
 
 > 详细调研：[docs/references/testing-layering-research.md](../references/testing-layering-research.md)
+> 实施方案：[~/.claude/plans/d-github-personal-kb-ai-coding-workflow-hazy-lovelace.md](../../.claude/plans/d-github-personal-kb-ai-coding-workflow-hazy-lovelace.md)
 
-| # | 问题 | 决策 | 理由 |
+| # | 问题 | v3 终版决策 | 为何推翻 v2 |
 |:--|------|------|------|
-| 1 | 集成测试技术栈 | **uvu**（Node 10+ 兼容）+ 裸 PHP assert() | MSW 不兼容 Node 14；先写测试用手头工具，不先装框架 |
-| 2 | 遗留项目兼容 | Strangler Fig：新功能用新方式，旧代码只加特征测试 | 不动已有测试方式，增量演进 |
-| 3 | E2E 比例控制 | 软指导：spec 阶段决策树 + 默认禁 E2E（选 E2E 需写理由） | 不硬阻断，用决策树引导 AI 选正确层级。CI 脚本 warning（>30%）后期加 |
+| 1 | 决策树第一节点 | **"测 UI 交互还是数据逻辑？"** | v2 "需要浏览器？"所有前端功能都答"是"，形同虚设 |
+| 2 | E2E 触发条件 | **跨系统流程（支付/外部API/OAuth）** | v2 "关键业务路径"太模糊，AI 自我合理化 |
+| 3 | S13 级别 | **must-pass**（E2E > 15% 硬阻断） | P1 已验证 advisory 无效 |
+| 4 | spec→tdd 约束 | test-checklist **R7**（跨会话分层一致性） | 上下文清空后约束丢失 |
+| 5 | 集成测试技术栈 | **Vitest**（项目已有）+ 裸 PHP assert() | UMES3 已有 Vitest，uvu 过时 |
 
-### 决策树（嵌入 prompt 前端）
+### 核心机制
 
-```
-开始
-  ├─ 需要浏览器/真实 UI？→ 是 → 关键业务路径？→ E2E（≤10%）
-  │                         └ 否 → 能拆成独立交互？→ 集成
-  ├─ 涉及多模块/服务交互？→ 是 → 集成测试
-  └─ 纯逻辑/计算/状态迁移？→ 是 → 单元测试
+**两层机制**：
+- 第一层（认知引导）：/to-spec 模板内联决策树，AI 被迫按顺序回答问题
+- 第二层（硬门禁）：S13（must-pass E2E≤15%）+ R7（/tdd 对照 spec 分层分配）
 
-防冗余检查：已被更低层覆盖？→ 降级。能用集成替代 E2E？→ 降级。
-```
-
-### 实施清单
-
-| # | 产出 | 文件 | 
-|:--|------|------|
-| 1 | 通用知识 + 决策树 | `knowledge/10-测试分层策略.md` |
-| 2 | 层级分配表 | `test-plan-template.md` §1 增强 |
-| 3 | spec 阶段分层检查 | `spec-checklist.md` S13 新增 |
-| 4 | 宪法更新 | `knowledge/09-测试质量宪法.md` §三 |
-| 5 | Node 栈模块 | `knowledge/stacks/node/integration-testing.md`（uvu + nock） |
-| 6 | PHP 栈模块 | `knowledge/stacks/php/integration-testing.md`（裸 assert + simpleunit） |
+**入口守卫**：[no-test] 无业务逻辑跳过 / [hotfix] 豁免+事后补测
+**防冗余**：特征测试覆盖 → /tdd 自动降级 / 不可测代码 → 先建议提取纯函数
 
 ## P3: 长期（调研中，暂不进入开发）
 
