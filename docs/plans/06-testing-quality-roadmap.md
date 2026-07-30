@@ -67,27 +67,42 @@ C7 为 advisory 警告级——`apiCall` 在 Setup/Teardown 中是合法的，�
 
 ### 问题
 
-- UMES3 100% E2E（46 条），0 集成，0 单元
+- UMES3 100% E2E（46 条），0 集成，0 单元 ← Ice Cream Cone 反模式
 - E2E 慢（46 条 ~10min）、脆（数据依赖）、边界覆盖差
-- Testing Trophy：E2E 10% + 集成 50-70% + 单元 20-30%
+- Testing Trophy：E2E 5-10% + 集成 50-70% + 单元 20-30%
 
-### 方案要点
+### 设计决策（已确定）
 
-1. 新增 knowledge：`knowledge/10-测试分层策略.md`（Testing Trophy + 层级选择决策树）
-2. `/to-spec` 的 Testing Decisions 段增加层级选择指导
-3. `test-plan-template.md` 增加层级分配表（E2E/集成/单元 分配比例）
-4. 分层决策树：
-   ```
-   需要浏览器才能验证？ → E2E
-   多个组件/模块交互？ → 集成（mock 网络层）
-   纯计算/状态迁移？ → 单元
-   ```
+> 详细调研：[docs/references/testing-layering-research.md](../references/testing-layering-research.md)
 
-### 关键设计问题
+| # | 问题 | 决策 | 理由 |
+|:--|------|------|------|
+| 1 | 集成测试技术栈 | **uvu**（Node 10+ 兼容）+ 裸 PHP assert() | MSW 不兼容 Node 14；先写测试用手头工具，不先装框架 |
+| 2 | 遗留项目兼容 | Strangler Fig：新功能用新方式，旧代码只加特征测试 | 不动已有测试方式，增量演进 |
+| 3 | E2E 比例控制 | 软指导：spec 阶段决策树 + 默认禁 E2E（选 E2E 需写理由） | 不硬阻断，用决策树引导 AI 选正确层级。CI 脚本 warning（>30%）后期加 |
 
-- 集成测试技术栈推荐（Vitest + MSW？项目自选？）
-- 如何不增加项目依赖负担？（UMES3 没有 Node 测试框架）
-- 遗留项目（如 PHP 后端）的集成测试怎么做？
+### 决策树（嵌入 prompt 前端）
+
+```
+开始
+  ├─ 需要浏览器/真实 UI？→ 是 → 关键业务路径？→ E2E（≤10%）
+  │                         └ 否 → 能拆成独立交互？→ 集成
+  ├─ 涉及多模块/服务交互？→ 是 → 集成测试
+  └─ 纯逻辑/计算/状态迁移？→ 是 → 单元测试
+
+防冗余检查：已被更低层覆盖？→ 降级。能用集成替代 E2E？→ 降级。
+```
+
+### 实施清单
+
+| # | 产出 | 文件 | 
+|:--|------|------|
+| 1 | 通用知识 + 决策树 | `knowledge/10-测试分层策略.md` |
+| 2 | 层级分配表 | `test-plan-template.md` §1 增强 |
+| 3 | spec 阶段分层检查 | `spec-checklist.md` S13 新增 |
+| 4 | 宪法更新 | `knowledge/09-测试质量宪法.md` §三 |
+| 5 | Node 栈模块 | `knowledge/stacks/node/integration-testing.md`（uvu + nock） |
+| 6 | PHP 栈模块 | `knowledge/stacks/php/integration-testing.md`（裸 assert + simpleunit） |
 
 ## P3: 长期（调研中，暂不进入开发）
 
