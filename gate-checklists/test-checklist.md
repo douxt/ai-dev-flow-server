@@ -26,10 +26,11 @@
 | T6 | 测试按接缝分层：API 契约测试使用最高可用 seam，不穿透实现细节 | 测试宪法 |
 | T7 | 断言/交互不在条件分支内静默跳过，且无恒真断言 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中；禁止 `toBeGreaterThanOrEqual(0)`/`typeof toBe('number')`/`>=0 toBeTruthy` | — |
 | T8 | E2E 测试覆盖完整用户链路 — Action 走 UI（click/fill/submit），不绕过 UI 直接调 API 执行被测行为；Setup/Teardown 中 API 调用合法 | — |
+| R7 | 分层一致性 — 对照 spec §Testing 的分层分配（S13 批准的层级），/tdd 的接缝选择与之一致；如有偏离需在测试文件中注释记录理由 | — |
 
 ## 通过条件
 
-T1-T4 + T7 + T8 必须通过。T5-T6 为 advisory 警告。
+T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 
 ## 签出检查（/implement 前逐条确认）
 
@@ -39,6 +40,7 @@ T1-T4 + T7 + T8 必须通过。T5-T6 为 advisory 警告。
 [ ] 测试文件含 ticket ID
 [ ] 测试 commit 已提交（非暂存区）
 [ ] 确认无跳过意图——不是先写实现再补测试
+[ ] R7: 对照 spec §Testing 分层分配，确认 /tdd 接缝选择与之一致（偏离有注释理由）
 ```
 
 ## C0: 提交前秒检
