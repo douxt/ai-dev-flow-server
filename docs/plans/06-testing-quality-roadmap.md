@@ -110,6 +110,24 @@ C7 为 advisory 警告级——`apiCall` 在 Setup/Teardown 中是合法的，�
 2. S13 15% 阈值在存量 100% E2E 项目是否合理
 3. R7 跨会话约束是否生效
 
+### UMES3 实战验证（2026-07-30）
+
+> 测试用例：`spec-bundle-pstore-mode.md`（组合入库/出库），微信小程序 + PHP 后端
+
+| 验证项 | 结果 | 说明 |
+|--------|:--:|------|
+| 决策树路由 | ✅ | 正确导向 0% E2E（全部集成），与 spec 作者手动判断一致 |
+| S13 门禁 | ✅ | 0/6 = 0% ≤ 15%，通过 |
+| install.sh 部署 | ⚠️ | 用户级 checklist 更新成功，但项目级独立拷贝未更新 |
+
+**发现 3 个问题**：
+
+| # | 问题 | 影响 |
+|:--|------|------|
+| V1 | `install.sh --update` 只更新 `~/.claude/gate-checklists/`，不更新项目级 `.claude/gate-checklists/` 独立拷贝 | P1 S12 和 P2 S13 从未到达 UMES3 |
+| V2 | 栈模块只覆盖 React/Vue，微信小程序无组件集成方案 | 决策树导向"组件集成"但实际不可执行 |
+| V3 | "UI 交互 vs 数据逻辑"二分要求 AI 自行拆分混合场景 | 无明确拆分指引，AI 可能选错分支 |
+
 ## P3: 长期（调研中，暂不进入开发）
 
 - CI/CD 分层门禁：pre-commit → C0 + unit，PR → integration，merge → E2E
