@@ -25,10 +25,11 @@
 | T5 | `[human-verify]` AC 在测试文件中有 TODO 注释标注，不遗漏 | — |
 | T6 | 测试按接缝分层：API 契约测试使用最高可用 seam，不穿透实现细节 | 测试宪法 |
 | T7 | 断言/交互不在条件分支内静默跳过，且无恒真断言 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中；禁止 `toBeGreaterThanOrEqual(0)`/`typeof toBe('number')`/`>=0 toBeTruthy` | — |
+| T8 | E2E 测试覆盖完整用户链路 — Action 走 UI（click/fill/submit），不绕过 UI 直接调 API 执行被测行为；Setup/Teardown 中 API 调用合法 | — |
 
 ## 通过条件
 
-T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
+T1-T4 + T7 + T8 必须通过。T5-T6 为 advisory 警告。
 
 ## 签出检查（/implement 前逐条确认）
 
@@ -64,6 +65,35 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 | C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
 | C5 | AC 全覆盖 | 逐条 AC 输出对应测试名（`AC1→test_x, AC2→test_y, ...`） | 每条 `[auto]` AC 至少 1 个测试，未覆盖标 ⚠️ |
 
+## C7: E2E 可信度
+
+> 适用：以 Playwright/Cypress E2E 为主要测试手段的项目
+> 触发：检测到 `tests/e2e/` 目录或 `playwright.config.*` / `cypress.config.*` 存在
+> 级别：⚠️ 警告（需人工审查，不自动阻断——`apiCall` 在 Setup/Teardown 中合法）
+
+| # | 检查项 | 检测方式 | 通过条件 |
+|:--|--------|------|:--|
+| C7.1 | Action 走 UI | grep `apiCall\|request\.post\|fetch.*action=` 在测试文件中标记 | 标记处经人工确认均为 Setup/Teardown（非 Action） |
+| C7.2 | 完整链路 | 每条测试至少含 1 次 UI 交互（click/fill/check/selectOption）+ 1 次 expect UI 断言 | click/fill 数 ≥ 测试数 |
+| C7.3 | 结果断言诚实 | 提交后断言 UI 变化（success message/列表新增/Modal 关闭），不只 `toBeVisible()` 无后续 | 0 条纯 toBeVisible 无业务结果断言 |
+
+**C7 与 C2 的关系**：C2 检查 RED 信号来源是否正确，C7 检查 Action 路径是否诚实。两者互补——C2 确认测试"失败得对"，C7 确认测试"走的是用户的路"。
+
+### C7 预检报告追加
+
+```
+[C7] E2E 可信度:
+  C7.1 Action 走 UI: N 处 apiCall — N/N 确认 Setup/Teardown ✅
+  C7.2 完整链路: N 交互 / N 测试 — ✅
+  C7.3 结果断言: 0 条纯 toBeVisible — ✅
+```
+
+### C7 异常处理
+
+- **C7.1 有 apiCall 在 Action 中** → ⚠️ 标记，人工判断是否需要改为 UI 交互；Setup/Teardown 中的 apiCall 标注理由后放行
+- **C7.2 交互数 < 测试数** → ⚠️ 逐条检查，确认无纯 API 测试；如有则改为 UI 交互或标注 `@test:api-only` 并说明原因
+- **C7.3 有纯 toBeVisible 断言** → ⚠️ 补充业务结果断言（ant-message 成功提示 / Modal 关闭 / 列表新增记录）
+
 ### 预检报告格式
 
 ```
@@ -74,9 +104,10 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 [C3] RED commit: <hash> "TDD: RED — ticket NNN" — ✅
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
 [C5] AC→测试映射: AC1→test_1, AC2→test_2, AC3→test_3 — ✅ 3/3 覆盖
+[C7] E2E 可信度: C7.1 N处apiCall全确认Setup ✅ / C7.2 完整链路 ✅ / C7.3 结果断言 ✅
 [CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 6/6 通过，等待人工确认
+结论: 7/7 通过，等待人工确认
 ```
 
 ### 异常处理
@@ -97,4 +128,5 @@ T1-T4 + T7 必须通过。T5-T6 为 advisory 警告。
 [ ] C3: 确认 RED commit 已提交，message 含 "TDD: RED"
 [ ] C4: 确认 RED commit 仅含测试+stub，无业务逻辑混入
 [ ] C5: 确认 AC→测试映射完整，无遗漏的 [auto] AC
+[ ] C7: (E2E 项目) 确认 Action 走 UI，apiCall 仅用于 Setup/Teardown
 ```

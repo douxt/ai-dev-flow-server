@@ -15,6 +15,7 @@
 | G8 | 测试数据源有完整性验证注释 | 🟡 警告 | 检查 sale_id/测试用户 附近有无数据来源说明 |
 | G9 | 无调试残留提交 — `test.only`/`describe.only`/`page.pause()` 零容忍 | 🔴 阻断 | grep `test\.only\|describe\.only\|it\.only\|page\.pause` |
 | G10 | TDD RED 用 `test.fail()` 非 `test.skip()` — 预期失败必须用 `test.fail()`，禁止用 `test.skip()`/`test.fixme()` 绕过 RED 阶段 | 🔴 阻断 | grep `test\.skip\|test\.fixme` tests/e2e/ |
+| G11 | Action 走 UI 不绕过 — 被测行为通过 click/fill/submit 执行，不直接 `apiCall()`/`fetch()` 调后端 | ⚠️ 警告 | grep `apiCall\|request\.post\|fetch.*action=` tests/e2e/ |
 
 ## 通过标准
 
@@ -90,6 +91,32 @@ test('AC1: pack Tab 有 checkbox 列', async ({ page }) => {
 ```
 
 > `test.fail()` 行为：失败 → "expected failure ✅"；意外通过 → "unexpected pass ❌"（GREEN 后忘删标记会报错）。既验证功能确实缺失，又防止假 GREEN。
+
+### G11: Action 绕过 UI
+
+```javascript
+// ❌ 警告 — Action 绕过 UI，直接调 API。handlePaintCreate 内部逻辑从未被测试
+test('AC1: 发起喷涂创建', async ({ page }) => {
+  await gotoSellDetail(page);
+  const res = await apiCall(page, 'paint_create', {
+    sale_id: '40462', user_id: '124', items: paintItems
+  });
+  expect(res.status).toBe(0);  // API 返回正确 ≠ 按钮能用
+});
+
+// ✅ Action 走完整 UI 路径
+test('AC1: 发起喷涂创建', async ({ page }) => {
+  test.fail(); // 🔴 待实现
+  await gotoSellDetail(page);
+  await page.click('.ant-checkbox-wrapper').first();     // 勾选
+  await page.click('button:has-text("发起喷涂")');        // 点按钮
+  await page.fill('.ant-modal input[name="count"]', '2'); // 填 Modal
+  await page.click('.ant-modal button:has-text("确认")'); // 确认
+  await expect(page.locator('.ant-message-success')).toBeVisible(); // UI 反馈
+});
+```
+
+> **Setup 例外**：`beforeAll`/`beforeEach` 中的 `apiCall` 用于创建测试数据/清理——合法。只有 `test()` 函数体内的 Action 才必须走 UI。
 
 ## 参考
 
