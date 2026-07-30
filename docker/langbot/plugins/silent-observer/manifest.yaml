@@ -131,6 +131,46 @@ spec:
         zh_Hans: 将完整 prompt 输出到 /tmp/silent_prompt_dump.log 用于调试
       default: false
       required: false
+    - name: reflection_enabled
+      type: boolean
+      label:
+        en_US: Enable Reflection
+        zh_Hans: 启用反思
+      description:
+        en_US: Enable the reflection layer — bot learns from user corrections. Requires reflection_model_uuid.
+        zh_Hans: 启用反思层——bot 从用户纠正中学习。需配置反思生成模型 UUID。
+      default: false
+      required: false
+    - name: reflection_model_uuid
+      type: string
+      label:
+        en_US: Reflection Model UUID
+        zh_Hans: 反思生成模型 UUID
+      description:
+        en_US: UUID of the LLM used for reflection generation (e.g. qwen3.6-flash). Separate from the main answering model to avoid single-agent bias.
+        zh_Hans: 反思生成 LLM 的 UUID（如 qwen3.6-flash）。与主回答模型分离以避免单一代理偏见。
+      default: ""
+      required: false
+    - name: reflection_daily_limit
+      type: integer
+      label:
+        en_US: Reflection Daily Limit
+        zh_Hans: 每日反思上限
+      description:
+        en_US: Max reflection generations per day. 0 = unlimited.
+        zh_Hans: 每日反思生成上限，0 = 不限制
+      default: 20
+      required: false
+    - name: reflection_hourly_limit
+      type: integer
+      label:
+        en_US: Reflection Hourly Limit
+        zh_Hans: 每小时反思上限
+      description:
+        en_US: Max reflection generations per hour. 0 = unlimited.
+        zh_Hans: 每小时反思生成上限，0 = 不限制
+      default: 5
+      required: false
   components:
     EventListener:
       fromDirs:
