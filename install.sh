@@ -417,7 +417,7 @@ if [ "$UPDATE_MODE" = true ]; then
         done
 
         # 同步更新项目级 gate-checklists（如果项目有独立拷贝而非 symlink 到用户级）
-        local project_gc_dir="$TARGET/.claude/gate-checklists"
+        project_gc_dir="$TARGET/.claude/gate-checklists"
         if [ -d "$project_gc_dir" ] && [ ! -L "$project_gc_dir" ]; then
             for gc in "$SOURCE/gate-checklists/"*.md; do
                 [ -f "$gc" ] && deploy_file "$gc" "$project_gc_dir/$(basename "$gc")"
