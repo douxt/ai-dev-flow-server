@@ -25,7 +25,7 @@ class TimelineService:
             return ''
 
         parts = []
-        for c in message_chain:
+        for chain_idx, c in enumerate(message_chain):
             if isinstance(c, str):
                 parts.append(c)
                 continue
@@ -35,7 +35,7 @@ class TimelineService:
             elif is_face_component(c):
                 parts.append(face_to_text(c))
             elif ctype == 'Image':
-                desc = image_descriptions.get(len(parts), '')
+                desc = image_descriptions.get(chain_idx, '')
                 parts.append(desc if desc else '[图片]')
             elif ctype == 'At':
                 parts.append('')
