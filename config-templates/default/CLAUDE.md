@@ -43,8 +43,9 @@
 `explore:done → spec:done → tickets:done → tdd:done → implement:done → done`
 
 **TDD 前置（/to-tickets 后，/implement 前）：**
+`[legacy]` ticket → `/characterize`（特征测试锁行为 → GREEN）→
 每个 ticket：`/tdd`（按 AC 写失败测试 + stub → 🔴）→ RED commit
-→ test-checklist 完整预检（Read 全文，含 C0 + C1-C5 + 项目扩展）+ 人工确认 → `tdd:done` 自动检测 → `/implement`（自动重试，最多 3 次）
+→ test-checklist 完整预检（Read 全文，含 C0 + C1-C5 + C7 + 项目扩展）+ 人工确认 → `tdd:done` 自动检测 → `/implement`（自动重试，最多 3 次）
 
 **AFK 自动重试（/implement 阶段）：**
 填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation 人工介入
@@ -76,6 +77,7 @@
 | `/research` | 单 Agent 深度调研 | 按需 |
 | `/to-spec` | 需求 → 规格（可逆向） | grill 之后，或需求已明确 |
 | `/to-tickets` | 规格 → 工单拆分 | spec 之后，每工单 ≤ 上下文 40% |
+| `/characterize` | 遗留代码特征测试 — 锁当前行为 | 改动无测试覆盖的旧代码前 |
 | `/tdd` | 按 AC 写失败测试 + 接口 stub | ticket 就绪后，implement 之前 |
 | `/implement` | 工单 → 代码（TDD GREEN 阶段） | TDD RED 🔴 之后 |
 | `/code-review` | 独立子代理审查 diff（每批次 + PR 前） | 同层全部 GREEN 后审切片，全部完成后审合并 |

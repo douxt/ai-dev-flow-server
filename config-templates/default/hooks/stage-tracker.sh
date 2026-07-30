@@ -115,6 +115,20 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   🌿 分支: 所有 ticket commit 提交到当前 worktree 分支，全部完成+验收后 PR→main
 
 REMINDER
+    # [legacy] ticket 检测
+    if grep -q "\[legacy\]" "$WORKSPACE/issues/"*.md 2>/dev/null; then
+        cat >&2 <<'LEGACY'
+⚠️  检测到 [legacy] ticket — 涉及无测试覆盖的遗留代码。
+
+    🛑 进入 /tdd 前，先执行 /characterize：
+       → Read ~/.claude/gate-checklists/characterization-checklist.md
+       → ANALYZE → CAPTURE → VERIFY（改代码确认变红→恢复）
+       → 特征测试 GREEN 后，方可进入 /tdd
+
+    不改旧代码直接改 = Edit and Pray。
+
+LEGACY
+    fi
 fi
 
 if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage" ]; then

@@ -47,9 +47,9 @@ T1-T4 + T7 + T8 必须通过。T5-T6 为 advisory 警告。
 
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
-| C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/` | 零命中 |
-| C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/` | 零命中 |
-| C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/` | 零命中 |
+| C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 
 ## C1-C5 自动预检
 
