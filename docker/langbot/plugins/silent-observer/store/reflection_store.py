@@ -80,10 +80,19 @@ class ReflectionStore:
             for entry in (raw or []):
                 if not isinstance(entry, dict):
                     continue
+                meta = entry.get('metadata', {}) or {}
+                # 反序列化 JSON string → list（entities, source_msg_ids 等）
+                for list_field in ('entities', 'source_msg_ids', 'linked_entities',
+                                   'confirm_sources', 'trigger_keywords'):
+                    if isinstance(meta.get(list_field), str):
+                        try:
+                            meta[list_field] = json.loads(meta[list_field])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                 results.append({
                     'id': entry.get('id', ''),
                     'document': entry.get('document', ''),
-                    'metadata': entry.get('metadata', {}),
+                    'metadata': meta,
                     'distance': entry.get('distance', 99),
                 })
             # 按 importance 排序：high > medium > low
@@ -96,11 +105,22 @@ class ReflectionStore:
 
     # ── 写入 ────────────────────────────────────────────────
 
+    @staticmethod
+    def _sanitize_metadata(meta: dict) -> dict:
+        """ChromaDB metadata 不支持 list/dict 嵌套，序列化为 JSON string."""
+        clean = {}
+        for k, v in meta.items():
+            if isinstance(v, (list, dict)):
+                clean[k] = json.dumps(v, ensure_ascii=False)
+            else:
+                clean[k] = v
+        return clean
+
     async def store_reflection(self, reflection: dict) -> str:
         """存储新反思，返回 doc_id."""
         text = json.dumps(reflection, ensure_ascii=False)
         doc_id = f"ref:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
-        metadata = {**reflection, "type": "reflection"}
+        metadata = self._sanitize_metadata({**reflection, "type": "reflection"})
         try:
             async with self._api_sem:
                 vectors = await asyncio.wait_for(
@@ -126,7 +146,7 @@ class ReflectionStore:
     async def update_reflection(self, doc_id: str, reflection: dict):
         """更新已有反思（confirm_count 递增等）."""
         text = json.dumps(reflection, ensure_ascii=False)
-        metadata = {**reflection, "type": "reflection"}
+        metadata = self._sanitize_metadata({**reflection, "type": "reflection"})
         try:
             async with self._api_sem:
                 await asyncio.wait_for(
