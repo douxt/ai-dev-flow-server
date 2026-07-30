@@ -295,6 +295,12 @@ if [ "$UPDATE_MODE" = true ]; then
             return 0
         fi
         dry_run "mkdir -p $(dirname "$dst")"
+        # 目标已存在且内容不同 → 备份
+        if [ -f "$dst" ] && ! cmp -s "$src" "$dst" 2>/dev/null; then
+            local bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
+            dry_run "cp $dst $bak"
+            echo "  [backup] $(basename "$dst") → $(basename "$bak")"
+        fi
         dry_run "cp -f $src $dst"
         return 0
     }
