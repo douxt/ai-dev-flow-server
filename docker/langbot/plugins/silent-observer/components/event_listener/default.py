@@ -1,4 +1,4 @@
-import asyncio, base64, io, json, random, sqlite3, sys, time
+import asyncio, base64, io, json, os, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
@@ -133,8 +133,10 @@ class DefaultEventListener(EventListener):
         self.retrieval_service = RetrievalService(self.store, self.timeline_max_chars, self.history_count) if self.store else None
 
         # === 反思层初始化 ===
-        ref_enabled = bool(config.get('reflection_enabled', False))
-        ref_model_uuid = str(config.get('reflection_model_uuid', ''))
+        ref_enabled = bool(config.get('reflection_enabled', False)) or os.environ.get('SILENT_REFLECTION_ENABLED', '0') == '1'
+        ref_model_uuid = str(config.get('reflection_model_uuid', '') or os.environ.get('SILENT_REFLECTION_MODEL_UUID', ''))
+        ref_daily_limit = int(os.environ.get('SILENT_REFLECTION_DAILY_LIMIT', '0') or config.get('reflection_daily_limit', 0))
+        ref_hourly_limit = int(os.environ.get('SILENT_REFLECTION_HOURLY_LIMIT', '0') or config.get('reflection_hourly_limit', 0))
         self.reflection_enabled = ref_enabled and bool(ref_model_uuid) and bool(emb_uuid)
         if self.reflection_enabled:
             self.reflection_store = ReflectionStore(self.plugin, emb_uuid)
