@@ -18,6 +18,9 @@ from service.vision import VisionService
 from service.timeline import TimelineService
 from service.quote import QuoteService
 from service.retrieval import RetrievalService
+from store.reflection_store import ReflectionStore
+from service.correction import CorrectionDetector
+from service.reflection import ReflectionGenerator, ReflectionInjector
 
 # 兼容旧代码的别名
 _QQ_FACE_NAME = QQ_FACE_NAME
@@ -129,6 +132,23 @@ class DefaultEventListener(EventListener):
         self.quote_service = QuoteService(self.timeline_service.extract_text)
         self.retrieval_service = RetrievalService(self.store, self.timeline_max_chars, self.history_count) if self.store else None
 
+        # === 反思层初始化 ===
+        ref_enabled = bool(config.get('reflection_enabled', False))
+        ref_model_uuid = str(config.get('reflection_model_uuid', ''))
+        self.reflection_enabled = ref_enabled and bool(ref_model_uuid) and bool(emb_uuid)
+        if self.reflection_enabled:
+            self.reflection_store = ReflectionStore(self.plugin, emb_uuid)
+            self.correction_detector = CorrectionDetector(self.plugin, self.bot_qq)
+            self.reflection_generator = ReflectionGenerator(self.plugin, ref_model_uuid)
+            self.reflection_injector = ReflectionInjector()
+            self._last_reply_text = {}
+        else:
+            self.reflection_store = None
+            self.correction_detector = None
+            self.reflection_generator = None
+            self.reflection_injector = None
+            self._last_reply_text = {}  # always available for save_reply cache
+
         # 运行时状态（不持久化）
         self._image_cache = {}
         self._reply_pending = {}
@@ -140,7 +160,7 @@ class DefaultEventListener(EventListener):
         # 周期持久化（每 5 分钟）
         asyncio.create_task(self._periodic_save())
 
-        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled}'
+        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled} reflection_enabled={self.reflection_enabled}'
         if saved:
             init_msg += f' [restored: gate={self._gate_hits}/{self._gate_misses} vision={self._vision_daily_count}]'
         print(init_msg, file=sys.stderr, flush=True)
@@ -201,6 +221,18 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
 
+            # === 反思层：纠正检测钩子（所有消息路径之后） ===
+            if self.reflection_enabled:
+                last_reply_ts = self._reply_ts.get(session_name, 0)
+                if last_reply_ts > 0:
+                    window = self.correction_detector._dynamic_window(
+                        self._last_reply_text.get(session_name, '')
+                    )
+                    if time.time() - last_reply_ts < window:
+                        self._run_background(self._maybe_generate_reflection(
+                            ctx.event, session_name,
+                        ))
+
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
             # 流式去重：同一 session 1 秒内只存第一条
@@ -208,6 +240,7 @@ class DefaultEventListener(EventListener):
             _ts = time.time()
             _last = self._reply_ts.get(session_name, 0)
             self._reply_ts[session_name] = _ts
+            self._last_reply_text[session_name] = text
             if _ts - _last < 1.0:
                 return
             sender = getattr(ctx.event, 'sender_id', 'unknown')
@@ -271,6 +304,24 @@ class DefaultEventListener(EventListener):
                         if cached and cached['status'] == 'done':
                             break
                         await asyncio.sleep(0.5)
+
+                # === 反思层：检索注入 ===
+                if self.reflection_enabled and self.reflection_store:
+                    try:
+                        ref_query = ''
+                        if trigger_mc:
+                            ref_query = await self.timeline_service.extract_text(trigger_mc, max_length=200)
+                        if ref_query:
+                            refs = await self.reflection_store.search_similar(ref_query, top_k=5)
+                            if refs:
+                                ref_prompt = self.reflection_injector.build_reflection_prompt(refs)
+                                if ref_prompt:
+                                    ctx.event.prompt.append(
+                                        provider_message.Message(role='system', content=ref_prompt)
+                                    )
+                    except Exception as e:
+                        safe_log('reflection', f'inject error: {e}')
+
                 items = await self.store.get_recent_messages(session_name, 200)
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
@@ -660,6 +711,77 @@ class DefaultEventListener(EventListener):
 
     async def _migrate_buffer_if_needed(self):
         await self.store.migrate_buffer_if_needed()
+
+    # ── 反思层 ────────────────────────────────────────────
+
+    async def _maybe_generate_reflection(self, event, session_name: str):
+        """后台检测纠正信号并生成反思。"""
+        try:
+            user_text = await self.timeline_service.extract_text(event.message_chain, max_length=300)
+            bot_reply = self._last_reply_text.get(session_name, '')
+            if not user_text or not bot_reply:
+                return
+            sender_id = str(getattr(event, 'sender_id', ''))
+            if not await self.reflection_store.check_rate_limit(session_name, sender_id):
+                return
+            recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
+            signal = await self.correction_detector.detect(
+                session_name, user_text, bot_reply, recent,
+            )
+            if not signal:
+                return
+            reflection = await self.reflection_generator.generate(signal)
+            if not reflection:
+                return
+            existing_id, existing, level = await self.reflection_store.find_duplicate(
+                reflection.get('scenario', ''),
+                reflection.get('mistake', ''),
+                reflection.get('entities', []),
+            )
+            if level == 'direct' and existing_id:
+                existing['confirm_count'] = existing.get('confirm_count', 0) + 1
+                existing['last_hit'] = datetime.now(BJT).isoformat()
+                existing['source_msg_ids'] = list(set(
+                    existing.get('source_msg_ids', []) + reflection.get('source_msg_ids', [])
+                ))
+                if existing['confirm_count'] >= 3 and existing.get('importance') == 'low':
+                    existing['importance'] = 'medium'
+                await self.reflection_store.update_reflection(existing_id, existing)
+                safe_log('reflection', f'merged: {existing_id} confirm={existing["confirm_count"]}')
+            elif level == 'candidate' and existing_id:
+                existing['confirm_count'] = existing.get('confirm_count', 0) + 1
+                existing['last_hit'] = datetime.now(BJT).isoformat()
+                await self.reflection_store.update_reflection(existing_id, existing)
+                safe_log('reflection', f'candidate merge: {existing_id}')
+            elif level == 'entity_link':
+                safe_log('reflection', f'entity_link: {existing.get("linked_entities", [])}')
+                await self.reflection_store.store_reflection(reflection)
+            else:
+                await self.reflection_store.store_reflection(reflection)
+        except Exception as e:
+            safe_log('reflection', f'generate error: {type(e).__name__}: {str(e)[:120]}')
+
+    async def _reflection_decay_loop(self):
+        """每日衰减扫描（30天降权/90天归档）."""
+        while True:
+            await asyncio.sleep(86400)  # 24h
+            try:
+                all_refs = await self.reflection_store.list_all(limit=200)
+                for item in all_refs:
+                    meta = item.get('metadata', {})
+                    doc_id = item.get('id', '')
+                    action = self.reflection_store.should_decay(meta)
+                    if action == 'archive':
+                        await self.reflection_store.archive_reflection(doc_id)
+                        safe_log('reflection', f'decay: archived {doc_id}')
+                    elif action == 'downgrade':
+                        new_imp = 'medium' if meta.get('importance') == 'high' else 'low'
+                        meta['importance'] = new_imp
+                        await self.reflection_store.update_reflection(doc_id, meta)
+                        safe_log('reflection', f'decay: downgraded {doc_id} → {new_imp}')
+            except Exception as e:
+                safe_log('reflection', f'decay error: {e}')
+
     def _run_background(self, coro):
         """将协程放入有界后台队列，由 worker pool 消费。"""
         try:
