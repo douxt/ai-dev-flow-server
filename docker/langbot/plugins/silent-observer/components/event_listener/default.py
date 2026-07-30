@@ -242,11 +242,11 @@ class DefaultEventListener(EventListener):
             _ts = time.time()
             _last = self._reply_ts.get(session_name, 0)
             self._reply_ts[session_name] = _ts
-            self._last_reply_text[session_name] = text
             if _ts - _last < 1.0:
                 return
             sender = getattr(ctx.event, 'sender_id', 'unknown')
             text = getattr(ctx.event, 'response_text', '') or str(getattr(ctx.event, 'reply_message_chain', ''))
+            self._last_reply_text[session_name] = text
             if self.kb_enabled:
                 time_str = _now().strftime('%Y-%m-%d %H:%M')
                 meta = _build_msg_metadata(session_name, '机器豆', '0', time_str, text, 'BOT', '')
