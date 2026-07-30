@@ -75,7 +75,7 @@ merge_settings_local() {
     cp "$existing" "$existing.bak"
     local merged
     merged=$(mktemp)
-    if jq -s '.[0] * .[1]' "$existing" "$processed" > "$merged" 2>/dev/null && jq . "$merged" > /dev/null 2>&1; then
+    if jq -s '.[1] * .[0]' "$existing" "$processed" > "$merged" 2>/dev/null && jq . "$merged" > /dev/null 2>&1; then
         mv "$merged" "$existing"
         rm -f "$existing.bak" "$processed"
         echo "[update] settings.local.json merged"
