@@ -131,4 +131,5 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] C4: 确认 RED commit 仅含测试+stub，无业务逻辑混入
 [ ] C5: 确认 AC→测试映射完整，无遗漏的 [auto] AC
 [ ] C7: (E2E 项目) 确认 Action 走 UI，apiCall 仅用于 Setup/Teardown
+[ ] R7: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致（偏离有注释理由）
 ```

@@ -1,0 +1,8 @@
+{
+  "planPath": ".cc/plan.md",
+  "logPath": ".cc/cc.log",
+  "contextPath": ".cc/context.json",
+  "statsPath": ".cc/stats.json",
+  "contextTokenLimit": 200000,
+  "thinkingTailLines": 500
+}

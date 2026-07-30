@@ -1,12 +1,12 @@
 {
   "sessionId": "328233bd-f000-40b8-ac3c-375e70ce9d4c",
   "transcriptPath": "/home/dou/.claude/projects/-home-dou-dev-ai-dev-flow-server/328233bd-f000-40b8-ac3c-375e70ce9d4c.jsonl",
-  "transcriptChars": 4182920,
-  "actualTokens": 139423,
-  "estimatedTokens": 1045730,
+  "transcriptChars": 2384389,
+  "actualTokens": 249057,
+  "estimatedTokens": 596097,
   "tokenSource": "api",
   "lastTool": "Bash",
-  "updatedAt": "2026-07-28T06:27:44.573Z",
+  "updatedAt": "2026-07-14T08:32:39.290Z",
   "compactedAt": null,
   "compactionType": null,
   "compactedSessionId": null

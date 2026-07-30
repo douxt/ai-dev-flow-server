@@ -1,0 +1,13 @@
+{
+  "sessionId": "328233bd-f000-40b8-ac3c-375e70ce9d4c",
+  "transcriptPath": "/home/dou/.claude/projects/-home-dou-dev-ai-dev-flow-server/328233bd-f000-40b8-ac3c-375e70ce9d4c.jsonl",
+  "transcriptChars": 16358951,
+  "actualTokens": 111090,
+  "estimatedTokens": 4089738,
+  "tokenSource": "api",
+  "lastTool": "unknown",
+  "updatedAt": "2026-07-30T02:54:29.747Z",
+  "compactedAt": "2026-07-30T02:51:25.814Z",
+  "compactionType": "manual",
+  "compactedSessionId": "60ba59f5-6030-454f-82eb-c0d04f5099d3"
+}
