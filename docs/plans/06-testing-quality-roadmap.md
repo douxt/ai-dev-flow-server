@@ -9,7 +9,7 @@ UMES3 喷涂/穿条单功能开发中，C0-C6 全部门禁通过、46/46 GREEN�
 
 调研确认了 5 大领域，当前流程只覆盖其中表层。本路线图分三期推进。
 
-## P0: E2E 可信度门禁（本次）
+## P0: E2E 可信度门禁 ✅ 已完成（2026-07-30）
 
 **解决**：测试写对了没有——Action 必须走 UI。
 
@@ -33,18 +33,33 @@ C7 为 advisory 警告级——`apiCall` 在 Setup/Teardown 中是合法的，�
 - 遗留项目 80% 的改动是修改已有行为，不是新功能
 - 没有测试的代码 = 改了就不知道是修复还是破坏
 
-### 方案要点
+### 设计决策（已确定）
 
-1. 新增 skill 或 checklist：`characterization-test` — 改旧代码前的特征测试步骤
-2. Feathers 4 步法：找改动点 → 写特征测试锁行为 → 最小改动 → 重构
-3. Seam 识别指南：`store_api.php?action=` / `page.route()` / 组件 props
-4. 门禁集成：`/to-tickets` 后检测 ticket 是否涉及遗留代码 → 触发特征测试步骤
+> 详细调研：[docs/references/characterization-tests-research.md](../references/characterization-tests-research.md)
 
-### 关键设计问题
+| # | 问题 | 决策 | 理由 |
+|:--|------|------|------|
+| 1 | 触发机制 | 显式命令 `/characterize` + ticket `[legacy]` 自动提示 | Feathers 流程是显式步骤，不能全自动；AI 检测到零覆盖率文件时主动提示 |
+| 2 | 文件放置 | 独立 `tests/characterization/` | 生命周期与 TDD 测试不同（短期、可删），混在一起无法区分 |
+| 3 | TDD 集成 | 四阶段串行：`/characterize → 预重构 → /tdd → 后重构` | 特征测试 GREEN 锁现状，TDD RED→GREEN 做改动，两者共存不互斥 |
+| 4 | 技术栈差异 | 通用文档 + 各栈模块 | PHP 用 HTTP 探针快照，Node 用组件快照，DB 用状态对比 |
 
-- 特征测试放在哪？（跟随 ticket 还是独立的 characterization 目录？）
-- 如何判断"这是遗留代码改动"？（ticket 含 `[legacy]` 标记？自动检测测试覆盖率为 0 的文件？）
-- 特征测试的执行时机（TDD RED 之前还是并行？）
+### 核心规则
+
+- **特征测试必须立即 GREEN**——如果失败，是你理解错了代码行为，修测试不修代码
+- **不改行为**——特征测试捕获现状，包括 bug。锁住之后再改
+- **可删除**——改完后特征测试可升级为回归测试或删除
+
+### 实施清单
+
+| # | 产出 | 文件 | 估计 |
+|:--|------|------|:--:|
+| 1 | 通用知识 | `knowledge/11-遗留代码特征测试.md`（四阶段模型） | 1h |
+| 2 | 门禁清单 | `gate-checklists/characterization-checklist.md` | 30min |
+| 3 | 流程集成 | stage-tracker 增加 `/characterize` 阶段检测 | 30min |
+| 4 | PHP 栈模块 | `knowledge/stacks/php/legacy-characterization.md` | 1h |
+| 5 | UMES3 验证 | 在真实遗留 API 上跑通特征测试 | 1h |
+| **合计** | | | **~4h** |
 
 ## P2: 测试分层指导
 
