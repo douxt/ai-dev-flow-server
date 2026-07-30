@@ -46,9 +46,10 @@ Bot 上次回复: {bot_reply}
 
 用户是否在指出 bot 的回答有误？（YES/NO）"""
 
-    def __init__(self, plugin, bot_qq: str = ""):
+    def __init__(self, plugin, bot_qq: str = "", llm_model_uuid: str = ""):
         self._plugin = plugin
         self.bot_qq = bot_qq
+        self._llm_model_uuid = llm_model_uuid
 
     def _dynamic_window(self, bot_reply_text: str) -> int:
         """基于回复长度估算阅读+反应时间：base=30s + 每100字10s，上限120s."""
@@ -81,7 +82,7 @@ Bot 上次回复: {bot_reply}
             from langbot_plugin.api.entities.builtin.provider.message import Message
             resp = await asyncio.wait_for(
                 self._plugin.invoke_llm(
-                    llm_model_uuid="",  # 空字符串 = 使用 pipeline 默认模型
+                    llm_model_uuid=self._llm_model_uuid,
                     messages=[Message(role='user', content=prompt)],
                 ),
                 timeout=_LLM_CONFIRM_TIMEOUT,

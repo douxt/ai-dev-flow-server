@@ -140,7 +140,7 @@ class DefaultEventListener(EventListener):
         self.reflection_enabled = ref_enabled and bool(ref_model_uuid) and bool(emb_uuid)
         if self.reflection_enabled:
             self.reflection_store = ReflectionStore(self.plugin, emb_uuid)
-            self.correction_detector = CorrectionDetector(self.plugin, self.bot_qq)
+            self.correction_detector = CorrectionDetector(self.plugin, self.bot_qq, ref_model_uuid)
             self.reflection_generator = ReflectionGenerator(self.plugin, ref_model_uuid)
             self.reflection_injector = ReflectionInjector()
             self._last_reply_text = {}
@@ -293,6 +293,29 @@ class DefaultEventListener(EventListener):
 
                 if not self.kb_enabled or not self.kb_id:
                     return
+
+                # === 反思层：person 会话纠正检测（/sync 消息不触发 GroupMessageReceived）===
+                if self.reflection_enabled and session_name.startswith('person_'):
+                    try:
+                        api_tmp = QueryBasedAPIProxy(
+                            query_id=ctx.query_id,
+                            plugin_runtime_handler=self.plugin.plugin_runtime_handler,
+                        )
+                        qvars = await api_tmp.get_query_vars()
+                        user_msg = str(qvars.get('user_message_text', '') or '')
+                        sender_id = str(qvars.get('sender_id', '') or '')
+                        if user_msg:
+                            last_reply_ts = self._reply_ts.get(session_name, 0)
+                            if last_reply_ts > 0:
+                                window = self.correction_detector._dynamic_window(
+                                    self._last_reply_text.get(session_name, '')
+                                )
+                                if time.time() - last_reply_ts < window:
+                                    self._run_background(self._maybe_generate_reflection(
+                                        ctx.event, session_name, user_msg, sender_id,
+                                    ))
+                    except Exception as _e:
+                        safe_log('reflection', f'person correction check error: {_e}')
 
                 api = QueryBasedAPIProxy(
                     query_id=ctx.query_id,
@@ -716,14 +739,16 @@ class DefaultEventListener(EventListener):
 
     # ── 反思层 ────────────────────────────────────────────
 
-    async def _maybe_generate_reflection(self, event, session_name: str):
+    async def _maybe_generate_reflection(self, event, session_name: str, user_text: str = "", sender_id: str = ""):
         """后台检测纠正信号并生成反思。"""
         try:
-            user_text = await self.timeline_service.extract_text(event.message_chain, max_length=300)
+            if not user_text:
+                user_text = await self.timeline_service.extract_text(event.message_chain, max_length=300)
             bot_reply = self._last_reply_text.get(session_name, '')
             if not user_text or not bot_reply:
                 return
-            sender_id = str(getattr(event, 'sender_id', ''))
+            if not sender_id:
+                sender_id = str(getattr(event, 'sender_id', ''))
             if not await self.reflection_store.check_rate_limit(session_name, sender_id):
                 return
             recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
