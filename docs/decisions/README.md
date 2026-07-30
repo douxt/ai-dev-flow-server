@@ -4,6 +4,8 @@
 
 | 编号 | 文件 | 决策 | 状态 |
 |------|------|------|------|
+| ADR-006 | [006-gate-architecture-principles.md](006-gate-architecture-principles.md) | 测试门禁体系设计原则——双轴线（形式+有效性）+ 通用防线优先 + 防御类别非实例 | ✅ 已采纳 |
+| ADR-007 | [007-g0-reverse-mutation-testing.md](007-g0-reverse-mutation-testing.md) | G0 反向突变测试——测试有效性门禁（流程：C0-C7 → G0 → done） | ✅ 已采纳 |
 | ADR-005 | [005-memory-system-feature-toggle.md](005-memory-system-feature-toggle.md) | 记忆体系作为 install.sh 的 `--memory` Feature Toggle | 📋 计划中 |
 
 ## Silent Observer 插件
