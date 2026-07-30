@@ -95,6 +95,7 @@ C7 为 advisory 警告级——`apiCall` 在 Setup/Teardown 中是合法的，�
 - Locator 质量规则（role > text > testid > css）
 - 测试数据工厂标准化
 - 测试执行时间监控与预算
+- **P1 硬阻断**：PreToolUse hook 拦截 `/tdd`——检测 `[legacy]` ticket 未完成 `/characterize` 时阻止执行（当前为文档提醒，试点后再加）
 
 ## 参考资料
 

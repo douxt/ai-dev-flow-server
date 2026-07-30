@@ -36,7 +36,7 @@
 | 任务规模 | 判断标准 | 操作 |
 |---------|---------|------|
 | 大型 | spec >200 行 / 涉及 >3 模块 / 安全红线标记 / 工作量 >3d | `/review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md` 独立 Opus 会话评审 |
-| 中型 | spec 50-200 行 / 1-2 模块 | 自查 `~/.claude/gate-checklists/spec-checklist.md` S1-S10，逐项确认 |
+| 中型 | spec 50-200 行 / 1-2 模块 | 自查 `~/.claude/gate-checklists/spec-checklist.md` S1-S12，逐项确认 |
 | 简单 | spec <50 行 / 单文件改动 | 跳过评审，直接 /to-tickets |
 
 **阶段追踪（自动，stage-tracker hook 驱动）：**

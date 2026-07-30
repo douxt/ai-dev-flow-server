@@ -118,14 +118,17 @@ REMINDER
     # [legacy] ticket 检测
     if grep -q "\[legacy\]" "$WORKSPACE/issues/"*.md 2>/dev/null; then
         cat >&2 <<'LEGACY'
-⚠️  检测到 [legacy] ticket — 涉及无测试覆盖的遗留代码。
+🛑 检测到 [legacy] ticket — 涉及无测试覆盖的遗留代码。
 
-    🛑 进入 /tdd 前，先执行 /characterize：
-       → Read ~/.claude/gate-checklists/characterization-checklist.md
+    执行顺序改为:
+    0. /characterize <ticket> — Read characterization-checklist.md
        → ANALYZE → CAPTURE → VERIFY（改代码确认变红→恢复）
-       → 特征测试 GREEN 后，方可进入 /tdd
+       → 特征测试 GREEN + 提交后，方可进入下一步
+    1. /tdd <ticket> — 按 AC 写失败测试 + stub
+    （后续步骤不变）
 
-    不改旧代码直接改 = Edit and Pray。
+    跳过步骤 0 直接改旧代码 = Edit and Pray。
+    无安全网改 9044 行代码 = 改完不知道是修复还是破坏。
 
 LEGACY
     fi
