@@ -63,7 +63,7 @@ class ReflectionStore:
             if norm > 0:
                 qv = [v / norm for v in qv]
 
-            filters: dict = {"type": "reflection", "archived": False}
+            filters: dict = {"$and": [{"type": "reflection"}, {"archived": False}]}
             if domain:
                 filters = {"$and": [{"type": "reflection"}, {"archived": False}, {"domain": domain}]}
 
