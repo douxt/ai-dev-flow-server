@@ -26,6 +26,7 @@
 | 🖥️ **NAS 运维** | [nas-access-best-practices.md](nas-access-best-practices.md) | SSH/Docker 命令、DB 操作、日志解读、UUID 表、Tailscale 性能诊断 |
 | ⚙️ **终版配置** | [bot.md](bot.md) | NapCat/LangBot 配置、人设、记忆压缩、联网搜索 |
 | 🧬 **进化方向** | [evolution-roadmap.md](evolution-roadmap.md) | 四级进化落地方向、技术选型结论、参考项目清单（配 [evolve.md](evolve.md) 初稿） |
+| 🪞 **反思层调研** | [reflection-layer-research-20260729.md](reflection-layer-research-20260729.md) | Reflexion 模式最佳实践、社区反馈、思路校准、生产部署建议 |
 | 🔬 **调研报告** | [research-agent-memory.md](research-agent-memory.md) | Reflexion/A-Mem/Mem0/Letta/Zep/Judge/self-evolving 全景调研 + 来源 |
 | 🧠 **记忆插件研究** | [memory-plugins-study.md](memory-plugins-study.md) | 5 个开源记忆插件深度分析(机制+坐标+可移植清单+许可证) |
 | ✅ **代码评审** | [code-review-against-official.md](code-review-against-official.md) | 对照官方 SDK/示例的 default.py P0-P2 基线(rubric) |
@@ -45,7 +46,7 @@
 | 写插件/查 LangBot API | 插件开发参考（langbot-plugin-dev-reference.md） |
 | 写/跑自动化测试 | 自动化测试指南（automated-testing-guide.md） |
 | 开发新功能/改代码 | **代码评审**（先看已知缺陷）→ 开发日志 |
-| 研究 bot 进化/记忆 | 进化方向 → 调研报告 → 记忆插件研究 |
+| 研究 bot 进化/记忆 | 进化方向 → 反思层调研 → 调研报告 → 记忆插件研究 |
 | 运维/部署/容器重启 | 容器运维 → NAS 运维 → 事故报告 |
 | 改人设/调参数 | 终版配置（bot.md） |
 | 查日志/调 bug | NAS 运维 → 开发日志对应章节 |
