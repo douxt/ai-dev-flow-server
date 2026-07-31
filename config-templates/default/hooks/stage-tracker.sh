@@ -110,7 +110,7 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
   1.5 C0 提交前秒检（~/.claude/gate-checklists/test-checklist.md §C0）
-       → 运行 .devflow/scripts/test-gate.sh（C0.1-C0.5 自动检查：调试残留/恒真断言/硬编码端口/固定延时/测试发现），不通过则阻断
+       → 运行 .devflow/scripts/test-gate.sh（C0.1-C0.6 自动检查：调试残留/恒真断言/硬编码端口/固定延时/测试发现/try-catch 断言），不通过则阻断
        → 通过后 RED commit
   2. RED commit（message 含 "TDD: RED"）
   3. 🛑 立即停止，执行完整预检（Read ~/.claude/gate-checklists/test-checklist.md 全文，含 C0 + C1-C5 + C7 + 项目扩展）

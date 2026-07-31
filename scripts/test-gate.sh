@@ -81,6 +81,34 @@ else
     echo "✅ 零命中"
 fi
 
+# ── C0.6: try/catch 包裹 expect（警告级）──
+echo ""
+echo "--- C0.6: try/catch 包裹 expect ---"
+# 检测 try 块内包含 expect 且后续有 catch 的模式（腐烂断言高风险）
+HITS=$(grep -rn "try\s*{" "$TESTS_DIR" \
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
+if [ -n "$HITS" ]; then
+    # 进一步筛选：try 和 catch 之间是否有 expect
+    TRY_CATCH_COUNT=0
+    while IFS=: read -r file line rest; do
+        if [ -f "$file" ]; then
+            # 检查该文件是否存在 try { ... expect ... } catch { ... } 模式
+            if grep -Pzo '(?s)try\s*\{[^}]*expect[^}]*\}\s*catch' "$file" > /dev/null 2>&1; then
+                TRY_CATCH_COUNT=$((TRY_CATCH_COUNT + 1))
+            fi
+        fi
+    done <<< "$HITS"
+    if [ "$TRY_CATCH_COUNT" -gt 0 ]; then
+        echo "⚠️  发现 ${TRY_CATCH_COUNT} 处 try/catch 包裹 expect — 需人工确认 catch 块未被 auto-dismiss 时序竞争绕过"
+        echo "  提示: catch 块 + antd message/toast/notification 自动消失 = 永远 GREEN"
+    else
+        echo "✅ 零命中"
+    fi
+else
+    echo "✅ 零命中"
+fi
+
 # ── C0.5: 测试实际执行 ──
 echo ""
 echo "--- C0.5: 测试实际执行 ---"
