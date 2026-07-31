@@ -438,6 +438,14 @@ if [ "$UPDATE_MODE" = true ]; then
         [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
     done
 
+    # 同步更新项目级 hooks（如果项目有独立拷贝而非 symlink 到用户级）
+    project_hooks_dir="$TARGET/.claude/hooks"
+    if [ -d "$project_hooks_dir" ] && [ ! -L "$project_hooks_dir" ]; then
+        for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
+            [ -f "$hook" ] && deploy_file "$hook" "$project_hooks_dir/$(basename "$hook")"
+        done
+    fi
+
     echo "  更新 issue 模板 ..."
     dry_run "mkdir -p $TARGET/issues"
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
