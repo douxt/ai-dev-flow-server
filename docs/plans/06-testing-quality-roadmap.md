@@ -1,8 +1,8 @@
-# 测试质量路线图 v2.0
+# 测试质量路线图 v2.2
 
 > 全局长期方案——单一起源，持久维护，不被任务级计划覆盖。
 > 配套 ADR：[006 门禁设计原则](../decisions/006-gate-architecture-principles.md) · [007 G0 反向突变测试](../decisions/007-g0-reverse-mutation-testing.md)
-> 上次更新：2026-07-30
+> 上次更新：2026-07-31
 
 ## 文档定位
 
@@ -37,7 +37,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F13 | UMES3 开发实践 | 测试数据工厂——流程化引导：评估复杂度→提案→审批→创建（关联 6.3） | P2 | 07-31 | → 阶段六 |
 | F14 | UMES3 `session-status-report-20260731.md` | G0 首次完整闭环验证 + webpack 三层阻断修复 | P1 | 07-31 | → 阶段四 |
 | F15 | 本会话 | hook 提醒过期导致质量门禁不被执行——stage-tracker/workflow-gate 已修 | P1 | 07-31 | ✅ 已修 |
-| F16 | 社区调研 | 门禁分层阻断——L0 硬阻断(C0.5 exit 2)+L1 软阻断+L2 验证+L3 独立审查。社区三条铁律：无证据不声明、作者不自审、不能失败的检查不是检查 | P1 | 07-31 | → 阶段五 |
+| F16 | 社区调研 | 门禁分层阻断——L0 硬阻断(C0.5 exit 2)+L1 软阻断+L2 验证+L3 独立审查。社区三条铁律 | P1 | 07-31 | → 阶段五（已纳入设计原则） |
 
 ---
 
@@ -123,9 +123,9 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 ---
 
-## 阶段四：测试有效性验证 ← 下步进入
+## 阶段四：测试有效性验证 ✅
 
-**状态**：🔵 进行中
+**状态**：✅ 已完成
 **触发事件**：UMES3 连续三次"47/47 GREEN → 手工'参数缺失'"，现有 C0-C7 门禁全查形式不查有效性
 **ADR**：[006 门禁设计原则](../decisions/006-gate-architecture-principles.md) · [007 G0 反向突变测试](../decisions/007-g0-reverse-mutation-testing.md)
 
@@ -139,30 +139,62 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | 4.2 | C0.4 固定延时扫描（waitForTimeout 警告级） | `gate-checklists/test-checklist.md` |
 | 4.2.5 | G0 首次完整闭环验证 — UMES3 paint-select-create AC7: 注入→RED→恢复→GREEN ✅（F14） | UMES3 worktree |
 | 4.2.6 | hook 提醒补全 — stage-tracker/workflow-gate 覆盖 S13/C7/G0/R7/决策树（F15） | `config-templates/default/hooks/` |
+| 4.3 | C0.5 测试执行验证 — 防 PASS(0) 真空通过 | `gate-checklists/test-checklist.md` |
+| 4.4 | C0.6 try/catch 腐烂断言检测 — T7 扩展 + 宪法同步 | `gate-checklists/test-checklist.md` + `knowledge/09-测试质量宪法.md` |
+| 4.5 | 通用 test-gate.sh — C0.1-C0.6 跨框架自动秒检 | `scripts/test-gate.sh` |
+| 4.6 | G0 @skip-g0 跳过理由要求 | `gate-checklists/test-checklist.md` |
+| 4.7 | install.sh 项目级同步盲区修复 — gate-checklists + hooks 双通道 | `install.sh` |
+| 4.8 | install.sh ADR + RULES.md 部署 | `install.sh` + `templates/RULES.md.test-quality` |
 
 ### 待办
 
-| # | 事项 | 来源 | 优先级 |
-|:--|------|------|:--:|
-| 4.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | F1 | P1 |
+（全部完成）
 
 ---
 
-## 阶段五：门禁自动化与深化
+## 阶段五：强制执行硬化
 
-**状态**：⏳ 计划中
-**触发事件**：C5 只报数量不报分类 / CI/CD 无分层门禁 / P1 硬阻断靠 AI 自觉不可靠
+**状态**：🔵 进行中
+**触发事件**：本会话验证——hook 提醒虽已补全，但全链路仍为 advisory，AI 可跳过。社区调研（F16）确认：**advisory 警告 = 不存在**，exit 2 是 Claude Code 唯一可靠阻断机制。
+**设计原则**：[社区三条铁律](#三条铁律)
 
-**设计摘要**：门禁从"AI 自觉 + 人工确认"向"自动化脚本 + 硬阻断"演进。分层门禁：pre-commit → C0 + unit，PR → integration，merge → E2E。
+**设计摘要**：从"AI 自觉 + 人工确认"向"硬阻断 + 独立审查"演进。L0 硬阻断（exit 2）在 RED commit 前拦，L1-L3 保持 advisory 但加 @skip 理由要求。引入独立会话审查（多 session 天然适用）。
+
+### 三条铁律
+
+> 来源：Makoto / Make No Mistakes 独立收敛 + 68 次 Claude Code 失败分析（[5-Layer QA System](https://github.com/anthropics/claude-code/issues/29795)）
+
+1. **无证据不声明** — AI 说"测试全绿"不算，必须看工具输出
+2. **作者不自审** — 写代码的 session 不能审自己的代码
+3. **不能失败的检查不是检查** — advisory 警告可被跳过 = 形同虚设
+
+### 四层阻断模型
+
+```
+L0: PreToolUse 硬阻断（exit 2）  ← C0.5 测试发现 + test-gate.sh 全绿
+L1: Pre-commit 软阻断            ← C0.1-C0.6 grep + lint/type
+L2: Pre-implement 验证           ← C1-C5 + C7 + G0 故障注入
+L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
+     ↑ 仅高风险改动触发
+```
+
+### 已完成
+
+| # | 产出 | 文件 |
+|:--|------|------|
+| 5.0 | 社区调研 + 三条铁律 + 四层阻断方案（F16） | `docs/plans/06-testing-quality-roadmap.md` |
+| 5.0.1 | G0 @skip-g0 跳过理由机制（为 L1-L3 @skip 模式铺路） | `gate-checklists/test-checklist.md` |
 
 ### 待办
 
 | # | 事项 | 来源 | 优先级 | 阻塞条件 |
 |:--|------|------|:--:|------|
-| 5.1 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — |
-| 5.2 | CI/CD 分层门禁（pre-commit/PR/merge 三级） | P3 远期 | P2 | 阶段三分层测试落地后 |
-| 5.3 | P1 硬阻断：PreToolUse hook 拦截未完成 `/characterize` 的 `[legacy]` ticket | P3 远期 | P2 | 阶段二试点稳定后 |
-| 5.4 | C0 脚本化——自动扫描 if-count 静默跳过 + 断言强度 | P3 远期 | P2 | — |
+| 5.1 | L0 硬阻断：test-gate.sh 不通过 → exit 2，RED commit 前拦 | F16 | P0 | — |
+| 5.2 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — |
+| 5.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | 4.3 迁入 | P1 | — |
+| 5.4 | L3 独立会话审查流程——另一 session 跑 /review-cc-cli | F16 | P2 | 5.1 落地后 |
+| 5.5 | @skip 理由机制推广到 C7/G0 之外的门禁 | F16 | P2 | 5.1 落地后 |
+| 5.6 | PreToolUse hook 拦截未完成 `/characterize` 的 `[legacy]` ticket | 5.3 原 | P2 | 阶段二试点稳定后 |
 
 ---
 
@@ -213,6 +245,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-07-31 | v2.2 | 阶段四 ✅ 关闭（8 项完成）。阶段五重写：CI/CD 自动化 → 强制执行硬化（三条铁律+四层阻断模型）。4.3 迁入阶段五。F16 纳入设计原则 |
 | 2026-07-31 | v2.1 | Inbox 新增 F13（测试数据工厂）、F14（G0 首次闭环）、F15（hook 提醒修复）。阶段四 4.2.5（G0 首次闭环）已完成 |
 | 2026-07-30 | v2.0 | 重构为 7 阶段 + Inbox + ADR 006/007。合并 P1 差距分析、P2 验证发现、UMES3 反馈、P3 远期全部待办 |
 | 2026-07-30 | v1.1 | P0/P1/P2 完成标记 + 待验证清单 |
