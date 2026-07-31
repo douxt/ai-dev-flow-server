@@ -425,6 +425,12 @@ if [ "$UPDATE_MODE" = true ]; then
         fi
     fi
 
+    echo "  更新 ADR（架构决策记录）..."
+    dry_run "mkdir -p $TARGET/docs/decisions"
+    for adr in "$SOURCE/docs/decisions/"*.md; do
+        [ -f "$adr" ] && deploy_file "$adr" "$TARGET/docs/decisions/$(basename "$adr")"
+    done
+
     echo "  更新 hooks ..."
     for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
         [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
@@ -434,6 +440,32 @@ if [ "$UPDATE_MODE" = true ]; then
     dry_run "mkdir -p $TARGET/issues"
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
     deploy_file "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
+
+    # RULES.md 测试质量规则追加（标记区间，--update 时同步）
+    if [ -f "$TARGET/RULES.md" ]; then
+        rules_section="$SOURCE/templates/RULES.md.test-quality"
+        if [ -f "$rules_section" ]; then
+            marker_start="<!-- DEVLOW:TEST-QUALITY-START -->"
+            marker_end="<!-- DEVLOW:TEST-QUALITY-END -->"
+            if grep -q "$marker_start" "$TARGET/RULES.md" 2>/dev/null; then
+                # 已有标记 → 替换区间
+                tmp_rules=$(mktemp)
+                awk -v start="$marker_start" -v end="$marker_end" '
+                    BEGIN { skip=0 }
+                    $0 ~ start { print; while (getline < "'"$rules_section"'") print; skip=1; next }
+                    $0 ~ end   { skip=0; next }
+                    !skip { print }
+                ' "$TARGET/RULES.md" > "$tmp_rules"
+                dry_run "cp $tmp_rules $TARGET/RULES.md"
+                rm -f "$tmp_rules"
+                echo "  [update] RULES.md 测试质量规则已刷新"
+            else
+                # 无标记 → 追加
+                cat "$rules_section" >> "$TARGET/RULES.md"
+                echo "  [update] RULES.md 已追加测试质量规则"
+            fi
+        fi
+    fi
 
     for f in "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh"; do
         [ -f "$f" ] && dry_run "chmod +x $f"

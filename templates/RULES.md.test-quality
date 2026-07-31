@@ -1,0 +1,53 @@
+## DevFlow 测试质量规则
+
+> 以下规则由 ai-dev-flow-server 自动部署（`--update` 时同步）。手动修改会被下次 `--update` 覆盖。
+
+<!-- DEVLOW:TEST-QUALITY-START -->
+
+### C0 提交前秒检（不可跳过）
+
+- 提交前跑 4 条 grep：`test.only`/`describe.only`、恒真断言（`toBeGreaterThanOrEqual(0)`/`typeof toBe('number')`）、硬编码端口（`localhost:\d{4}`）、固定延时（`waitForTimeout`/`setTimeout.*\d{4,}`）
+- characterization/ 目录排除
+
+### 断言强度（默认最强）
+
+- 禁止：`toBeDefined`、`toBeTruthy`、`toBeGreaterThanOrEqual(0)`
+- 优先级：精确值匹配 > 集合/结构匹配 > 数量/范围 > 存在性 > 恒真
+- 禁止 `try { expect(success) } catch { /* 接受失败 */ }`
+
+### G0 故障注入验证
+
+- `/implement` GREEN 后选 1 条核心测试，在被测代码中改一个关键值使功能必错
+- 跑该测试，必须失败（RED）。如仍通过 → 断言不够强 → 修复后重试
+- 撤销故障注入，测试重新 GREEN
+- 详细规则：`~/.claude/gate-checklists/test-checklist.md` §G0
+
+### E2E Action 走 UI
+
+- 被测行为（Action）必须通过 `page.click`/`page.fill`/`page.selectOption` 执行
+- `apiCall` 仅用于 Setup（beforeAll/beforeEach 数据准备）和 Teardown
+- 详细规则：`~/.claude/gate-checklists/test-checklist.md` §C7
+
+### 测试分层（决策树）
+
+- `/to-spec` 阶段必须 Read `~/.claude/knowledge/10-测试分层策略.md` §决策树
+- E2E 占比 ≤ 15%（spec-checklist S13 must-pass）
+- `/tdd` 接缝选择与 spec §Testing 分层分配一致（test-checklist R7）
+
+### webpack-dev-server WSL2 文件监听
+
+- 必须 `watchOptions: { poll: 1000 }`
+
+### babel-loader 缓存
+
+- 开发模式 `cacheDirectory: false`
+
+### G0 故障部署验证
+
+- 哨兵变量 `window.__G0_FAULT__` 确认故障已到达浏览器
+
+### Playwright page.route() + jQuery $.ajax
+
+- 不兼容，用 `addInitScript` monkey-patch
+
+<!-- DEVLOW:TEST-QUALITY-END -->
