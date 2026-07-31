@@ -348,10 +348,10 @@ class ReflectionStore:
             safe_log('reflection', f'rate_limit: session cooldown ({session_name})')
             return False
 
-        # 同 sender 冷却：10 分钟内最多 1 条
+        # 同 sender 冷却：3 分钟内最多 1 条（P0.2：从 10min 放宽）
         sender_windows = state.get('sender_windows', {})
         sender_last = sender_windows.get(sender_id, 0)
-        if now - sender_last < 600:
+        if now - sender_last < 180:
             safe_log('reflection', f'rate_limit: sender cooldown ({sender_id})')
             return False
 

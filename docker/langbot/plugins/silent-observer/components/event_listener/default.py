@@ -746,19 +746,23 @@ class DefaultEventListener(EventListener):
                 user_text = await self.timeline_service.extract_text(event.message_chain, max_length=300)
             bot_reply = self._last_reply_text.get(session_name, '')
             if not user_text or not bot_reply:
+                safe_log('reflection', f'diag: skip no_data user_text={bool(user_text)} bot_reply={bool(bot_reply)}')
                 return
             if not sender_id:
                 sender_id = str(getattr(event, 'sender_id', ''))
             if not await self.reflection_store.check_rate_limit(session_name, sender_id):
+                safe_log('reflection', f'diag: skip rate_limited session={session_name[:30]} sender={sender_id[:15]}')
                 return
             recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
             signal = await self.correction_detector.detect(
                 session_name, user_text, bot_reply, recent,
             )
             if not signal:
+                safe_log('reflection', f'diag: skip no_signal user_text="{user_text[:60]}"')
                 return
             reflection = await self.reflection_generator.generate(signal)
             if not reflection:
+                safe_log('reflection', f'diag: skip generate_failed user_text="{user_text[:60]}"')
                 return
             existing_id, existing, level = await self.reflection_store.find_duplicate(
                 reflection.get('scenario', ''),
