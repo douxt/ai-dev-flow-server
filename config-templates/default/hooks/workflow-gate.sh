@@ -99,11 +99,14 @@ cat >&2 <<'EOF'
 
 Spec 评审（/to-spec 后）:
   大型任务 → /review-cc-cli --opus --rubric prd,plan --with ~/.claude/gate-checklists/spec-checklist.md spec.md
-  中型 → 自查 spec-checklist（S1-S10）
+  中型 → 自查 spec-checklist（S1-S13）+ Read knowledge/10 决策树选测试层级
   简单 → 跳过
 
 TDD 前置（/to-tickets 后）:
-  每个 ticket → /tdd → C1-C5 确认 → RED commit → tdd:done 自动检测
+  → Read knowledge/10 决策树，确认分层与 spec 一致（R7 + S13: E2E ≤ 15%）
+	  → /tdd → C0 秒检（4 条 grep）→ C1-C5 预检 → C7 E2E 可信度
+	  → RED commit → test-checklist 完整预检 + G0 故障注入 → 人工确认
+	  → tdd:done 自动检测
 
 AFK 自动重试（/implement 阶段）:
   填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation
