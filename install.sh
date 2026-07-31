@@ -307,7 +307,9 @@ if [ "$UPDATE_MODE" = true ]; then
 
     echo "  更新 scripts/ ..."
     deploy_file "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+    deploy_file "$SOURCE/scripts/test-gate.sh" "$TARGET/.devflow/scripts/test-gate.sh"
     dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
+    dry_run "chmod +x $TARGET/.devflow/scripts/test-gate.sh"
     deploy_file "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
     for py in "$SOURCE/scripts/"*.py; do
         [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"

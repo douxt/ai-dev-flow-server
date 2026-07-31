@@ -55,7 +55,7 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 | C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
-| C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list`、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过） |
+| C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list --reporter=json > /tmp/test-list.json`（若输出被 RTK 拦截，用 `--reporter=json` 写文件绕过）、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过）。`PASS(0)` = 阻断 |
 | C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization` | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
@@ -66,7 +66,7 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 
 | # | 检查项 | 自动化命令 | 通过条件 |
 |:--|:--|:--|:--|
-| C1 | 全部失败 | ⚠️ 前提：C0.5 已确认测试被发现。0/0=100% 是真空通过，不可接受。运行测试套件（pytest/jest/phpunit/go test/...） | 全部 🔴，0 通过/跳过 |
+| C1 | 全部失败 | ⚠️ 前提：C0.5 已确认测试被发现。0/0=100% 是真空通过，不可接受。运行测试套件（pytest/jest/phpunit/go test/...），输出必须含执行计数 | 全部 🔴，0 通过/跳过，执行数 = 预期数 |
 | C2 | 原因正确 | 单元/API 层: grep `NotImplemented` / `501` / `Not implemented` 命中数；E2E 层: 以框架预期失败机制为准（如 Playwright `test.fail()`），不以 NotImplemented/501 为 RED 信号 | 单元/API: 命中数 = 测试数；E2E: 预期失败标记覆盖数 ≥ 预期 RED 数 |
 | C3 | Commit 正确 | `git log -1 --format=%s` | 含 "TDD: RED" |
 | C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
@@ -106,7 +106,7 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 ```
 ⚡ C1-C5 自动预检报告 — ticket NNN
 
-[C1] 测试执行: N/N 失败 🔴 — ✅ 全部失败
+[C1] 测试执行: N 条执行 / M 条预期 → N/M 失败 🔴 — ✅ 全部失败（N=M，无静默跳过）
 [C2] 失败原因: N/N 为 NotImplemented/501 — ✅ 原因正确
 [C3] RED commit: <hash> "TDD: RED — ticket NNN" — ✅
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
