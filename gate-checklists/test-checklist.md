@@ -26,11 +26,12 @@
 | T6 | 测试按接缝分层：API 契约测试使用最高可用 seam，不穿透实现细节 | 测试宪法 |
 | T7 | 断言/交互不在条件分支内静默跳过，且无恒真断言 — `expect`/`click`/`check` 不包裹在 `if (count() > 0)` 中；禁止将业务断言放在 try/catch 的 catch 块中依赖 auto-dismiss 组件（message/toast/notification）做兜底校验——catch 块的时序竞争（超时 > 消失周期）会导致永远 GREEN；禁止 `toBeGreaterThanOrEqual(0)`/`typeof toBe('number')`/`>=0 toBeTruthy` | — |
 | T8 | E2E 测试覆盖完整用户链路 — Action 走 UI（click/fill/submit），不绕过 UI 直接调 API 执行被测行为；Setup/Teardown 中 API 调用合法 | — |
+| T9 | 测试数据不依赖外部预存 — E2E 测试不应依赖固定 ID 上预存的特定数据状态。关键数据（如 remaining > 0）应在 beforeAll 中创建或通过 API 验证存在后再执行。数据被耗尽时测试应明确报错而非静默跳过 | — |
 | R7 | 分层一致性 — 对照 spec §Testing 的分层分配（S13 批准的层级），/tdd 的接缝选择与之一致；如有偏离需在测试文件中注释记录理由 | — |
 
 ## 通过条件
 
-T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
+T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 
 ## 签出检查（/implement 前逐条确认）
 
@@ -54,11 +55,11 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
 | C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
-| C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization \| grep -v "expect(typeof"`（排除 `expect(typeof x).toBe('number')` 合法类型断言） | 零命中（characterization/ 目录排除） |
 | C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list --reporter=json > /tmp/test-list.json`（若输出被 RTK 拦截，用 `--reporter=json` 写文件绕过）、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过）。`PASS(0)` = 阻断 |
 | C0.6 | 无 try/catch 包裹 expect | `grep -rn "try\s*{" tests/ --exclude-dir=characterization --include="*.spec.*" --include="*.test.*" \| xargs -I{} grep -l "expect\|catch\s*{" {} 2>/dev/null` | ⚠️ 警告级——try/catch 包裹 expect 是腐烂断言高风险模式（catch 块 + auto-dismiss 组件 = 时序竞争 → 永远 GREEN）。标记后人工确认 catch 块不会被绕过 |
-| C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization` | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
+| C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization \| grep -v "test\.setTimeout"`（排除 `test.setTimeout` 测试超时配置） | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
 

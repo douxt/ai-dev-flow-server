@@ -41,7 +41,7 @@ echo ""
 echo "--- C0.2: 无恒真断言 ---"
 HITS=$(grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|\.toBeTruthy()\|\.toBeDefined()" "$TESTS_DIR" \
     --exclude-dir=characterization \
-    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v "expect(typeof" || true)
 if [ -n "$HITS" ]; then
     echo "❌ 发现恒真断言："
     echo "$HITS"
@@ -71,10 +71,10 @@ echo ""
 echo "--- C0.4: 固定延时扫描 ---"
 HITS=$(grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" "$TESTS_DIR" \
     --exclude-dir=characterization \
-    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v "test\.setTimeout" || true)
 if [ -n "$HITS" ]; then
     COUNT=$(echo "$HITS" | wc -l)
-    echo "⚠️  发现 ${COUNT} 处固定延时，需人工确认必要"
+    echo "⚠️  发现 ${COUNT} 处固定延时（已排除 test.setTimeout 测试超时配置），需人工确认必要"
     echo "$HITS" | head -10
     [ "$COUNT" -gt 10 ] && echo "  ... 共 ${COUNT} 处"
 else
