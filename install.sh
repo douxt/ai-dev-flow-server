@@ -75,13 +75,14 @@ merge_settings_local() {
     cp "$existing" "$existing.bak"
     local merged
     merged=$(mktemp)
-    if jq -s '.[1] * .[0]' "$existing" "$processed" > "$merged" 2>/dev/null && jq . "$merged" > /dev/null 2>&1; then
+    local merge_script="$SOURCE/scripts/merge-settings.py"
+    if [ -f "$merge_script" ] && python3 "$merge_script" "$existing" "$processed" "$merged" 2>/dev/null && jq . "$merged" > /dev/null 2>&1; then
         mv "$merged" "$existing"
         rm -f "$existing.bak" "$processed"
-        echo "[update] settings.local.json merged"
+        echo "[update] settings.local.json merged（hooks 智能合并）"
     else
-        echo "[update] settings.local.json merge FAILED — keeping original"
-        mv "$existing.bak" "$existing"
+        echo "[update] settings.local.json merge FAILED — keeping original（备份: ${existing}.bak）"
+        mv "$existing.bak" "$existing" 2>/dev/null || true
         rm -f "$merged" "$processed"
     fi
 }
