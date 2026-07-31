@@ -26,7 +26,8 @@ echo "  测试目录: $TESTS_DIR"
 echo ""
 echo "--- C0.1: 无调试残留 ---"
 HITS=$(grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" "$TESTS_DIR" \
-    --exclude-dir=characterization 2>/dev/null || true)
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 if [ -n "$HITS" ]; then
     echo "❌ 发现 test.only / describe.only / page.pause 残留："
     echo "$HITS"
@@ -39,7 +40,8 @@ fi
 echo ""
 echo "--- C0.2: 无恒真断言 ---"
 HITS=$(grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|\.toBeTruthy()\|\.toBeDefined()" "$TESTS_DIR" \
-    --exclude-dir=characterization 2>/dev/null || true)
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 if [ -n "$HITS" ]; then
     echo "❌ 发现恒真断言："
     echo "$HITS"
@@ -52,7 +54,8 @@ fi
 echo ""
 echo "--- C0.3: 无硬编码端口 ---"
 HITS=$(grep -rn "localhost:[0-9]\{4\}" "$TESTS_DIR" \
-    --exclude-dir=characterization 2>/dev/null || true)
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 # 排除注释行
 HITS=$(echo "$HITS" | grep -v "^\s*\/\/\|^\s*\*\|^\s*#" || true)
 if [ -n "$HITS" ]; then
@@ -67,7 +70,8 @@ fi
 echo ""
 echo "--- C0.4: 固定延时扫描 ---"
 HITS=$(grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" "$TESTS_DIR" \
-    --exclude-dir=characterization 2>/dev/null || true)
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 if [ -n "$HITS" ]; then
     COUNT=$(echo "$HITS" | wc -l)
     echo "⚠️  发现 ${COUNT} 处固定延时，需人工确认必要"
@@ -81,13 +85,23 @@ fi
 echo ""
 echo "--- C0.5: 测试实际执行 ---"
 DISCOVERED=0
-if [ -f "playwright.config.js" ] || [ -f "playwright.config.ts" ]; then
-    # Playwright: 用 --list --reporter=json 绕过 RTK 输出劫持
-    if npx playwright test --list --reporter=json > /tmp/test-list.json 2>/dev/null; then
-        DISCOVERED=$(python3 -c "import json; d=json.load(open('/tmp/test-list.json')); print(len(d.get('suites',[])))" 2>/dev/null || echo "0")
-    else
-        # fallback: 直接 --list
-        DISCOVERED=$(npx playwright test --list 2>&1 | grep -c '›' || echo "0")
+
+# 搜索 playwright config（cwd + 常见子目录）
+PW_CONFIG=""
+for loc in "playwright.config.js" "playwright.config.ts" \
+           "tests/playwright.config.js" "tests/playwright.config.ts" \
+           "e2e/playwright.config.js" "e2e/playwright.config.ts"; do
+    [ -f "$loc" ] && { PW_CONFIG="$loc"; break; }
+done
+
+if [ -n "$PW_CONFIG" ]; then
+    # 用 Total: N 解析测试数（方案 A，最可靠——suites 数 ≠ 测试数）
+    PW_LIST=$(npx playwright test --config="$PW_CONFIG" --list 2>&1 || true)
+    DISCOVERED=$(echo "$PW_LIST" | grep -oP 'Total:\s+\K\d+' || echo "0")
+    # fallback: 直接 node 调 playwright 二进制（绕过可能的 npx wrapper/RTK）
+    if [ "$DISCOVERED" -eq 0 ] && [ -f "./node_modules/.bin/playwright" ]; then
+        PW_LIST2=$(node "./node_modules/.bin/playwright" test --config="$PW_CONFIG" --list 2>&1 || true)
+        DISCOVERED=$(echo "$PW_LIST2" | grep -oP 'Total:\s+\K\d+' || echo "0")
     fi
 elif [ -f "jest.config.js" ] || [ -f "jest.config.ts" ] || grep -q '"jest"' package.json 2>/dev/null; then
     DISCOVERED=$(npx jest --listTests 2>/dev/null | wc -l || echo "0")
@@ -105,7 +119,6 @@ if [ "$DISCOVERED" -eq 0 ]; then
 else
     echo "✅ ${DISCOVERED} 条测试被发现"
 fi
-rm -f /tmp/test-list.json
 
 # ── 结果 ──
 echo ""
