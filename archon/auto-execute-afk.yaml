@@ -35,6 +35,11 @@ nodes:
       仅实现标记 ❌ 的 AC。TDD 流程：先写失败测试 → 最小实现 → 跑通。
       每个 AC 独立提交，commit message 引用 AC 编号。
 
+      🛑 TDD RED commit 前必须运行 test-gate.sh（C0.1-C0.6 秒检）:
+         `bash .devflow/scripts/test-gate.sh`
+         不通过 → 修复后重新运行 → 通过后方可 `git commit -m "TDD: RED — ticket NNN"`
+         这是硬阻断——C0.5 测试发现为 0 时禁止提交。
+
       严格只实现 AC 列出的内容，禁止修改无关文件、禁止顺手重构、禁止加额外功能。
       每个 AC 独立验证：实现后必须运行相关测试确认通过。
       实现完成后自我审查（Maker-Checker）：读 diff + 逐条对照 AC。
@@ -44,8 +49,29 @@ nodes:
       ## 如果所有 AC 均已实现
       输出 "ALL_AC_DONE" 并跳过实现。
 
-  - id: ac-verify
+  - id: red-gate
     depends_on: [implement]
+    bash: |
+      cd $PWD
+      # 检查是否已有 RED commit（TDD: RED），如有则验证 test-gate.sh 通过
+      if git log --oneline -5 | grep -q "TDD: RED"; then
+        if [ -f ".devflow/scripts/test-gate.sh" ]; then
+          echo "=== red-gate: 验证 RED commit 前已通过 test-gate.sh ==="
+          bash .devflow/scripts/test-gate.sh && echo "RED_GATE_PASS" || {
+            echo "RED_GATE_FAIL: TDD RED commit 存在但 test-gate.sh 未通过——回滚 RED commit"
+            git reset --soft HEAD~1
+            exit 1
+          }
+        else
+          echo "RED_GATE_SKIP: .devflow/scripts/test-gate.sh 不存在"
+        fi
+      else
+        echo "RED_GATE_SKIP: 无 TDD RED commit（可能为纯实现节点）"
+      fi
+      echo "---RED_GATE_DONE---"
+
+  - id: ac-verify
+    depends_on: [red-gate]
     prompt: |
       验证 issue（$ARGUMENTS）的所有 Acceptance Criteria 是否已实现。
 

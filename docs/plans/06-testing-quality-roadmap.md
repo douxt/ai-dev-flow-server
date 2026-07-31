@@ -184,12 +184,12 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 |:--|------|------|
 | 5.0 | 社区调研 + 三条铁律 + 四层阻断方案（F16） | `docs/plans/06-testing-quality-roadmap.md` |
 | 5.0.1 | G0 @skip-g0 跳过理由机制（为 L1-L3 @skip 模式铺路） | `gate-checklists/test-checklist.md` |
+| 5.1 | L0 硬阻断：PreToolUse hook（test-gate-block.sh）exit 2 拦截 RED commit + Archon red-gate 节点 | `config-templates/default/hooks/test-gate-block.sh` · `config-templates/default/settings.json` · `archon/auto-execute-afk.yaml` |
 
 ### 待办
 
 | # | 事项 | 来源 | 优先级 | 阻塞条件 |
 |:--|------|------|:--:|------|
-| 5.1 | L0 硬阻断：test-gate.sh 不通过 → exit 2，RED commit 前拦 | F16 | P0 | — |
 | 5.2 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — |
 | 5.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | 4.3 迁入 | P1 | — |
 | 5.4 | L3 独立会话审查流程——另一 session 跑 /review-cc-cli | F16 | P2 | 5.1 落地后 |
@@ -245,6 +245,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-07-31 | v2.3 | 5.1 L0 硬阻断 ✅：test-gate-block.sh（PreToolUse exit 2）+ settings.json 模板 + Archon red-gate 节点 + implement prompt 嵌入 |
 | 2026-07-31 | v2.2 | 阶段四 ✅ 关闭（8 项完成）。阶段五重写：CI/CD 自动化 → 强制执行硬化（三条铁律+四层阻断模型）。4.3 迁入阶段五。F16 纳入设计原则 |
 | 2026-07-31 | v2.1 | Inbox 新增 F13（测试数据工厂）、F14（G0 首次闭环）、F15（hook 提醒修复）。阶段四 4.2.5（G0 首次闭环）已完成 |
 | 2026-07-30 | v2.0 | 重构为 7 阶段 + Inbox + ADR 006/007。合并 P1 差距分析、P2 验证发现、UMES3 反馈、P3 远期全部待办 |
