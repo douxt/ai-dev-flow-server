@@ -79,7 +79,10 @@ if [ "$detected_stage" = "spec:done" ] && [ "$detected_stage" != "$previous_stag
     → /review-cc-cli --opus --rubric prd,plan \
         --with ~/.claude/gate-checklists/spec-checklist.md spec.md
   • 中型（spec 50-200 行 / 1-2 模块）
-    → 自查 ~/.claude/gate-checklists/spec-checklist.md（S1-S10）
+    → 自查 ~/.claude/gate-checklists/spec-checklist.md— 必须逐项过 S1-S13：
+	      S1-S5（六段+风险+AC+异常+依赖）、S10-S13（产物+测试段+特征测试+分层）
+	      🛑 S11（Testing 段含分层分配表）、S13（E2E ≤ 15%，每项标注决策路径理由）
+	    → 测试分层：Read ~/.claude/knowledge/10-测试分层策略.md §决策树，按决策树选层级
   • 简单 → 跳过评审，直接 /to-tickets
 
   💡 上下文管理: 评审前建议 /compact；大型任务写 handoff 到 .devflow/handoff/
@@ -92,7 +95,12 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 
 📋 tickets:done — 下一步：Ticket 审查 + TDD 前置
 
-  🛑 进入 /tdd 前，先做 Ticket 宪法审查:
+  🛑 测试分层——进入 /tdd 前必做:
+	     → Read ~/.claude/knowledge/10-测试分层策略.md §决策树
+	     → 对照 spec §Testing 的分层分配表，确认每个 ticket 选用的测试层级与 spec 一致
+	     → spec-checklist S13 要求 E2E ≤ 15%，如超阈值需调整分层
+
+	  🛑 进入 /tdd 前，先做 Ticket 宪法审查:
      → 优先: python3 .devflow/scripts/check_constitution.py --batch issues/
        (15 项 L1 自动检查: frontmatter/AC标注/estimate/blocked_by/安全红线)
      → 补充: LLM 对照 ~/.claude/gate-checklists/tickets-checklist.md §自动审查 L2 语义层
@@ -102,10 +110,12 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
   1.5 C0 提交前秒检（~/.claude/gate-checklists/test-checklist.md §C0）
-       → 3 条 grep（调试残留/恒真断言/硬编码端口），秒级
+       → 4 条 grep（调试残留/恒真断言/硬编码端口/固定延时），秒级
        → 通过后 RED commit
   2. RED commit（message 含 "TDD: RED"）
-  3. 🛑 立即停止，执行完整预检（Read ~/.claude/gate-checklists/test-checklist.md 全文，含 C0 + C1-C5 + 项目扩展）
+  3. 🛑 立即停止，执行完整预检（Read ~/.claude/gate-checklists/test-checklist.md 全文，含 C0 + C1-C5 + C7 + 项目扩展）
+     → R7 分层一致性: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致，偏离需注释理由
+     → C7 E2E 可信度（E2E 项目）: Action 走 UI + 完整链路 + 结果断言诚实
      → 逐项运行全部检查，输出结构化报告
      → 等待人工确认，未经确认不得继续
      → 确认通过后方可进入 /implement
@@ -142,7 +152,14 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   /implement 启动前确认:
   □ R1-R6 就绪门禁: ~/.claude/gate-checklists/tdd-readiness-checklist.md
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
-  🛑 test-checklist 完整预检: 必须已 Read 全文并按全部检查项（C0 + C1-C5 + 项目扩展）执行并输出报告，经人工确认。如未完成 → 立即退回执行，禁止跳过
+  🛑 test-checklist 完整预检: 必须已 Read 全文并按全部检查项（C0 + C1-C5 + C7 + G0 + 项目扩展）执行并输出报告，经人工确认。如未完成 → 立即退回执行，禁止跳过
+  🛑 G0 故障注入验证 — /implement 标记 done 前必做:
+     → 选 1 条核心用户路径测试（E2E 或集成）
+     → 在被测代码中改一个关键值使功能必错 → 跑该测试，必须失败（RED）
+     → 如仍通过 → 断言不够强 → 修复断言后重新注入
+     → 撤销故障注入，测试重新 GREEN
+     → 详细规则: ~/.claude/gate-checklists/test-checklist.md §G0
+  🛑 R7 分层一致性: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致
   ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 
