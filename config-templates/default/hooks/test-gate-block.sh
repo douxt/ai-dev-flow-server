@@ -19,8 +19,14 @@ WORKSPACE="${WORKSPACE:-$(pwd)}"
 # ── 仅拦截 Bash 工具 ──
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
-# ── 提取命令内容 ──
-TOOL_COMMAND=$(echo "$TOOL_INPUT" | grep -oP '"command"\s*:\s*"\K[^"]+' | head -1 || true)
+# ── 提取命令内容（jq 优先，正确处理 JSON 转义引号）──
+TOOL_COMMAND=""
+if command -v jq >/dev/null 2>&1; then
+    TOOL_COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // empty' 2>/dev/null || true)
+else
+    # fallback: grep 提取（不处理转义引号，对简单命令够用）
+    TOOL_COMMAND=$(echo "$TOOL_INPUT" | grep -oP '"command"\s*:\s*"\K[^"\\]*(?:\\.[^"\\]*)*' | head -1 || true)
+fi
 [ -n "$TOOL_COMMAND" ] || exit 0
 
 # ── 仅拦截 git commit 含 "TDD: RED" ──
