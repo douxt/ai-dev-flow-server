@@ -42,18 +42,20 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] 确认无跳过意图——不是先写实现再补测试
 [ ] R7: 对照 spec §Testing 分层分配，确认 /tdd 接缝选择与之一致（偏离有注释理由）
 [ ] G0: 已完成故障注入验证——核心路径测试在代码破坏后正确失败
+[ ] C0.5: 测试发现数 > 0 — 确认测试真的被框架发现（非 PASS(0) 真空通过）
 [ ] C0.4: 固定延时已扫描——waitForTimeout 标记处已人工确认必要
 ```
 
 ## C0: 提交前秒检
 
-> RED commit 前，AI 跑 4 条 grep，秒级完成。不通过 → 修复后再提交。
+> RED commit 前，AI 跑 5 条检查（4 grep + 1 执行验证），秒级完成。不通过 → 修复后再提交。
 
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
 | C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list`、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过） |
 | C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization` | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
@@ -64,7 +66,7 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 
 | # | 检查项 | 自动化命令 | 通过条件 |
 |:--|:--|:--|:--|
-| C1 | 全部失败 | 运行测试套件（pytest/jest/phpunit/go test/...） | 全部 🔴，0 通过/跳过 |
+| C1 | 全部失败 | ⚠️ 前提：C0.5 已确认测试被发现。0/0=100% 是真空通过，不可接受。运行测试套件（pytest/jest/phpunit/go test/...） | 全部 🔴，0 通过/跳过 |
 | C2 | 原因正确 | 单元/API 层: grep `NotImplemented` / `501` / `Not implemented` 命中数；E2E 层: 以框架预期失败机制为准（如 Playwright `test.fail()`），不以 NotImplemented/501 为 RED 信号 | 单元/API: 命中数 = 测试数；E2E: 预期失败标记覆盖数 ≥ 预期 RED 数 |
 | C3 | Commit 正确 | `git log -1 --format=%s` | 含 "TDD: RED" |
 | C4 | 无实现混入 | `git diff HEAD~1 --stat` | 仅测试文件 + stub，无业务逻辑文件/目录 |
@@ -110,11 +112,12 @@ T1-T4 + T7 + T8 + R7 必须通过。T5-T6 为 advisory 警告。
 [C4] 变更文件: test_ticket_NNN.py, stub.py — ✅ 仅测试+stub
 [C5] AC→测试映射: AC1→test_1, AC2→test_2, AC3→test_3 — ✅ 3/3 覆盖
 [C7] E2E 可信度: C7.1 N处apiCall全确认Setup ✅ / C7.2 完整链路 ✅ / C7.3 结果断言 ✅
+[C0.5] 测试发现: N 条 → N ≥ 预期 ✅
 [C0.4] 固定延时: N 处 waitForTimeout — N/N 确认必要 ✅
 [G0] 故障注入: 目标test_X → 注入Y → RED ✅ → 恢复GREEN ✅
 [CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 9/9 通过，等待人工确认
+结论: 10/10 通过，等待人工确认
 ```
 
 ### 异常处理
