@@ -34,6 +34,9 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F10 | P2 验证 | V2 微信小程序组件集成方案 | P3 | 07-30 | → 阶段七 |
 | F11 | P2 验证 | V3 决策树"UI vs 数据"混合场景指引 | P3 | 07-30 | → 阶段七 |
 | F12 | P2 验证 | V1 install.sh 未更新项目级 checklist | P0 | 07-30 | ✅ 已修 |
+| F13 | UMES3 开发实践 | 测试数据工厂——流程化引导：评估复杂度→提案→审批→创建（关联 6.3） | P2 | 07-31 | → 阶段六 |
+| F14 | UMES3 `session-status-report-20260731.md` | G0 首次完整闭环验证 + webpack 三层阻断修复 | P1 | 07-31 | → 阶段四 |
+| F15 | 本会话 | hook 提醒过期导致质量门禁不被执行——stage-tracker/workflow-gate 已修 | P1 | 07-31 | ✅ 已修 |
 
 ---
 
@@ -133,6 +136,8 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 |:--|------|------|
 | 4.1 | G0 故障注入验证（流程+注入规则+预检报告+异常处理+人工签出） | `gate-checklists/test-checklist.md` |
 | 4.2 | C0.4 固定延时扫描（waitForTimeout 警告级） | `gate-checklists/test-checklist.md` |
+| 4.2.5 | G0 首次完整闭环验证 — UMES3 paint-select-create AC7: 注入→RED→恢复→GREEN ✅（F14） | UMES3 worktree |
+| 4.2.6 | hook 提醒补全 — stage-tracker/workflow-gate 覆盖 S13/C7/G0/R7/决策树（F15） | `config-templates/default/hooks/` |
 
 ### 待办
 
@@ -207,6 +212,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-07-31 | v2.1 | Inbox 新增 F13（测试数据工厂）、F14（G0 首次闭环）、F15（hook 提醒修复）。阶段四 4.2.5（G0 首次闭环）已完成 |
 | 2026-07-30 | v2.0 | 重构为 7 阶段 + Inbox + ADR 006/007。合并 P1 差距分析、P2 验证发现、UMES3 反馈、P3 远期全部待办 |
 | 2026-07-30 | v1.1 | P0/P1/P2 完成标记 + 待验证清单 |
 | 2026-07-30 | v1.0 | 初始版本（基于 UMES3 E2E 调研） |
