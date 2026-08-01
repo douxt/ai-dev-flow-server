@@ -46,12 +46,13 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] T7: 确认无 try/catch 包裹业务断言 + auto-dismiss 时序竞争 — catch 块兜底校验需人工审查
 [ ] C0.5: 测试发现数 > 0 — 确认测试真的被框架发现（非 PASS(0) 真空通过）
 [ ] C0.7: 确认无 if-count/length === 0 → return — Skip Test 模式，后续断言永不执行
+[ ] C0.8: 断言强度分布已扫描——弱断言占比 < 50%，操作后断言包含结果验证
 [ ] C0.4: 固定延时已扫描——waitForTimeout 标记处已人工确认必要
 ```
 
 ## C0: 提交前秒检
 
-> RED commit 前，AI 跑 7 条检查（6 grep + 1 执行验证），秒级完成。不通过 → 修复后再提交。
+> RED commit 前，AI 跑 8 条检查（7 grep + 1 执行验证），秒级完成。不通过 → 修复后再提交。
 
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
@@ -61,6 +62,7 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 | C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list --reporter=json > /tmp/test-list.json`（若输出被 RTK 拦截，用 `--reporter=json` 写文件绕过）、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过）。`PASS(0)` = 阻断 |
 | C0.6 | 无 try/catch 包裹 expect | `grep -rn "try\s*{" tests/ --exclude-dir=characterization --include="*.spec.*" --include="*.test.*" \| xargs -I{} grep -l "expect\|catch\s*{" {} 2>/dev/null` | ⚠️ 警告级——try/catch 包裹 expect 是腐烂断言高风险模式（catch 块 + auto-dismiss 组件 = 时序竞争 → 永远 GREEN）。标记后人工确认 catch 块不会被绕过 |
 | C0.7 | 无 if-count/length === 0 → return | 两步检测：① 单行 `if (...count()/length === 0) { return; }` ② 多行 if-count/length 行后紧跟 `return;` | ❌ 硬阻断——`if (await btn.count() === 0) { return; }` 是 Skip Test 经典模式（ICSE 2019），后续断言永远不执行。必须改用 `await expect(btn).toBeVisible()` |
+| C0.8 | 断言强度分布 | 统计 `expect()` 总数 vs 弱断言数（toBeVisible/toBeDefined/toBeTruthy/toBeNull/toBeFalsy），计算弱断言占比 | ⚠️ 警告级——弱断言占比 > 50% 标记。`expect(table).toBeVisible()` 作为操作后唯一断言不区分成败。规则：click/fill/submit 之后至少有 1 条验证操作结果的强断言（精确值/集合/数量），不能只有"元素仍可见"。参考 ASI 五级量表（STARWEST 2026）|
 | C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization \| grep -v "test\.setTimeout"`（排除 `test.setTimeout` 测试超时配置） | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
@@ -120,11 +122,12 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 [C0.5] 测试发现: N 条 → N ≥ 预期 ✅
 [C0.6] try/catch 断言: N 处 — N/N 已确认非腐烂模式 ✅
 [C0.7] if-count-return: 0 处 ✅
+[C0.8] 断言强度: N弱/N总 (N%) — ✅
 [C0.4] 固定延时: N 处 waitForTimeout — N/N 确认必要 ✅
 [G0] 故障注入: 目标test_X → 注入Y → RED ✅ → 恢复GREEN ✅
 [CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 11/11 通过，等待人工确认
+结论: 12/12 通过，等待人工确认
 ```
 
 ### 异常处理
@@ -140,7 +143,11 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 > 触发：C0-C7 全部通过后，`/implement` 标记 done 之前
 > 原理：Reverse Mutation Testing — 不信任从未见过失败的测试（EuroSTAR 2026）
 > ADR：[007-g0-reverse-mutation-testing](../../docs/decisions/007-g0-reverse-mutation-testing.md)
-> 级别：⚠️ 警告（advisory，需人工审查——部分测试不适用故障注入）
+> 级别：❌ 硬阻断（自动化脚本 `g0-inject.sh` 故障注入后测试仍全绿 = 阻断，需修复断言后重新 /implement）
+>
+> **自动化**（推荐）：`bash .devflow/scripts/g0-inject.sh <源文件> [测试名关键字]`
+> 脚本自动注入故障 → 跑测试 → 验证失败 → 恢复 → 验证通过。一次命令，五步完成。
+> **手工 fallback**（脚本无法自动注入时使用）：
 
 | # | 步骤 | 操作 |
 |:--|------|------|

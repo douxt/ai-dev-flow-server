@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-gate.sh — 测试门禁秒检（跨项目通用）
-# 用途：RED commit 前自动执行 C0.1-C0.7，不通过则阻断
+# 用途：RED commit 前自动执行 C0.1-C0.8，不通过则阻断
 # 部署：ai-dev-flow-server --update 自动部署到 .devflow/scripts/
 # 扩展：项目可在 scripts/test-gate.sh 中追加 C6+/G2/G4 等项目特化检查
 #
@@ -141,6 +141,32 @@ if [ -n "$C07_HITS" ]; then
 else
     echo "✅ 零命中"
 fi
+# ── C0.8: 断言强度分布（警告级）──
+echo ""
+echo "--- C0.8: 断言强度分布 ---"
+# 统计 expect 总数（排除注释行）
+TOTAL_EXPECT=$(grep -rn "expect(" "$TESTS_DIR" \
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
+# 统计弱断言：toBeVisible / toBeDefined / toBeTruthy / toBeNull / toBeFalsy
+WEAK_ASSERT=$(grep -rnE "expect\(.*\)\.toBeVisible\(\)|expect\(.*\)\.toBeDefined\(\)|expect\(.*\)\.toBeTruthy\(\)|expect\(.*\)\.toBeNull\(\)|expect\(.*\)\.toBeFalsy\(\)" "$TESTS_DIR" \
+    --exclude-dir=characterization \
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
+if [ "$TOTAL_EXPECT" -gt 0 ]; then
+    WEAK_PCT=$((WEAK_ASSERT * 100 / TOTAL_EXPECT))
+    echo "  总断言: ${TOTAL_EXPECT}, 弱断言: ${WEAK_ASSERT} (${WEAK_PCT}%)"
+    echo "  弱断言类型: toBeVisible/toBeDefined/toBeTruthy/toBeNull/toBeFalsy"
+    if [ "$WEAK_PCT" -gt 50 ]; then
+        echo "⚠️  弱断言占比 ${WEAK_PCT}% > 50%——测试可能不验证操作结果"
+        echo "  提示: click/fill/submit 之后必须有强断言（精确值/集合/数量），不能只有'元素可见'"
+        echo "  参考: .claude/gate-checklists/test-checklist.md §C0.8 + ASI 五级量表"
+    else
+        echo "✅ 弱断言占比 ${WEAK_PCT}%，在可接受范围"
+    fi
+else
+    echo "✅ 未检测到 expect() 断言（非 JS/TS 项目，跳过）"
+fi
+
 # ── C0.5: 测试实际执行 ──
 echo ""
 echo "--- C0.5: 测试实际执行 ---"
@@ -184,8 +210,8 @@ fi
 echo ""
 echo "============================================"
 if [ $FAIL -eq 0 ]; then
-    echo "✅ test-gate C0.1-C0.7 全部通过"
+    echo "✅ test-gate C0.1-C0.8 全部通过"
 else
-    echo "❌ test-gate 未通过（C0.1-C0.7），修复后再提交"
+    echo "❌ test-gate 未通过（C0.1-C0.8），修复后再提交"
     exit 1
 fi

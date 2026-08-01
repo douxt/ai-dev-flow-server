@@ -110,7 +110,7 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
   审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
   1.5 C0 提交前秒检（~/.claude/gate-checklists/test-checklist.md §C0）
-       → 运行 .devflow/scripts/test-gate.sh（C0.1-C0.6 自动检查：调试残留/恒真断言/硬编码端口/固定延时/测试发现/try-catch 断言），不通过则阻断
+       → 运行 .devflow/scripts/test-gate.sh（C0.1-C0.8 自动检查：调试残留/恒真断言/硬编码端口/固定延时/测试发现/try-catch断言/if-count-return/断言强度分布），不通过则阻断
        → 通过后 RED commit
   2. RED commit（message 含 "TDD: RED"）
   3. 🛑 立即停止，执行完整预检（Read ~/.claude/gate-checklists/test-checklist.md 全文，含 C0 + C1-C5 + C7 + 项目扩展）
@@ -154,10 +154,13 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   □ T1-T4 TDD 质量: ~/.claude/gate-checklists/test-checklist.md
   🛑 test-checklist 完整预检: 必须已 Read 全文并按全部检查项（C0 + C1-C5 + C7 + G0 + 项目扩展）执行并输出报告，经人工确认。如未完成 → 立即退回执行，禁止跳过
   🛑 G0 故障注入验证 — /implement 标记 done 前必做:
-     → 选 1 条核心用户路径测试（E2E 或集成）
-     → 在被测代码中改一个关键值使功能必错 → 跑该测试，必须失败（RED）
-     → 如仍通过 → 断言不够强 → 修复断言后重新注入
-     → 撤销故障注入，测试重新 GREEN
+     → 自动: bash .devflow/scripts/g0-inject.sh <你刚改的源文件> [测试名关键字]
+       脚本自动注入故障 → 跑测试（预期失败）→ 恢复 → 再跑测试（预期通过）
+       ❌ 故障注入后测试仍全绿 = 硬阻断（断言不够强，需修复后重新 /implement）
+     → 手工 fallback（脚本无法自动注入时）:
+       在被测代码中改一个关键值使功能必错 → 跑测试（必须 RED）
+       → 如仍通过 → 断言不够强 → 修复断言后重新注入
+       → 撤销故障注入，测试重新 GREEN
      → 详细规则: ~/.claude/gate-checklists/test-checklist.md §G0
   🛑 R7 分层一致性: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致
   ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
