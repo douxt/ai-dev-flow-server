@@ -181,7 +181,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     HAS_ACTION=$(grep -cE '\.(click|fill|type|press|submit|selectOption|check|dblclick|hover|focus)\(' "$f" 2>/dev/null) || HAS_ACTION=0
     [ "$HAS_ACTION" -gt 0 ] 2>/dev/null || continue
     # 有强断言？（精确值/集合/数量/包含/匹配）
-    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' "$f" 2>/dev/null) || HAS_STRONG=0
+    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo|toBeChecked\(|toHaveCount\(|toHaveClass\(|toHaveText\(|toContainText\(|toHaveValue\(|toHaveAttribute\()' "$f" 2>/dev/null) || HAS_STRONG=0
     [ "$HAS_STRONG" -gt 0 ] 2>/dev/null && continue
     # 有弱断言？
     HAS_WEAK=$(grep -cE '\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(' "$f" 2>/dev/null) || HAS_WEAK=0
@@ -209,7 +209,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     [ -f "$f" ] || continue
     HAS_ACTION=$(grep -cE '\.(click|fill|submit|press|type|selectOption|check|dblclick)\(' "$f" 2>/dev/null) || HAS_ACTION=0
     [ "$HAS_ACTION" -gt 0 ] 2>/dev/null || continue
-    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' "$f" 2>/dev/null) || HAS_STRONG=0
+    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo|toBeChecked\(|toHaveCount\(|toHaveClass\(|toHaveText\(|toContainText\(|toHaveValue\(|toHaveAttribute\()' "$f" 2>/dev/null) || HAS_STRONG=0
     # 只扫描混合文件（有操作+有强断言，但可能存在个别测试只有弱断言）
     [ "$HAS_STRONG" -gt 0 ] 2>/dev/null || continue
     ACTION_LINES=$(grep -nE '\.(click|fill|submit|press|type|selectOption|check|dblclick)\(' "$f" 2>/dev/null | cut -d: -f1 || true)
@@ -218,7 +218,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
         [ -n "$ln" ] || continue
         BLOCK=$(sed -n "${ln},$((ln+5))p" "$f" 2>/dev/null || true)
         HAS_FW=$(echo "$BLOCK" | grep -cE 'expect\([^)]*\)\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(' 2>/dev/null) || HAS_FW=0
-        HAS_FS=$(echo "$BLOCK" | grep -cE 'expect\([^)]*\)\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' 2>/dev/null) || HAS_FS=0
+        HAS_FS=$(echo "$BLOCK" | grep -cE 'expect\([^)]*\)\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo|toBeChecked\(|toHaveCount\(|toHaveClass\(|toHaveText\(|toContainText\(|toHaveValue\(|toHaveAttribute\()' 2>/dev/null) || HAS_FS=0
         if [ "$HAS_FW" -gt 0 ] && [ "$HAS_FS" -eq 0 ]; then
             C08_LINE_HITS="${C08_LINE_HITS}${f}:${ln}: 操作后仅弱断言（5行内无强断言）\n"
             break  # 每文件报一次即可

@@ -160,16 +160,22 @@ inject_fault() {
     fi
 
     # 策略 4: 删除最后一条 return 语句前一行（破坏数据构建）
-    local last_return=$(grep -n 'return' "$file" | tail -1 | cut -d: -f1)
-    if [ -n "$last_return" ] && [ "$last_return" -gt 1 ]; then
-        local prev=$((last_return - 1))
-        sed -i "${prev}s/^/\/\/ G0-FAULT-INJECTED /" "$file"
-        echo "策略4: 注释掉 return 前一行 (L${prev})"
-        return 0
+    # 跳过 JSX/TSX 组件——return 前的行通常不是数据逻辑，注释掉不影响功能
+    if echo "$SOURCE_FILE" | grep -qE '\.(jsx|tsx)$' || grep -qE '<[A-Z]\w+|<div|<span|className=' "$file" 2>/dev/null; then
+        echo "  策略4: 跳过（JSX组件，注释return前行无效）"
+    else
+        local last_return=$(grep -n 'return' "$file" | tail -1 | cut -d: -f1)
+        if [ -n "$last_return" ] && [ "$last_return" -gt 1 ]; then
+            local prev=$((last_return - 1))
+            sed -i "${prev}s/^/\/\/ G0-FAULT-INJECTED /" "$file"
+            echo "策略4: 注释掉 return 前一行 (L${prev})"
+            return 0
+        fi
     fi
 
-    # 策略 5: 在第一个 export function 体首行插入 early return
-    local first_func=$(grep -n 'export\s\+\(async\s\+\)\?function\|function\s\+\w\|const\s\+\w\+\s*=\s*\(async\s*\)\?(' "$file" | head -1 | cut -d: -f1)
+    # 策略 5: 在第一个非 render 的导出/事件处理函数体首行插入 early return
+    local first_func=$(grep -n 'export\s\+\(async\s\+\)\?function\|handle[A-Z]\|const\s\+\w\+\s*=\s*\(async\s*\)\?(' "$file" \
+        | grep -v 'render\s*(' | head -1 | cut -d: -f1)
     if [ -n "$first_func" ]; then
         local inject=$((first_func + 1))
         sed -i "${inject}a\  return { code: -1, message: 'G0-FAULT-INJECTED' };" "$file"
