@@ -55,7 +55,9 @@ echo ""
 echo "--- C0.3: 无硬编码端口 ---"
 HITS=$(grep -rn "localhost:[0-9]\{4\}" "$TESTS_DIR" \
     --exclude-dir=characterization \
-    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' \
+    --exclude='playwright.config.*' --exclude='vitest.config.*' --exclude='jest.config.*' \
+    --exclude='cypress.config.*' --exclude='webpack*.js' --exclude='vite.config.*' 2>/dev/null || true)
 # 排除注释行
 HITS=$(echo "$HITS" | grep -v "^\s*\/\/\|^\s*\*\|^\s*#" || true)
 if [ -n "$HITS" ]; then
@@ -179,7 +181,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     HAS_ACTION=$(grep -cE '\.(click|fill|type|press|submit|selectOption|check|dblclick|hover|focus)\(' "$f" 2>/dev/null) || HAS_ACTION=0
     [ "$HAS_ACTION" -gt 0 ] 2>/dev/null || continue
     # 有强断言？（精确值/集合/数量/包含/匹配）
-    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\()' "$f" 2>/dev/null) || HAS_STRONG=0
+    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' "$f" 2>/dev/null) || HAS_STRONG=0
     [ "$HAS_STRONG" -gt 0 ] 2>/dev/null && continue
     # 有弱断言？
     HAS_WEAK=$(grep -cE '\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(\)' "$f" 2>/dev/null) || HAS_WEAK=0
@@ -195,6 +197,42 @@ if [ -n "$C08_PERFILE_HITS" ]; then
     echo "  提示: click/fill/submit 之后至少加 1 条强断言（toBe/toEqual/toContain），不能只有 toBeVisible"
 else
     echo "✅ 所有含操作的文件均有强断言"
+fi
+
+# C0.8 操作行级：混合文件中操作后仅有弱断言（单测试蒙面效应）
+echo ""
+echo "--- C0.8 操作行级：操作后断言检查 ---"
+C08_LINE_HITS=""
+for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
+    -not -path "*/characterization/*" \
+    -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
+    [ -f "$f" ] || continue
+    HAS_ACTION=$(grep -cE '\.(click|fill|submit|press|type|selectOption|check|dblclick)\(' "$f" 2>/dev/null) || HAS_ACTION=0
+    [ "$HAS_ACTION" -gt 0 ] 2>/dev/null || continue
+    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' "$f" 2>/dev/null) || HAS_STRONG=0
+    # 只扫描混合文件（有操作+有强断言，但可能存在个别测试只有弱断言）
+    [ "$HAS_STRONG" -gt 0 ] 2>/dev/null || continue
+    ACTION_LINES=$(grep -nE '\.(click|fill|submit|press|type|selectOption|check|dblclick)\(' "$f" 2>/dev/null | cut -d: -f1 || true)
+    [ -n "$ACTION_LINES" ] || continue
+    for ln in $ACTION_LINES; do
+        [ -n "$ln" ] || continue
+        BLOCK=$(sed -n "${ln},$((ln+5))p" "$f" 2>/dev/null || true)
+        HAS_FW=$(echo "$BLOCK" | grep -cE 'expect\(.*\)\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(\)' 2>/dev/null) || HAS_FW=0
+        HAS_FS=$(echo "$BLOCK" | grep -cE 'expect\(.*\)\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' 2>/dev/null) || HAS_FS=0
+        if [ "$HAS_FW" -gt 0 ] && [ "$HAS_FS" -eq 0 ]; then
+            C08_LINE_HITS="${C08_LINE_HITS}${f}:${ln}: 操作后仅弱断言（5行内无强断言）\n"
+            break  # 每文件报一次即可
+        fi
+    done
+done
+if [ -n "$C08_LINE_HITS" ]; then
+    COUNT=$(echo -e "$C08_LINE_HITS" | grep -c ":" || echo "0")
+    echo "⚠️  发现 ${COUNT} 个文件存在操作后仅有弱断言的行（单测试蒙面）:"
+    echo -e "$C08_LINE_HITS" | head -10 | sed 's/^/    /'
+    [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
+    echo "  提示: 该操作（click/fill/submit）后应补充强断言验证操作结果"
+else
+    echo "✅ 所有操作行后均有强断言跟随"
 fi
 
 # ── C0.5: 测试实际执行 ──

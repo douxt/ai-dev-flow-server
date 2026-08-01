@@ -58,7 +58,7 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 |:--|------|------|:--:|
 | C0.1 | 无调试残留 | `grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
 | C0.2 | 无恒真断言 | `grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|BeTruthy" tests/ --exclude-dir=characterization \| grep -v "expect(typeof"`（排除 `expect(typeof x).toBe('number')` 合法类型断言） | 零命中（characterization/ 目录排除） |
-| C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization` | 零命中（characterization/ 目录排除） |
+| C0.3 | 无硬编码端口 | `grep -rn "localhost:[0-9]\{4\}" tests/ --exclude-dir=characterization --exclude='playwright.config.*' --exclude='vitest.config.*' --exclude='jest.config.*'` | 零命中（config 文件 fallback URL 排除） |
 | C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list --reporter=json > /tmp/test-list.json`（若输出被 RTK 拦截，用 `--reporter=json` 写文件绕过）、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过）。`PASS(0)` = 阻断 |
 | C0.6 | 无 try/catch 包裹 expect | `grep -rn "try\s*{" tests/ --exclude-dir=characterization --include="*.spec.*" --include="*.test.*" \| xargs -I{} grep -l "expect\|catch\s*{" {} 2>/dev/null` | ⚠️ 警告级——try/catch 包裹 expect 是腐烂断言高风险模式（catch 块 + auto-dismiss 组件 = 时序竞争 → 永远 GREEN）。标记后人工确认 catch 块不会被绕过 |
 | C0.7 | 无 if-count/length === 0 → return | 两步检测：① 单行 `if (...count()/length === 0) { return; }` ② 多行 if-count/length 行后紧跟 `return;` | ❌ 硬阻断——`if (await btn.count() === 0) { return; }` 是 Skip Test 经典模式（ICSE 2019），后续断言永远不执行。必须改用 `await expect(btn).toBeVisible()` |

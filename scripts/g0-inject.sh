@@ -221,6 +221,35 @@ echo "  $FAULT_MSG"
 echo "  diff 预览:"
 diff -u "${SOURCE_FILE}${G0_BAK_SUFFIX}" "$SOURCE_FILE" | head -10 | sed 's/^/    /' || true
 
+# ── Step 2.5: 等 dev-server 重编译（E2E 场景）──
+if [ "$RUNNER" = "playwright" ]; then
+    # 检测是否有 webpack/vite dev-server 在运行（常见端口 3000/5173/8972/8080）
+    DEV_URL="${G0_DEV_URL:-}"
+    if [ -z "$DEV_URL" ]; then
+        for port in 8972 5173 3000 8080 4200; do
+            if curl -s -o /dev/null -w '%{http_code}' "http://localhost:$port" 2>/dev/null | grep -q '^[23]'; then
+                DEV_URL="http://localhost:$port"
+                break
+            fi
+        done
+    fi
+    if [ -n "$DEV_URL" ]; then
+        echo ""
+        echo "  检测到 dev-server: $DEV_URL，等待重编译..."
+        OLD_HASH=$(curl -s "$DEV_URL" 2>/dev/null | grep -oP '(main|bundle|app)\.[a-f0-9]+\.js' | head -1 || true)
+        touch "$SOURCE_FILE" 2>/dev/null || true
+        for i in $(seq 1 8); do
+            sleep 2
+            NEW_HASH=$(curl -s "$DEV_URL" 2>/dev/null | grep -oP '(main|bundle|app)\.[a-f0-9]+\.js' | head -1 || true)
+            if [ -n "$NEW_HASH" ] && [ "$NEW_HASH" != "$OLD_HASH" ]; then
+                echo "  重编译完成（#${i}, hash: ${NEW_HASH}）"
+                break
+            fi
+            [ "$i" -eq 8 ] && echo "  ⚠️ 等待超时（16s），继续执行——可能命中旧 bundle"
+        done
+    fi
+fi
+
 # ── Step 3: 运行测试（预期失败）──
 echo ""
 echo "--- Step 3/5: 故障后测试（预期 ≥1 失败）---"
