@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-gate.sh — 测试门禁秒检（跨项目通用）
-# 用途：RED commit 前自动执行 C0.1-C0.5，不通过则阻断
+# 用途：RED commit 前自动执行 C0.1-C0.7，不通过则阻断
 # 部署：ai-dev-flow-server --update 自动部署到 .devflow/scripts/
 # 扩展：项目可在 scripts/test-gate.sh 中追加 C6+/G2/G4 等项目特化检查
 #
@@ -109,6 +109,38 @@ else
     echo "✅ 零命中"
 fi
 
+
+# ── C0.7: if-count/length === 0 → early return（硬阻断）──
+echo ""
+echo "--- C0.7: if-count/length === 0 → return ---"
+C07_HITS=""
+for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \)     -not -path "*/characterization/*"     -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
+    [ -f "$f" ] || continue
+    # 单行: if (...count() === 0) { return; }
+    single=$(grep -n "if\s*.*\.count()\s*===\s*0\b.*return\b\|if\s*.*\.length\s*===\s*0\b.*return\b" "$f" 2>/dev/null || true)
+    [ -n "$single" ] && while IFS= read -r line; do
+        C07_HITS="${C07_HITS}${f}:${line}\n"
+    done <<< "$single"
+    # 多行: if 行含 count/length === 0 → 下行含 return
+    multi=$(grep -n "\.count()\s*===\s*0\b\|\.length\s*===\s*0\b" "$f" 2>/dev/null || true)
+    [ -n "$multi" ] && while IFS=: read -r ln rest; do
+        [ -n "$ln" ] || continue
+        next=$((ln + 1))
+        next_line=$(sed -n "${next}p" "$f" 2>/dev/null || true)
+        if echo "$next_line" | grep -q "^\s*return\b"; then
+            C07_HITS="${C07_HITS}${f}:${ln}: if-count-return (multi-line)\n"
+        fi
+    done <<< "$multi"
+done
+if [ -n "$C07_HITS" ]; then
+    COUNT=$(echo -e "$C07_HITS" | grep -c ":" || echo "0")
+    echo "❌ 发现 ${COUNT} 处 if-count/length === 0 → return（Skip Test 硬阻断）"
+    echo -e "$C07_HITS" | head -10
+    [ "$COUNT" -gt 10 ] && echo "  ... 共 ${COUNT} 处"
+    FAIL=1
+else
+    echo "✅ 零命中"
+fi
 # ── C0.5: 测试实际执行 ──
 echo ""
 echo "--- C0.5: 测试实际执行 ---"
@@ -152,8 +184,8 @@ fi
 echo ""
 echo "============================================"
 if [ $FAIL -eq 0 ]; then
-    echo "✅ test-gate C0.1-C0.5 全部通过"
+    echo "✅ test-gate C0.1-C0.7 全部通过"
 else
-    echo "❌ test-gate 未通过，修复后再提交"
+    echo "❌ test-gate 未通过（C0.1-C0.7），修复后再提交"
     exit 1
 fi
