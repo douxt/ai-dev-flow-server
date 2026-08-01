@@ -259,6 +259,8 @@ class DefaultEventListener(EventListener):
         async def inject(ctx: context.EventContext):
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
+            # 清掉 LangBot 原生 conversation 历史，避免与 timeline 双重注入
+            ctx.event.prompt.clear()
             # Face → Plain 替换：防 pipeline 渲染成 [Unknown]
             # 注：inject 阶段 mc 始终为 None（PromptPreProcessing 不携带 message_chain），
             # 但 _extract_text（gate 同步执行）已将 Face 文本写入 chat_index，timeline 携带表情信息。

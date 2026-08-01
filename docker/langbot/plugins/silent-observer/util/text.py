@@ -27,6 +27,15 @@ def build_msg_metadata(session_name, sender_name, sender_id, time_str, text, sen
     }
 
 
+def _truncate_bot_messages(line, max_chars=120):
+    """bot 回复超过 max_chars 时头尾保留，中间截断，确保承诺/纠正不丢."""
+    if '(BOT):' not in line or len(line) <= max_chars:
+        return line
+    prefix_len = 70
+    suffix_len = 35
+    return line[:prefix_len] + '...[已截断]...' + line[-suffix_len:]
+
+
 def format_timeline(items):
     lines = []
     for item in items:
@@ -39,7 +48,7 @@ def format_timeline(items):
                     break
         if text:
             lines.append(text)
-    return lines
+    return [_truncate_bot_messages(line) for line in lines]
 
 
 def norm_role(perm) -> str:
