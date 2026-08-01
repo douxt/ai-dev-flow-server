@@ -62,7 +62,7 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 | C0.5 | 测试实际执行 | 运行测试框架的 discovery 命令确认测试被发现：Playwright `npx playwright test --list --reporter=json > /tmp/test-list.json`（若输出被 RTK 拦截，用 `--reporter=json` 写文件绕过）、pytest `--collect-only`、Jest `--listTests`、PHPUnit `--list-tests` | 发现数 > 0，且 ≥ 预期 RED 测试数（无静默跳过）。`PASS(0)` = 阻断 |
 | C0.6 | 无 try/catch 包裹 expect | `grep -rn "try\s*{" tests/ --exclude-dir=characterization --include="*.spec.*" --include="*.test.*" \| xargs -I{} grep -l "expect\|catch\s*{" {} 2>/dev/null` | ⚠️ 警告级——try/catch 包裹 expect 是腐烂断言高风险模式（catch 块 + auto-dismiss 组件 = 时序竞争 → 永远 GREEN）。标记后人工确认 catch 块不会被绕过 |
 | C0.7 | 无 if-count/length === 0 → return | 两步检测：① 单行 `if (...count()/length === 0) { return; }` ② 多行 if-count/length 行后紧跟 `return;` | ❌ 硬阻断——`if (await btn.count() === 0) { return; }` 是 Skip Test 经典模式（ICSE 2019），后续断言永远不执行。必须改用 `await expect(btn).toBeVisible()` |
-| C0.8 | 断言强度分布 | 统计 `expect()` 总数 vs 弱断言数（toBeVisible/toBeDefined/toBeTruthy/toBeNull/toBeFalsy），计算弱断言占比 | ⚠️ 警告级——弱断言占比 > 50% 标记。`expect(table).toBeVisible()` 作为操作后唯一断言不区分成败。规则：click/fill/submit 之后至少有 1 条验证操作结果的强断言（精确值/集合/数量），不能只有"元素仍可见"。参考 ASI 五级量表（STARWEST 2026）|
+| C0.8 | 断言强度分布（全局+单文件） | ①全局：统计 `expect()` 总数 vs 弱断言数，弱断言占比 > 50% → 警告。②单文件：检测有 UI 操作（click/fill/submit）但零强断言（toBe/toEqual/toContain）的文件——防蒙面效应（强测试掩盖弱测试的平均值陷阱） | ⚠️ 警告级——`expect(table).toBeVisible()` 作为操作后唯一断言不区分成败。规则：click/fill/submit 之后至少有 1 条验证操作结果的强断言（精确值/集合/数量），不能只有"元素仍可见"。参考 ASI 五级量表（STARWEST 2026）|
 | C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization \| grep -v "test\.setTimeout"`（排除 `test.setTimeout` 测试超时配置） | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检

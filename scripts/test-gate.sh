@@ -167,6 +167,36 @@ else
     echo "✅ 未检测到 expect() 断言（非 JS/TS 项目，跳过）"
 fi
 
+# C0.8 单文件级：检测"有操作但只有弱断言"的文件（防蒙面效应）
+echo ""
+echo "--- C0.8 单文件级：操作-断言匹配 ---"
+C08_PERFILE_HITS=""
+for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
+    -not -path "*/characterization/*" \
+    -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
+    [ -f "$f" ] || continue
+    # 有 UI 操作？（直接 grep 文件，注释行误判风险低）
+    HAS_ACTION=$(grep -cE '\.(click|fill|type|press|submit|selectOption|check|dblclick|hover|focus)\(' "$f" 2>/dev/null) || HAS_ACTION=0
+    [ "$HAS_ACTION" -gt 0 ] 2>/dev/null || continue
+    # 有强断言？（精确值/集合/数量/包含/匹配）
+    HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\()' "$f" 2>/dev/null) || HAS_STRONG=0
+    [ "$HAS_STRONG" -gt 0 ] 2>/dev/null && continue
+    # 有弱断言？
+    HAS_WEAK=$(grep -cE '\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(\)' "$f" 2>/dev/null) || HAS_WEAK=0
+    [ "$HAS_WEAK" -gt 0 ] 2>/dev/null || continue
+    # 有操作 + 零强断言 + 有弱断言 = 操作后不验证结果
+    C08_PERFILE_HITS="${C08_PERFILE_HITS}${f}: ${HAS_ACTION} 操作, 0 强断言, ${HAS_WEAK} 弱断言\n"
+done
+if [ -n "$C08_PERFILE_HITS" ]; then
+    COUNT=$(echo -e "$C08_PERFILE_HITS" | grep -c ":" || echo "0")
+    echo "⚠️  发现 ${COUNT} 个文件有操作但零强断言（操作成败不区分）:"
+    echo -e "$C08_PERFILE_HITS" | head -10 | sed 's/^/    /'
+    [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
+    echo "  提示: click/fill/submit 之后至少加 1 条强断言（toBe/toEqual/toContain），不能只有 toBeVisible"
+else
+    echo "✅ 所有含操作的文件均有强断言"
+fi
+
 # ── C0.5: 测试实际执行 ──
 echo ""
 echo "--- C0.5: 测试实际执行 ---"

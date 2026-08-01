@@ -45,13 +45,18 @@ echo "=== g0-inject: G0 故障注入验证 ==="
 echo "  源文件: $SOURCE_FILE"
 [ -n "$TEST_FILTER" ] && echo "  测试过滤: $TEST_FILTER"
 
-# ── 检测测试运行器 ──
+# ── 检测测试运行器 + 定位 config 路径 ──
+PW_CONFIG=""
+# 先定位 playwright config（必须在函数外，避免 subshell 变量丢失）
+for loc in "playwright.config.js" "playwright.config.ts" \
+           "tests/playwright.config.js" "tests/playwright.config.ts" \
+           "e2e/playwright.config.js" "e2e/playwright.config.ts"; do
+    [ -f "$loc" ] && { PW_CONFIG="$loc"; break; }
+done
+
 detect_test_runner() {
-    if [ -f "playwright.config.js" ] || [ -f "playwright.config.ts" ] \
-        || [ -f "tests/playwright.config.js" ] || [ -f "tests/playwright.config.ts" ] \
-        || [ -f "e2e/playwright.config.js" ] || [ -f "e2e/playwright.config.ts" ]; then
-        echo "playwright"
-    elif [ -f "jest.config.js" ] || [ -f "jest.config.ts" ] || grep -q '"jest"' package.json 2>/dev/null; then
+    [ -n "$PW_CONFIG" ] && { echo "playwright"; return; }
+    if [ -f "jest.config.js" ] || [ -f "jest.config.ts" ] || grep -q '"jest"' package.json 2>/dev/null; then
         echo "jest"
     elif [ -f "vitest.config.js" ] || [ -f "vitest.config.ts" ]; then
         echo "vitest"
@@ -68,6 +73,7 @@ detect_test_runner() {
 
 RUNNER=$(detect_test_runner)
 echo "  测试运行器: $RUNNER"
+[ -n "$PW_CONFIG" ] && echo "  Playwright config: $PW_CONFIG"
 
 # ── 构建测试命令 ──
 build_test_cmd() {
@@ -75,9 +81,9 @@ build_test_cmd() {
     case "$RUNNER" in
         playwright)
             if [ -n "$TEST_FILTER" ]; then
-                echo "npx playwright test --grep \"$TEST_FILTER\""
+                echo "npx playwright test --config=\"$PW_CONFIG\" --grep \"$TEST_FILTER\""
             else
-                echo "npx playwright test"
+                echo "npx playwright test --config=\"$PW_CONFIG\""
             fi
             ;;
         jest)
