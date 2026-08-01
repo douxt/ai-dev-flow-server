@@ -33,6 +33,11 @@ if [ -d "$WORKSPACE/issues" ]; then
 fi
 
 # 检测 TDD RED commit → tdd:done（在 tickets 之后、implement 之前）
+# 检测 tickets 审查是否完成（constitution 检查 + tickets-checklist 审查）
+if [ -f "$WORKSPACE/.devflow/constitution-report.json" ] && [ -s "$WORKSPACE/.devflow/constitution-report.json" ]; then
+    detected_stage="tickets:reviewed"
+fi
+
 if git -C "$WORKSPACE" log --oneline -1 2>/dev/null | grep -q "TDD: RED"; then
     detected_stage="tdd:done"
 fi
@@ -53,7 +58,7 @@ previous_stage=""
 [ "$detected_stage" = "$previous_stage" ] && exit 0
 
 # 阶段顺序校验（仅在状态变化时做 advisory 警告）
-stage_order="explore:done spec:done tickets:done tdd:done implement:done done"
+stage_order="explore:done spec:done tickets:done tickets:reviewed tdd:done implement:done done"
 current_index=0
 prev_index=0
 i=1
@@ -100,12 +105,13 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 	     → 对照 spec §Testing 的分层分配表，确认每个 ticket 选用的测试层级与 spec 一致
 	     → spec-checklist S13 要求 E2E ≤ 15%，如超阈值需调整分层
 
-	  🛑 进入 /tdd 前，先做 Ticket 宪法审查:
-     → 优先: python3 .devflow/scripts/check_constitution.py --batch issues/
+	  🛑 进入 /tdd 前，必须先通过 Ticket 审查 Gate（tickets:reviewed）:
+     → 步骤1: python3 .devflow/scripts/check_constitution.py --batch issues/ --json > .devflow/constitution-report.json
        (15 项 L1 自动检查: frontmatter/AC标注/estimate/blocked_by/安全红线)
-     → 补充: LLM 对照 ~/.claude/gate-checklists/tickets-checklist.md §自动审查 L2 语义层
+     → 步骤2: LLM 对照 ~/.claude/gate-checklists/tickets-checklist.md §自动审查 L2 语义层
        (接口签名/前置准备具体性/AC覆盖完整性/DAG对齐)
-     → 输出审查报告，人工确认通过后方可进入 /tdd
+     → 步骤3: 确认全部通过后，将审查结论追加写入 .devflow/constitution-report.json
+     → 🛑 生成 .devflow/constitution-report.json 后自动进入 tickets:reviewed → 方可 /tdd
 
   审查通过后，每个 ticket 按序执行:
   1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
@@ -142,6 +148,27 @@ REMINDER
 
 LEGACY
     fi
+fi
+
+if [ "$detected_stage" = "tickets:reviewed" ] && [ "$detected_stage" != "$previous_stage" ]; then
+    cat >&2 <<'REMINDER'
+
+📋 tickets:reviewed — Ticket 审查通过，准备 /tdd
+
+  🛑 宪法审查已通过（constitution-report.json 已生成）
+  □ 测试分层已对照 spec §Testing 确认
+  □ tickets-checklist L2 语义审查已完成
+  □ 人工已确认审查报告
+
+  下一步——每个 ticket 按序执行 /tdd:
+  1. /tdd <ticket> — 按 AC 写失败测试 + stub → 运行测试确认 🔴
+  2. C0 提交前秒检 → bash .devflow/scripts/test-gate.sh（C0.1-C0.9）
+  3. 通过后 RED commit（message 含 "TDD: RED"）
+  4. 🛑 立即停止——等待人工确认后方可进入 /implement
+
+  🌿 分支: 所有 ticket commit 提交到当前 worktree 分支
+
+REMINDER
 fi
 
 if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage" ]; then

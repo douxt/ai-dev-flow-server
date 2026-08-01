@@ -12,6 +12,8 @@ status: active
 > **v3.0 (2026-07-23)**: 架构已升级为 Skill-Harness 分离模式。Matt Pocock v1.1 五命令直接调用，约束由基础设施层（hooks/checkers）兜底。详见 [CHANGELOG.md](../../CHANGELOG.md) 和 [v2→v3 迁移指南](../references/v2-to-v3-migration.md)。
 >
 > **v3.0 核心变化**：9 Gate → 5 阶段（explore→spec→tickets→implement→done），workflow-gate hook 入口拦截，stage-tracker hook 产物检测，全流程 trace 日志。
+>
+> **v3.2 (2026-08-01)**：tickets:reviewed 阶段独立——审查门禁从 advisory 提醒升级为独立阶段。constitution-report.json 产物驱动检测，tickets:done → tickets:reviewed → tdd:done。
 
 ## 一、动机
 
@@ -108,6 +110,20 @@ Gate = 每一步 == 三段式 == 进入条件/执行规范/出口检查。
 - Gate 4（评审）不通过 → **回 Gate 3** 重拆 Issue
 - Gate 7（审查）不通过 → **回 Gate 5** 重跑 AFK
 - Gate 8（复盘）无回退，持续积累
+
+### v3.2 运营流程（stage-tracker 自动检测）
+
+```
+explore:done ──→ spec:done ──→ tickets:done ──→ tickets:reviewed ──→ tdd:done ──→ implement:done ──→ done
+                    │               │                  │                  │               │
+                 spec.md        issues/         constitution-        TDD: RED         PR merge
+                                有 .md 文件     report.json 存在       commit
+                                                   ↑
+                                              🛑 硬阻断点
+                                         审查不通过 → 回 tickets:done
+```
+
+> tickets:reviewed 对应旧模型 Gate 4（Issue 评审）。区别：v3.2 由 constitution-report.json 产物自动检测，不在提醒中隐含。
 
 ### 对现有流程的拆解
 
