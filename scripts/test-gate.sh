@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-gate.sh — 测试门禁秒检（跨项目通用）
-# 用途：RED commit 前自动执行 C0.1-C0.8，不通过则阻断
+# 用途：RED commit 前自动执行 C0.1-C0.9，不通过则阻断
 # 部署：ai-dev-flow-server --update 自动部署到 .devflow/scripts/
 # 扩展：项目可在 scripts/test-gate.sh 中追加 C6+/G2/G4 等项目特化检查
 #
@@ -235,6 +235,72 @@ else
     echo "✅ 所有操作行后均有强断言跟随"
 fi
 
+# ── C0.9: 代码覆盖率秒检（警告级）──
+echo ""
+echo "--- C0.9: 代码覆盖率 ---"
+COV_THRESHOLD=50  # 初始阈值，逐步提升
+COV_CONFIGURED=false
+COV_SUMMARY=""
+
+# 检测覆盖率配置
+for cfg in "vitest.config.js" "vitest.config.ts" "jest.config.js" "jest.config.ts"; do
+    if [ -f "$cfg" ]; then
+        if grep -q 'coverage\|collectCoverage' "$cfg" 2>/dev/null; then
+            COV_CONFIGURED=true
+            break
+        fi
+    fi
+done
+
+# 检测覆盖率报告
+if [ -f "coverage/coverage-summary.json" ]; then
+    COV_SUMMARY="coverage/coverage-summary.json"
+elif [ -f "coverage/coverage-final.json" ]; then
+    COV_SUMMARY="coverage/coverage-final.json"
+elif [ -f "coverage/lcov.info" ]; then
+    COV_SUMMARY="coverage/lcov.info"
+fi
+
+if [ -n "$COV_SUMMARY" ]; then
+    # 解析 JSON 覆盖率摘要
+    if command -v jq >/dev/null 2>&1 && [ "$COV_SUMMARY" = "coverage/coverage-summary.json" ]; then
+        LINES_PCT=$(jq -r '.total.lines.pct // "N/A"' "$COV_SUMMARY" 2>/dev/null || echo "N/A")
+        BRANCHES_PCT=$(jq -r '.total.branches.pct // "N/A"' "$COV_SUMMARY" 2>/dev/null || echo "N/A")
+        FUNCTIONS_PCT=$(jq -r '.total.functions.pct // "N/A"' "$COV_SUMMARY" 2>/dev/null || echo "N/A")
+        echo "  行: ${LINES_PCT}%  分支: ${BRANCHES_PCT}%  函数: ${FUNCTIONS_PCT}%"
+        # 检查阈值（仅检查数字值）
+        BELOW=""
+        [ "$LINES_PCT" != "N/A" ] && [ "${LINES_PCT%.*}" -lt "$COV_THRESHOLD" ] 2>/dev/null && BELOW="$BELOW 行"
+        [ "$BRANCHES_PCT" != "N/A" ] && [ "${BRANCHES_PCT%.*}" -lt "$COV_THRESHOLD" ] 2>/dev/null && BELOW="$BELOW 分支"
+        [ "$FUNCTIONS_PCT" != "N/A" ] && [ "${FUNCTIONS_PCT%.*}" -lt "$COV_THRESHOLD" ] 2>/dev/null && BELOW="$BELOW 函数"
+        if [ -n "$BELOW" ]; then
+            echo "⚠️  覆盖率低于阈值 ${COV_THRESHOLD}%:${BELOW}"
+            echo "  提示: 为新代码补充测试，阈值从 50% 起步逐步提升"
+        else
+            echo "✅ 覆盖率 ≥ ${COV_THRESHOLD}%"
+        fi
+    elif [ "$COV_SUMMARY" = "coverage/lcov.info" ]; then
+        # lcov 摘要（无 jq fallback）
+        TOTAL_LINES=$(grep -c '^DA:' "$COV_SUMMARY" 2>/dev/null || echo "0")
+        COVERED_LINES=$(grep '^DA:' "$COV_SUMMARY" 2>/dev/null | grep -c ',1$\|,2$\|,3$\|,4$\|,5$\|,6$\|,7$\|,8$\|,9$' || echo "0")
+        echo "  lcov: ${COVERED_LINES}/${TOTAL_LINES} 行覆盖"
+        if [ "$TOTAL_LINES" -gt 0 ]; then
+            LCOV_PCT=$((COVERED_LINES * 100 / TOTAL_LINES))
+            if [ "$LCOV_PCT" -lt "$COV_THRESHOLD" ]; then
+                echo "⚠️  覆盖率 ${LCOV_PCT}% < ${COV_THRESHOLD}%"
+            else
+                echo "✅ 覆盖率 ${LCOV_PCT}% ≥ ${COV_THRESHOLD}%"
+            fi
+        fi
+    fi
+elif $COV_CONFIGURED; then
+    echo "⚠️  覆盖率已配置但无报告——运行测试时加 --coverage 生成报告"
+    echo "  提示: vitest run --coverage / jest --coverage / npx playwright test --coverage"
+else
+    echo "ℹ️  覆盖率未配置——建议为关键模块启用 coverage reporter"
+    echo "  参考: https://vitest.dev/guide/coverage.html"
+fi
+
 # ── C0.5: 测试实际执行 ──
 echo ""
 echo "--- C0.5: 测试实际执行 ---"
@@ -278,8 +344,8 @@ fi
 echo ""
 echo "============================================"
 if [ $FAIL -eq 0 ]; then
-    echo "✅ test-gate C0.1-C0.8 全部通过"
+    echo "✅ test-gate C0.1-C0.9 全部通过"
 else
-    echo "❌ test-gate 未通过（C0.1-C0.8），修复后再提交"
+    echo "❌ test-gate 未通过（C0.1-C0.9），修复后再提交"
     exit 1
 fi

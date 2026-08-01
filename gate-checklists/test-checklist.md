@@ -47,12 +47,13 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 [ ] C0.5: 测试发现数 > 0 — 确认测试真的被框架发现（非 PASS(0) 真空通过）
 [ ] C0.7: 确认无 if-count/length === 0 → return — Skip Test 模式，后续断言永不执行
 [ ] C0.8: 断言强度分布已扫描——弱断言占比 < 50%，操作后断言包含结果验证
+[ ] C0.9: 覆盖率报告已检查——行/分支/函数覆盖率 ≥ 50%
 [ ] C0.4: 固定延时已扫描——waitForTimeout 标记处已人工确认必要
 ```
 
 ## C0: 提交前秒检
 
-> RED commit 前，AI 跑 8 条检查（7 grep + 1 执行验证），秒级完成。不通过 → 修复后再提交。
+> RED commit 前，AI 跑 9 条检查（7 grep + 1 执行验证 + 1 覆盖率），秒级完成。不通过 → 修复后再提交。
 
 | # | 检查 | 命令 | 标准 |
 |:--|------|------|:--:|
@@ -63,6 +64,7 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 | C0.6 | 无 try/catch 包裹 expect | `grep -rn "try\s*{" tests/ --exclude-dir=characterization --include="*.spec.*" --include="*.test.*" \| xargs -I{} grep -l "expect\|catch\s*{" {} 2>/dev/null` | ⚠️ 警告级——try/catch 包裹 expect 是腐烂断言高风险模式（catch 块 + auto-dismiss 组件 = 时序竞争 → 永远 GREEN）。标记后人工确认 catch 块不会被绕过 |
 | C0.7 | 无 if-count/length === 0 → return | 两步检测：① 单行 `if (...count()/length === 0) { return; }` ② 多行 if-count/length 行后紧跟 `return;` | ❌ 硬阻断——`if (await btn.count() === 0) { return; }` 是 Skip Test 经典模式（ICSE 2019），后续断言永远不执行。必须改用 `await expect(btn).toBeVisible()` |
 | C0.8 | 断言强度分布（全局+单文件） | ①全局：统计 `expect()` 总数 vs 弱断言数，弱断言占比 > 50% → 警告。②单文件：检测有 UI 操作（click/fill/submit）但零强断言（toBe/toEqual/toContain）的文件——防蒙面效应（强测试掩盖弱测试的平均值陷阱） | ⚠️ 警告级——`expect(table).toBeVisible()` 作为操作后唯一断言不区分成败。规则：click/fill/submit 之后至少有 1 条验证操作结果的强断言（精确值/集合/数量），不能只有"元素仍可见"。参考 ASI 五级量表（STARWEST 2026）|
+| C0.9 | 代码覆盖率 | 检测 vitest/jest config 是否启用 coverage，解析 `coverage/coverage-summary.json` 或 `lcov.info`，提取行/分支/函数覆盖率 | ⚠️ 警告级——任一维度 < 50% 标记。覆盖率度量"代码被执行了多少"，是 G0（断言有效性）的补充——两者一起覆盖执行完整性+断言有效性。阈值从 50% 起步，逐步提升 |
 | C0.4 | 无固定延时 | `grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" tests/ --exclude-dir=characterization \| grep -v "test\.setTimeout"`（排除 `test.setTimeout` 测试超时配置） | ⚠️ 警告级——标记后人工判断；必要的 waitForTimeout（如等待动画完成）标注理由放行 |
 
 ## C1-C5 自动预检
@@ -123,11 +125,12 @@ T1-T4 + T7 + T8 + T9 + R7 必须通过。T5-T6 为 advisory 警告。
 [C0.6] try/catch 断言: N 处 — N/N 已确认非腐烂模式 ✅
 [C0.7] if-count-return: 0 处 ✅
 [C0.8] 断言强度: N弱/N总 (N%) — ✅
+[C0.9] 覆盖率: 行N%/分支N%/函数N% — ✅
 [C0.4] 固定延时: N 处 waitForTimeout — N/N 确认必要 ✅
 [G0] 故障注入: 目标test_X → 注入Y → RED ✅ → 恢复GREEN ✅
 [CX] RED→GREEN 断言切换: 已从"预期失败"切换到"预期成功" — ✅
 
-结论: 12/12 通过，等待人工确认
+结论: 13/13 通过，等待人工确认
 ```
 
 ### 异常处理
