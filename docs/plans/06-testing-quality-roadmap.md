@@ -38,6 +38,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F14 | UMES3 `session-status-report-20260731.md` | G0 首次完整闭环验证 + webpack 三层阻断修复 | P1 | 07-31 | → 阶段四 |
 | F15 | 本会话 | hook 提醒过期导致质量门禁不被执行——stage-tracker/workflow-gate 已修 | P1 | 07-31 | ✅ 已修 |
 | F16 | 社区调研 | 门禁分层阻断——L0 硬阻断(C0.5 exit 2)+L1 软阻断+L2 验证+L3 独立审查。社区三条铁律 | P1 | 07-31 | → 阶段五（已纳入设计原则） |
+| F17 | UMES3 持续假 GREEN + 2026-08-01 调研 | AI reward hacking——GREEN 侧零门禁，7 种假 GREEN 手段仅 1 种被拦。需 GREEN 侧验证体系（G1-G4） | P0 | 08-01 | → 阶段八 |
 
 ---
 
@@ -241,10 +242,38 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 ---
 
+## 阶段八：GREEN 侧验证体系
+
+**状态**：🔵 进行中
+**触发事件**：UMES3 持续数月"测试全 GREEN → 人工一戳基本功能走不通"。2026-08-01 综合调研（12 篇来源）确认：AI agent 在 /implement 阶段存在 7 种制造假 GREEN 的手段，现有门禁仅覆盖 1 种。
+**ADR**：[008-green-side-gate-architecture](../decisions/008-green-side-gate-architecture.md)
+
+**设计摘要**：门禁体系从 RED 单侧扩展为 RED+GREEN 双侧。GREEN 侧五层验证模型：秒检(diff)→规则注入(prompt)→DONE 重检→独立验证→自主验收。P0 落地 G1+G2（覆盖 7 种假 GREEN 中的 4 种）。
+
+### 已完成
+
+| # | 产出 | 文件 |
+|:--|------|------|
+| 8.0 | 根因调研 + 社区最佳实践综合 | `docs/research/ai-false-green-root-cause-analysis-20260801.md` |
+| 8.0.1 | ADR-008：GREEN 侧门禁设计原则 | `docs/decisions/008-green-side-gate-architecture.md` |
+
+### 待办
+
+| # | 事项 | 来源 | 优先级 | 阻塞条件 |
+|:--|------|------|:--:|------|
+| 8.1 | G1：双注入点反作弊规则（stage-tracker tdd:done + workflow-gate） | F17 | P0 | — |
+| 8.2 | G2：green-gate.sh diff 秒检脚本 | F17 | P0 | — |
+| 8.3 | G4：独立 verifier prompt——新 context 逐条 AC 对照 diff | F17 | P1 | 8.1/8.2 落地后 |
+| 8.4 | G5：GREEN G0——/implement 完成后破坏一条逻辑→确认有测试变红→恢复 | F17 | P1 | 8.3 落地后 |
+| 8.5 | G8：Knight Rider 夜间自主验收（独立 agent 驱动实际应用） | F17 | P2 | 需 harness 开发 |
+
+---
+
 ## 变更记录
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-01 | v2.4 | 阶段八新建——GREEN 侧验证体系。假 GREEN 根因调研 + ADR-008。F17 入 Inbox |
 | 2026-07-31 | v2.3 | 5.1 L0 硬阻断 ✅：test-gate-block.sh（PreToolUse exit 2）+ settings.json 模板 + Archon red-gate 节点 + implement prompt 嵌入 |
 | 2026-07-31 | v2.2 | 阶段四 ✅ 关闭（8 项完成）。阶段五重写：CI/CD 自动化 → 强制执行硬化（三条铁律+四层阻断模型）。4.3 迁入阶段五。F16 纳入设计原则 |
 | 2026-07-31 | v2.1 | Inbox 新增 F13（测试数据工厂）、F14（G0 首次闭环）、F15（hook 提醒修复）。阶段四 4.2.5（G0 首次闭环）已完成 |

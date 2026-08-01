@@ -162,6 +162,17 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
   🛑 R7 分层一致性: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致
   ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
+	  🛑 /implement 反作弊规则（违反 = 实现无效，重新 /implement）:
+	     1. 禁止修改测试文件 — 测试 = spec 的可执行版本，只能改实现去适配测试
+	        测试有 bug？→ STOP，输出 TEST_BUG: <file>:<line> — <原因>，等人工判断
+	     2. 禁止硬编码返回值骗测试 — 不许 return { code: 0, data: [] } / if (testEnv) return mockData
+	     3. GREEN commit 前必做（三项全部通过方可提交）:
+	        a. 运行全量测试，粘贴完整输出（含 X passing / Y failing 计数）
+	        b. 运行 bash .devflow/scripts/green-gate.sh — 逐条确认
+	        c. 逐条 AC 对照 git diff 验证:
+	           git diff <RED-commit>..HEAD --stat → 每个改动文件必须能对应到具体 AC
+	           输出: | AC | 状态 | 证据（file:line）|
+	        ⚠️ 不许只说"全部通过"而不贴实际输出——贴输出 = 唯一可接受的证据
 
   🐴 Ponytail 决策阶梯（写实现代码前逐级检查）:
      1. 这真的需要存在？（YAGNI — 只为 ticket AC 写代码）

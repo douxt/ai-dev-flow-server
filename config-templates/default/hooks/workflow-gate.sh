@@ -108,6 +108,9 @@ TDD 前置（/to-tickets 后）:
 	  → RED commit → test-checklist 完整预检 + G0 故障注入 → 人工确认
 	  → tdd:done 自动检测
 
+	/implement 反作弊规则（GREEN 侧）:
+	  🛑 不改测试、不硬编码（return {code:0,data:[]}）、GREEN commit 前跑 green-gate.sh + 全量测试 + AC 对照
+
 AFK 自动重试（/implement 阶段）:
   填逻辑 → 测试失败 → 自动修复重试（最多 3 次）→ 超限 escalation
 
