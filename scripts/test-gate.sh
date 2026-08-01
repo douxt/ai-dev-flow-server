@@ -151,7 +151,7 @@ TOTAL_EXPECT=$(grep -rn "expect(" "$TESTS_DIR" \
     --exclude-dir=characterization \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
 # 统计弱断言：toBeVisible / toBeDefined / toBeTruthy / toBeNull / toBeFalsy
-WEAK_ASSERT=$(grep -rnE "expect\(.*\)\.toBeVisible\(\)|expect\(.*\)\.toBeDefined\(\)|expect\(.*\)\.toBeTruthy\(\)|expect\(.*\)\.toBeNull\(\)|expect\(.*\)\.toBeFalsy\(\)" "$TESTS_DIR" \
+WEAK_ASSERT=$(grep -rnE "expect\([^)]*\)\.toBeVisible\(|expect\([^)]*\)\.toBeDefined\(|expect\([^)]*\)\.toBeTruthy\(|expect\([^)]*\)\.toBeNull\(|expect\([^)]*\)\.toBeFalsy\(" "$TESTS_DIR" \
     --exclude-dir=characterization \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
 if [ "$TOTAL_EXPECT" -gt 0 ]; then
@@ -184,7 +184,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     HAS_STRONG=$(grep -cE '\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' "$f" 2>/dev/null) || HAS_STRONG=0
     [ "$HAS_STRONG" -gt 0 ] 2>/dev/null && continue
     # 有弱断言？
-    HAS_WEAK=$(grep -cE '\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(\)' "$f" 2>/dev/null) || HAS_WEAK=0
+    HAS_WEAK=$(grep -cE '\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(' "$f" 2>/dev/null) || HAS_WEAK=0
     [ "$HAS_WEAK" -gt 0 ] 2>/dev/null || continue
     # 有操作 + 零强断言 + 有弱断言 = 操作后不验证结果
     C08_PERFILE_HITS="${C08_PERFILE_HITS}${f}: ${HAS_ACTION} 操作, 0 强断言, ${HAS_WEAK} 弱断言\n"
@@ -217,8 +217,8 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     for ln in $ACTION_LINES; do
         [ -n "$ln" ] || continue
         BLOCK=$(sed -n "${ln},$((ln+5))p" "$f" 2>/dev/null || true)
-        HAS_FW=$(echo "$BLOCK" | grep -cE 'expect\(.*\)\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(\)' 2>/dev/null) || HAS_FW=0
-        HAS_FS=$(echo "$BLOCK" | grep -cE 'expect\(.*\)\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' 2>/dev/null) || HAS_FS=0
+        HAS_FW=$(echo "$BLOCK" | grep -cE 'expect\([^)]*\)\.(toBeVisible|toBeDefined|toBeTruthy|toBeNull|toBeFalsy)\(' 2>/dev/null) || HAS_FW=0
+        HAS_FS=$(echo "$BLOCK" | grep -cE 'expect\([^)]*\)\.(toBe\(|toEqual\(|toStrictEqual\(|toContain\(|toHaveLength\(|toMatch\(|toBeGreaterThan|toBeGreaterThanOrEqual|toBeLessThan|toBeLessThanOrEqual|toBeCloseTo)' 2>/dev/null) || HAS_FS=0
         if [ "$HAS_FW" -gt 0 ] && [ "$HAS_FS" -eq 0 ]; then
             C08_LINE_HITS="${C08_LINE_HITS}${f}:${ln}: 操作后仅弱断言（5行内无强断言）\n"
             break  # 每文件报一次即可
