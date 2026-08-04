@@ -2,7 +2,7 @@
 
 > 全局长期方案——单一起源，持久维护，不被任务级计划覆盖。
 > 配套 ADR：[006 门禁设计原则](../decisions/006-gate-architecture-principles.md) · [007 G0 反向突变测试](../decisions/007-g0-reverse-mutation-testing.md)
-> 上次更新：2026-07-31
+> 上次更新：2026-08-01
 
 ## 文档定位
 
@@ -39,6 +39,10 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F15 | 本会话 | hook 提醒过期导致质量门禁不被执行——stage-tracker/workflow-gate 已修 | P1 | 07-31 | ✅ 已修 |
 | F16 | 社区调研 | 门禁分层阻断——L0 硬阻断(C0.5 exit 2)+L1 软阻断+L2 验证+L3 独立审查。社区三条铁律 | P1 | 07-31 | → 阶段五（已纳入设计原则） |
 | F17 | UMES3 持续假 GREEN + 2026-08-01 调研 | AI reward hacking——GREEN 侧零门禁，7 种假 GREEN 手段仅 1 种被拦。需 GREEN 侧验证体系（G1-G4） | P0 | 08-01 | → 阶段八 |
+| F18 | UMES3 `test-effectiveness-gap-20260801.md` | C0.8 断言强度扫描 + G0 自动化脚本 + 单测试级检查 + Playwright matchers | P0 | 08-01 | ✅ 已实施 |
+| F19 | UMES3 多轮正则验收反馈 | C0.8 正则 Bug（expect(.*)贪婪 + \(\)空括号）+ 单文件蒙面效应 + dev-server编译等待 + config排除 | P1 | 08-01 | ✅ 已实施 |
+| F20 | UMES3 `test-coverage-gap-in-dev-flow.md` | C0.9 代码覆盖率秒检——第四个质量维度（执行完整性） | P0 | 08-01 | ✅ 已实施 |
+| F21 | UMES3 会话反馈 | v3.2 tickets:reviewed 独立阶段——审查从 advisory 提醒升级为显式 Gate | P1 | 08-01 | ✅ 已实施 |
 
 ---
 
@@ -186,13 +190,18 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 | 5.0 | 社区调研 + 三条铁律 + 四层阻断方案（F16） | `docs/plans/06-testing-quality-roadmap.md` |
 | 5.0.1 | G0 @skip-g0 跳过理由机制（为 L1-L3 @skip 模式铺路） | `gate-checklists/test-checklist.md` |
 | 5.1 | L0 硬阻断：PreToolUse hook（test-gate-block.sh）exit 2 拦截 RED commit + Archon red-gate 节点 | `config-templates/default/hooks/test-gate-block.sh` · `config-templates/default/settings.json` · `archon/auto-execute-afk.yaml` |
+| 5.1.1 | C0.7 if-count/length===0→return 检测（Skip Test 硬阻断） | `scripts/test-gate.sh` · `gate-checklists/test-checklist.md` |
+| 5.1.2 | C0.8 断言强度门禁（全局比率+单文件操作-断言匹配+操作行级蒙面检测） | `scripts/test-gate.sh` · `gate-checklists/test-checklist.md` |
+| 5.1.3 | C0.9 代码覆盖率秒检（vitest/jest coverage 解析+阈值比较） | `scripts/test-gate.sh` · `gate-checklists/test-checklist.md` |
+| 5.1.4 | C0.3 测试配置文件排除（playwright/vitest/jest/webpack/vite config） | `scripts/test-gate.sh` |
+| 5.1.5 | 强断言正则完整覆盖（数值比较+Playwright web-first matchers 共12种） | `scripts/test-gate.sh` |
 
 ### 待办
 
 | # | 事项 | 来源 | 优先级 | 阻塞条件 |
 |:--|------|------|:--:|------|
 | 5.2 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — |
-| 5.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | 4.3 迁入 | P1 | — |
+| 5.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | 4.3 迁入 | P1 | ✅ C0.8 断言强度门禁已实现（全局+单文件+操作行），知识文档待写 |
 | 5.4 | L3 独立会话审查流程——另一 session 跑 /review-cc-cli | F16 | P2 | 5.1 落地后 |
 | 5.5 | @skip 理由机制推广到 C7/G0 之外的门禁 | F16 | P2 | 5.1 落地后 |
 | 5.6 | PreToolUse hook 拦截未完成 `/characterize` 的 `[legacy]` ticket | 5.3 原 | P2 | 阶段二试点稳定后 |
@@ -256,15 +265,20 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 |:--|------|------|
 | 8.0 | 根因调研 + 社区最佳实践综合 | `docs/research/ai-false-green-root-cause-analysis-20260801.md` |
 | 8.0.1 | ADR-008：GREEN 侧门禁设计原则 | `docs/decisions/008-green-side-gate-architecture.md` |
+| 8.0.2 | G0 自动化脚本 g0-inject.sh（5步自动化+5策略+dev-server编译等待+硬阻断） | `scripts/g0-inject.sh` |
+| 8.0.3 | G0 级别升级（⚠️警告→❌硬阻断）+ test-checklist 同步 | `gate-checklists/test-checklist.md` |
+| 8.0.4 | G0 策略4跳过JSX + 策略5优先非render函数 | `scripts/g0-inject.sh` |
+| 8.1.1 | green-gate.sh 纳入 install.sh 部署管线 | `install.sh` |
+| 8.1.2 | settings 智能合并替代 jq `*` 数组覆盖 | `scripts/merge-settings.py` |
 
 ### 待办
 
 | # | 事项 | 来源 | 优先级 | 阻塞条件 |
 |:--|------|------|:--:|------|
-| 8.1 | G1：双注入点反作弊规则（stage-tracker tdd:done + workflow-gate） | F17 | P0 | — |
-| 8.2 | G2：green-gate.sh diff 秒检脚本 | F17 | P0 | — |
+| 8.1 | G1：双注入点反作弊规则（stage-tracker tdd:done + workflow-gate） | F17 | P0 | ✅ 已实施 |
+| 8.2 | G2：green-gate.sh diff 秒检脚本（G2.1测试文件修改+G2.2空数据+G2.3 skip/only） | F17 | P0 | ✅ 已实施 |
 | 8.3 | G4：独立 verifier prompt——新 context 逐条 AC 对照 diff | F17 | P1 | 8.1/8.2 落地后 |
-| 8.4 | G5：GREEN G0——/implement 完成后破坏一条逻辑→确认有测试变红→恢复 | F17 | P1 | 8.3 落地后 |
+| 8.4 | G5：GREEN G0——/implement 完成后破坏一条逻辑→确认有测试变红→恢复（g0-inject.sh 已实现自动化+5策略+dev-server等待+硬阻断；G5流程集成+单测/集成优先待完善） | F17 | P1 | 8.3 落地后 |
 | 8.5 | G8：Knight Rider 夜间自主验收（独立 agent 驱动实际应用） | F17 | P2 | 需 harness 开发 |
 
 ---
@@ -273,6 +287,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-01 | v2.5 | C0.7-C0.9 新增 + G0 自动化(g0-inject.sh) + G1/G2 落地 + v3.2 tickets:reviewed + 多轮正则修复(Playwright matchers/数值比较/非贪婪) |
 | 2026-08-01 | v2.4 | 阶段八新建——GREEN 侧验证体系。假 GREEN 根因调研 + ADR-008。F17 入 Inbox |
 | 2026-07-31 | v2.3 | 5.1 L0 硬阻断 ✅：test-gate-block.sh（PreToolUse exit 2）+ settings.json 模板 + Archon red-gate 节点 + implement prompt 嵌入 |
 | 2026-07-31 | v2.2 | 阶段四 ✅ 关闭（8 项完成）。阶段五重写：CI/CD 自动化 → 强制执行硬化（三条铁律+四层阻断模型）。4.3 迁入阶段五。F16 纳入设计原则 |
