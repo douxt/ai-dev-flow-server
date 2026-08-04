@@ -43,7 +43,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F19 | UMES3 多轮正则验收反馈 | C0.8 正则 Bug（expect(.*)贪婪 + \(\)空括号）+ 单文件蒙面效应 + dev-server编译等待 + config排除 | P1 | 08-01 | ✅ 已实施 |
 | F20 | UMES3 `test-coverage-gap-in-dev-flow.md` | C0.9 代码覆盖率秒检——第四个质量维度（执行完整性） | P0 | 08-01 | ✅ 已实施 |
 | F21 | UMES3 会话反馈 | v3.2 tickets:reviewed 独立阶段——审查从 advisory 提醒升级为显式 Gate | P1 | 08-01 | ✅ 已实施 |
-| F22 | UMES3 `tdd-skip-leads-to-untested-features.md` | Plan Mode 方案太详细→Agent 跳过 /tdd→4功能无E2E覆盖。根因：阶段间缺硬阻断 | P0 | 08-04 | → 阶段五 |
+| F22 | UMES3 `tdd-skip-leads-to-untested-features.md` | Plan Mode 方案太详细→Agent 跳过 /tdd→4功能无E2E覆盖。根因：阶段间缺硬阻断 | P0 | 08-04 | ✅ 5.7 stage-gate-block.sh |
 
 ---
 
@@ -229,12 +229,12 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 | 5.1.5 | 强断言正则完整覆盖（数值比较+Playwright web-first matchers 共12种） | `scripts/test-gate.sh` |
 | 5.1.6 | v3.2 tickets:reviewed 独立阶段（advisory→显式Gate） | `config-templates/default/hooks/stage-tracker.sh` · `docs/design/gate-design.md` |
 | 5.1.7 | 社区调研——四层渐进硬化模型+6维对标 | `docs/plans/06-testing-quality-roadmap.md` |
+| 5.7 | **stage-gate-block.sh**——PreToolUse 按 .devflow/stage 阻断越阶段操作（stage < tdd:done 禁写非测试文件，exit 2 硬阻断） | `config-templates/default/hooks/stage-gate-block.sh` · `config-templates/default/settings.json` |
 
 ### 待办（按四层模型排序）
 
 | # | 事项 | 来源 | 优先级 | 层 | 阻塞条件 |
 |:--|------|------|:--:|:--:|------|
-| 5.7 | **stage-gate-block.sh**——PreToolUse 按 .devflow/stage 阻断越阶段操作（stage < tdd:done 禁写非测试文件） | F22 | P0 | 一 | — |
 | 5.8 | 文件级阶段锁定——RED 阶段禁写实现文件（G1反作弊升级为硬阻断） | F17+调研 | P1 | 二 | 5.7 落地后 |
 | 5.9 | 过渡门禁验证 stage-verify.sh——阶段推进前校验产物质量（非仅检测存在） | 调研 | P1 | 三 | 5.7 落地后 |
 | 5.3 | 断言强度等级纳入知识文档（ASI 五级量表 STARWEST 2026） | 4.3 迁入 | P1 | — | ✅ C0.8 已实现，文档待写 |
@@ -324,6 +324,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-04 | v2.7 | 5.7 stage-gate-block.sh 落地——PreToolUse exit 2 按阶段阻断越级写入，四层硬化模型第一层完成 |
 | 2026-08-04 | v2.6 | 阶段五重写——社区对标(6维)+四层渐进硬化模型+5.7-5.9新增。行业调研(20+来源)写入。F22入Inbox |
 | 2026-08-01 | v2.5 | C0.7-C0.9 新增 + G0 自动化(g0-inject.sh) + G1/G2 落地 + v3.2 tickets:reviewed + 多轮正则修复(Playwright matchers/数值比较/非贪婪) |
 | 2026-08-01 | v2.4 | 阶段八新建——GREEN 侧验证体系。假 GREEN 根因调研 + ADR-008。F17 入 Inbox |
