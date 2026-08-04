@@ -2,7 +2,7 @@
 
 > 全局长期方案——单一起源，持久维护，不被任务级计划覆盖。
 > 配套 ADR：[006 门禁设计原则](../decisions/006-gate-architecture-principles.md) · [007 G0 反向突变测试](../decisions/007-g0-reverse-mutation-testing.md)
-> 上次更新：2026-08-01
+> 上次更新：2026-08-04
 
 ## 文档定位
 
@@ -43,6 +43,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F19 | UMES3 多轮正则验收反馈 | C0.8 正则 Bug（expect(.*)贪婪 + \(\)空括号）+ 单文件蒙面效应 + dev-server编译等待 + config排除 | P1 | 08-01 | ✅ 已实施 |
 | F20 | UMES3 `test-coverage-gap-in-dev-flow.md` | C0.9 代码覆盖率秒检——第四个质量维度（执行完整性） | P0 | 08-01 | ✅ 已实施 |
 | F21 | UMES3 会话反馈 | v3.2 tickets:reviewed 独立阶段——审查从 advisory 提醒升级为显式 Gate | P1 | 08-01 | ✅ 已实施 |
+| F22 | UMES3 `tdd-skip-leads-to-untested-features.md` | Plan Mode 方案太详细→Agent 跳过 /tdd→4功能无E2E覆盖。根因：阶段间缺硬阻断 | P0 | 08-04 | → 阶段五 |
 
 ---
 
@@ -160,10 +161,10 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 ## 阶段五：强制执行硬化
 
 **状态**：🔵 进行中
-**触发事件**：本会话验证——hook 提醒虽已补全，但全链路仍为 advisory，AI 可跳过。社区调研（F16）确认：**advisory 警告 = 不存在**，exit 2 是 Claude Code 唯一可靠阻断机制。
+**触发事件**：本会话验证——hook 提醒虽已补全，但全链路仍为 advisory，AI 可跳过。社区调研（F16）确认：**advisory 警告 = 不存在**，exit 2 是 Claude Code 唯一可靠阻断机制。2026-08-04 UMES3 反馈（F22）：Plan Mode 方案太详细→Agent 跳过 /tdd→4 功能无 E2E 覆盖，根因同样是阶段间无硬阻断。
 **设计原则**：[社区三条铁律](#三条铁律)
 
-**设计摘要**：从"AI 自觉 + 人工确认"向"硬阻断 + 独立审查"演进。L0 硬阻断（exit 2）在 RED commit 前拦，L1-L3 保持 advisory 但加 @skip 理由要求。引入独立会话审查（多 session 天然适用）。
+**设计摘要**：从"AI 自觉 + 人工确认"向"硬阻断 + 独立审查"演进。2026-08-04 综合调研（20+ 来源）确认行业方向从 prompt-based suggestions → code-enforced auditable gates。四层渐进式硬化模型，每层可独立实施。
 
 ### 三条铁律
 
@@ -173,7 +174,38 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 2. **作者不自审** — 写代码的 session 不能审自己的代码
 3. **不能失败的检查不是检查** — advisory 警告可被跳过 = 形同虚设
 
-### 四层阻断模型
+### 社区最佳实践对标（2025-2026 调研）
+
+> 来源：tdd-enforcer (Pi Coding Agent)、tdd-ai (CLI state machine)、correctless (agent separation)、
+> QFAI (traceability gates)、XP Gates (4 sequential blocking constraints)、
+> opencode-android-tdd (code-enforced RED classifier)、TDFlow (multi-agent TDD decomposition)
+
+| 模式 | 机制 | 行业标杆 | 我方对标 | 差距 |
+|------|------|------|:--:|------|
+| **阶段间硬阻断** | PreToolUse exit 2 按 stage 阻断 | tdd-enforcer phase-locked file access | test-gate-block.sh | **缺失 stage-gate-block.sh** |
+| **文件级阶段锁定** | RED 禁写实现文件，GREEN 禁写测试 | tdd-enforcer/tool-layer interception | G1 反作弊提示(advisory) | **需升级为硬阻断** |
+| **过渡门禁验证** | 阶段推进前自动验证条件 | tdd-ai gate checks (test must fail→RED→GREEN) | 仅产物检测(有文件即推进) | **缺产物质量校验** |
+| **独立审查** | 写代码 agent ≠ 审代码 agent | TDFlow/correctless multi-agent isolation | ❌ | **全链路缺失** |
+| **证据链** | 每阶段产物哈希锁定+签名 | Sigstore/cryptographic attestation | ❌ | **远期** |
+| **确定性门禁** | Block/Warn/Allow 三态 | Quality Gateway Pattern 5-layer | exit 2/警告/@skip | 基本对齐 |
+
+### 四层渐进硬化模型
+
+```
+第一层（P0·今天）：阶段间硬阻断  ← stage-gate-block.sh
+  检测 .devflow/stage，阶段不满足 → exit 2 阻断 Write/Edit/implement
+
+第二层（P1）：文件级阶段锁定    ← 扩展 test-gate-block.sh
+  RED 阶段禁止写实现文件，GREEN 阶段禁止改测试
+
+第三层（P1）：过渡门禁验证      ← stage-verify.sh
+  阶段推进前验证产物质量（非仅检测存在）
+
+第四层（P2）：独立审查 + 证据链  ← 多 agent 分离 + 哈希锁定
+  写代码 session ≠ 审代码 session，关键产物不可篡改
+```
+
+### 四层阻断模型（当前实现）
 
 ```
 L0: PreToolUse 硬阻断（exit 2）  ← C0.5 测试发现 + test-gate.sh 全绿
@@ -195,16 +227,21 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 | 5.1.3 | C0.9 代码覆盖率秒检（vitest/jest coverage 解析+阈值比较） | `scripts/test-gate.sh` · `gate-checklists/test-checklist.md` |
 | 5.1.4 | C0.3 测试配置文件排除（playwright/vitest/jest/webpack/vite config） | `scripts/test-gate.sh` |
 | 5.1.5 | 强断言正则完整覆盖（数值比较+Playwright web-first matchers 共12种） | `scripts/test-gate.sh` |
+| 5.1.6 | v3.2 tickets:reviewed 独立阶段（advisory→显式Gate） | `config-templates/default/hooks/stage-tracker.sh` · `docs/design/gate-design.md` |
+| 5.1.7 | 社区调研——四层渐进硬化模型+6维对标 | `docs/plans/06-testing-quality-roadmap.md` |
 
-### 待办
+### 待办（按四层模型排序）
 
-| # | 事项 | 来源 | 优先级 | 阻塞条件 |
-|:--|------|------|:--:|------|
-| 5.2 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — |
-| 5.3 | 断言强度等级纳入知识文档（精确值 > 集合/结构 > 数量/范围 > 存在性 > 恒真） | 4.3 迁入 | P1 | ✅ C0.8 断言强度门禁已实现（全局+单文件+操作行），知识文档待写 |
-| 5.4 | L3 独立会话审查流程——另一 session 跑 /review-cc-cli | F16 | P2 | 5.1 落地后 |
-| 5.5 | @skip 理由机制推广到 C7/G0 之外的门禁 | F16 | P2 | 5.1 落地后 |
-| 5.6 | PreToolUse hook 拦截未完成 `/characterize` 的 `[legacy]` ticket | 5.3 原 | P2 | 阶段二试点稳定后 |
+| # | 事项 | 来源 | 优先级 | 层 | 阻塞条件 |
+|:--|------|------|:--:|:--:|------|
+| 5.7 | **stage-gate-block.sh**——PreToolUse 按 .devflow/stage 阻断越阶段操作（stage < tdd:done 禁写非测试文件） | F22 | P0 | 一 | — |
+| 5.8 | 文件级阶段锁定——RED 阶段禁写实现文件（G1反作弊升级为硬阻断） | F17+调研 | P1 | 二 | 5.7 落地后 |
+| 5.9 | 过渡门禁验证 stage-verify.sh——阶段推进前校验产物质量（非仅检测存在） | 调研 | P1 | 三 | 5.7 落地后 |
+| 5.3 | 断言强度等级纳入知识文档（ASI 五级量表 STARWEST 2026） | 4.3 迁入 | P1 | — | ✅ C0.8 已实现，文档待写 |
+| 5.4 | L3 独立会话审查——另一 session 跑 /review-cc-cli | F16+调研 | P2 | 四 | 5.7 落地后 |
+| 5.2 | C5 报告增加测试分类（烟雾/API契约/UI交互/错误态） | F3 | P2 | — | — |
+| 5.5 | @skip 理由机制推广到 C7/G0 之外的门禁 | F16 | P2 | — | 5.1 落地后 |
+| 5.6 | PreToolUse hook 拦截未完成 `/characterize` 的 `[legacy]` ticket | 5.3 原 | P2 | 二 | 阶段二试点稳定后 |
 
 ---
 
@@ -287,6 +324,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-04 | v2.6 | 阶段五重写——社区对标(6维)+四层渐进硬化模型+5.7-5.9新增。行业调研(20+来源)写入。F22入Inbox |
 | 2026-08-01 | v2.5 | C0.7-C0.9 新增 + G0 自动化(g0-inject.sh) + G1/G2 落地 + v3.2 tickets:reviewed + 多轮正则修复(Playwright matchers/数值比较/非贪婪) |
 | 2026-08-01 | v2.4 | 阶段八新建——GREEN 侧验证体系。假 GREEN 根因调研 + ADR-008。F17 入 Inbox |
 | 2026-07-31 | v2.3 | 5.1 L0 硬阻断 ✅：test-gate-block.sh（PreToolUse exit 2）+ settings.json 模板 + Archon red-gate 节点 + implement prompt 嵌入 |
