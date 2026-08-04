@@ -21,6 +21,10 @@ from service.retrieval import RetrievalService
 from store.reflection_store import ReflectionStore
 from service.correction import CorrectionDetector
 from service.reflection import ReflectionGenerator, ReflectionInjector
+from store.summary_store import SummaryStore, SummaryDocument
+from service.context_compressor import (
+    split_messages, build_compression_prompt, parse_summary_response, should_compress,
+)
 
 # 兼容旧代码的别名
 _QQ_FACE_NAME = QQ_FACE_NAME
@@ -159,6 +163,27 @@ class DefaultEventListener(EventListener):
         self._bg_queue = asyncio.Queue(maxsize=10)
         self._bg_workers = [asyncio.create_task(self._bg_worker()) for _ in range(3)]
 
+        # === 上下文压缩初始化 ===
+        self.compressor_enabled = bool(config.get('compression_enabled', False))
+        if self.compressor_enabled:
+            comp_model_uuid = str(config.get('compression_model_uuid', '') or ref_model_uuid)
+            self.compression_model_uuid = comp_model_uuid
+            self.compression_tail_max_chars = int(config.get('compression_tail_max_chars', 1500))
+            self.compression_cooldown_minutes = int(config.get('compression_cooldown_minutes', 10))
+            self.compression_history_count = int(config.get('compression_history_count', 200))
+            self._compression_cooldown_seconds = self.compression_cooldown_minutes * 60
+            self._compression_min_tail_items = 3  # 保底：压缩后至少保留 3 条原文
+            self.summary_store = SummaryStore(_DB_PATH)
+            self._compression_queue = asyncio.Queue(maxsize=20)
+            self._compression_inflight = set()
+            self._compression_worker_task = asyncio.create_task(self._compression_worker())
+            print(f'[silent] compression enabled: model={comp_model_uuid} tail={self.compression_tail_max_chars} '
+                  f'history={self.compression_history_count} cooldown={self.compression_cooldown_minutes}m',
+                  file=sys.stderr, flush=True)
+        else:
+            self.compressor_enabled = False
+            self.summary_store = None
+
         # 周期持久化（每 5 分钟）
         asyncio.create_task(self._periodic_save())
 
@@ -222,6 +247,10 @@ class DefaultEventListener(EventListener):
                 self._log_gate_msg('[silent] gate: prevented')
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
+
+            # === 上下文压缩：消息存储后触发后台检查 ===
+            if self.compressor_enabled and self.kb_enabled and is_trigger:
+                self._trigger_compression(session_name)
 
             # === 反思层：纠正检测钩子（所有消息路径之后） ===
             if self.reflection_enabled:
@@ -360,6 +389,32 @@ class DefaultEventListener(EventListener):
                 lines = self.timeline_service.deduplicate(lines)
                 lines = self.timeline_service.truncate_by_chars(lines)
                 lines, _identified, _pending, _failed = self.timeline_service.enhance_image_markers(lines)
+
+                # === 上下文摘要注入（模式指令之前、timeline 之前） ===
+                if self.compressor_enabled and self.summary_store:
+                    try:
+                        doc = self.summary_store.load_or_default(session_name)
+                        if doc.message_count > 0:
+                            summary_text = self._format_summary(doc)
+                            if summary_text:
+                                ctx.event.prompt.append(
+                                    provider_message.Message(role='system', content=summary_text)
+                                )
+                        # Tail 去重：过滤掉已被摘要覆盖的消息
+                        covered = doc.covered_until_ts
+                        if covered > 0:
+                            filtered = [i for i in items
+                                        if i.get('metadata', {}).get('timestamp_unix', 0) > covered]
+                            # 保底：至少保留最近 N 条原文
+                            if len(filtered) < self._compression_min_tail_items:
+                                filtered = items[-self._compression_min_tail_items:]
+                            lines = _format_timeline(filtered)
+                            lines = self.timeline_service.deduplicate(lines)
+                            lines = self.timeline_service.truncate_by_chars(lines)
+                            lines, _, _, _ = self.timeline_service.enhance_image_markers(lines)
+                    except Exception as e:
+                        safe_log('compression', f'inject summary error: {e}')
+                        # 降级：照常注 timeline
 
                 # DEBUG: dump prompt for analysis
                 await self._dump_prompt_debug(api, now_str, trigger, _identified, _pending, _failed, lines, face_text)
@@ -827,3 +882,97 @@ class DefaultEventListener(EventListener):
                 print(f'[silent] bg worker error: {e}', file=sys.stderr, flush=True)
             finally:
                 self._bg_queue.task_done()
+
+    # ── 上下文压缩 ─────────────────────────────────────────────
+
+    def _trigger_compression(self, session_name: str):
+        """入队前预判 cooldown，避免无效入队。"""
+        if self.summary_store is None:
+            return
+        doc = self.summary_store.load_or_default(session_name)
+        if time.time() < doc.cooldown_until:
+            return
+        try:
+            self._compression_queue.put_nowait(session_name)
+        except asyncio.QueueFull:
+            pass  # 队列满则丢弃，等下一轮
+
+    async def _compression_worker(self):
+        """独立单 worker，避免 30s 压缩阻塞 vision/存储任务。"""
+        while True:
+            session_name = await self._compression_queue.get()
+            try:
+                await self._process_compression(session_name)
+            except Exception as e:
+                print(f'[silent] compression worker error: {e}', file=sys.stderr, flush=True)
+            finally:
+                self._compression_queue.task_done()
+
+    async def _process_compression(self, session_name: str):
+        if self.store is None or self.summary_store is None:
+            return
+        # per-session 并发保护
+        if session_name in self._compression_inflight:
+            return
+        self._compression_inflight.add(session_name)
+        try:
+            doc = self.summary_store.load_or_default(session_name)
+            items = await self.store.get_recent_messages(session_name, self.compression_history_count)
+            items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
+            if not should_compress(doc.covered_until_ts, items,
+                                   self.compression_tail_max_chars, doc.cooldown_until):
+                return
+            to_summarize, to_keep = split_messages(items, self.compression_tail_max_chars)
+            if not to_summarize:
+                return
+            prompt = build_compression_prompt(doc, to_summarize)
+            try:
+                new_doc = await self._call_compression_model(prompt)
+            except Exception:
+                # 失败也写 cooldown，防死循环重试
+                doc.cooldown_until = time.time() + self._compression_cooldown_seconds
+                self.summary_store.upsert(session_name, doc)
+                print(f'[silent] compression failed for {session_name}, cooldown set',
+                      file=sys.stderr, flush=True)
+                return
+            if new_doc is None:
+                return
+            # covered_until_ts = to_keep 中最老消息的时间戳
+            if to_keep:
+                new_doc.covered_until_ts = to_keep[0].get('metadata', {}).get('timestamp_unix', doc.covered_until_ts)
+            else:
+                new_doc.covered_until_ts = items[-1].get('metadata', {}).get('timestamp_unix', doc.covered_until_ts) if items else doc.covered_until_ts
+            new_doc.message_count = len(to_summarize) + doc.message_count
+            new_doc.cooldown_until = time.time() + self._compression_cooldown_seconds
+            self.summary_store.upsert(session_name, new_doc)
+            safe_log('compression', f'{session_name}: compressed {len(to_summarize)} msgs, '
+                     f'covered_until={new_doc.covered_until_ts:.0f}')
+        finally:
+            self._compression_inflight.discard(session_name)
+
+    async def _call_compression_model(self, prompt: str):
+        """调压缩模型，60s 超时。失败抛异常由上层写 cooldown。"""
+        messages = [{'role': 'user', 'content': prompt}]
+        resp = await asyncio.wait_for(
+            self.plugin.invoke_llm(self.compression_model_uuid, messages),
+            timeout=60,
+        )
+        return parse_summary_response(resp)
+
+    def _format_summary(self, doc: SummaryDocument) -> str:
+        """格式化摘要为注入文本，只渲染非空字段."""
+        parts = []
+        if doc.facts:
+            parts.append(f"事实：{doc.facts}")
+        if doc.topics:
+            parts.append(f"主题：{doc.topics}")
+        if doc.decisions:
+            parts.append(f"决策：{doc.decisions}")
+        if doc.refs:
+            parts.append(f"参考：{doc.refs}")
+        if not parts:
+            return ""
+        from datetime import datetime, timezone, timedelta
+        BJT = timezone(timedelta(hours=8))
+        covered_str = datetime.fromtimestamp(doc.covered_until_ts, tz=BJT).strftime('%Y-%m-%d %H:%M') if doc.covered_until_ts > 0 else "无"
+        return "[上下文摘要]\n" + "\n".join(parts) + f"\n（覆盖至：{covered_str}）"
