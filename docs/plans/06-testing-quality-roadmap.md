@@ -44,6 +44,9 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F20 | UMES3 `test-coverage-gap-in-dev-flow.md` | C0.9 代码覆盖率秒检——第四个质量维度（执行完整性） | P0 | 08-01 | ✅ 已实施 |
 | F21 | UMES3 会话反馈 | v3.2 tickets:reviewed 独立阶段——审查从 advisory 提醒升级为显式 Gate | P1 | 08-01 | ✅ 已实施 |
 | F22 | UMES3 `tdd-skip-leads-to-untested-features.md` | Plan Mode 方案太详细→Agent 跳过 /tdd→4功能无E2E覆盖。根因：阶段间缺硬阻断 | P0 | 08-04 | ✅ 5.7 stage-gate-block.sh |
+| F23 | UMES3 `weak-assertion-gate-failure-20260804.md` | C0.8 三级检查全为 ⚠️ 警告不被 test-gate-block.sh 拦截。升级为 FAIL=1 硬阻断 | P0 | 08-04 | ✅ C0.8 升级硬阻断 |
+| F24 | 同上 | 语义弱断言——`toBeGreaterThan(0)` 在白名单但语义弱（搜唯一订单返 19 条仍 PASS）。grep 无法区分，需 G0/G4 覆盖 | P2 | 08-04 | → 阶段八 G0/G4 |
+| F25 | 同上 | AC-断言一致性校验——测试断言方向（正向/反向）与 spec AC 对齐检查，需 LLM 语义理解 | P3 | 08-04 | → 阶段五 5.4 |
 
 ---
 
@@ -324,6 +327,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-04 | v2.8 | C0.8 三级检查全部升级为 FAIL=1 硬阻断——弱断言占比/文件级/行级不再仅警告 |
 | 2026-08-04 | v2.7 | 5.7 stage-gate-block.sh 落地——PreToolUse exit 2 按阶段阻断越级写入，四层硬化模型第一层完成 |
 | 2026-08-04 | v2.6 | 阶段五重写——社区对标(6维)+四层渐进硬化模型+5.7-5.9新增。行业调研(20+来源)写入。F22入Inbox |
 | 2026-08-01 | v2.5 | C0.7-C0.9 新增 + G0 自动化(g0-inject.sh) + G1/G2 落地 + v3.2 tickets:reviewed + 多轮正则修复(Playwright matchers/数值比较/非贪婪) |

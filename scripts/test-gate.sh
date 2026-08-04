@@ -143,7 +143,7 @@ if [ -n "$C07_HITS" ]; then
 else
     echo "✅ 零命中"
 fi
-# ── C0.8: 断言强度分布（警告级）──
+# ── C0.8: 断言强度分布（硬阻断）──
 echo ""
 echo "--- C0.8: 断言强度分布 ---"
 # 统计 expect 总数（排除注释行）
@@ -162,6 +162,7 @@ if [ "$TOTAL_EXPECT" -gt 0 ]; then
         echo "⚠️  弱断言占比 ${WEAK_PCT}% > 50%——测试可能不验证操作结果"
         echo "  提示: click/fill/submit 之后必须有强断言（精确值/集合/数量），不能只有'元素可见'"
         echo "  参考: .claude/gate-checklists/test-checklist.md §C0.8 + ASI 五级量表"
+        FAIL=1
     else
         echo "✅ 弱断言占比 ${WEAK_PCT}%，在可接受范围"
     fi
@@ -195,6 +196,7 @@ if [ -n "$C08_PERFILE_HITS" ]; then
     echo -e "$C08_PERFILE_HITS" | head -10 | sed 's/^/    /'
     [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
     echo "  提示: click/fill/submit 之后至少加 1 条强断言（toBe/toEqual/toContain），不能只有 toBeVisible"
+    FAIL=1
 else
     echo "✅ 所有含操作的文件均有强断言"
 fi
@@ -227,10 +229,11 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
 done
 if [ -n "$C08_LINE_HITS" ]; then
     COUNT=$(echo -e "$C08_LINE_HITS" | grep -c ":" || echo "0")
-    echo "⚠️  发现 ${COUNT} 个文件存在操作后仅有弱断言的行（单测试蒙面）:"
+    echo "❌ 发现 ${COUNT} 个文件存在操作后仅有弱断言的行（单测试蒙面）:"
     echo -e "$C08_LINE_HITS" | head -10 | sed 's/^/    /'
     [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
     echo "  提示: 该操作（click/fill/submit）后应补充强断言验证操作结果"
+    FAIL=1
 else
     echo "✅ 所有操作行后均有强断言跟随"
 fi
