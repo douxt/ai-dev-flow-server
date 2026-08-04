@@ -190,7 +190,7 @@ if [ "$detected_stage" = "tdd:done" ] && [ "$detected_stage" != "$previous_stage
        → 撤销故障注入，测试重新 GREEN
      → 详细规则: ~/.claude/gate-checklists/test-checklist.md §G0
   🛑 R7 分层一致性: 确认 /tdd 接缝选择与 spec §Testing 分层分配一致
-  ⚠️ RED→GREEN 断言切换: 将测试断言从 RED 版（预期失败: code=1/NotImplemented）切换到 GREEN 版（预期成功: code=0/data.list 非空/字段值校验），GREEN 断言不可复用 RED 断言
+  ⚠️ GREEN 阶段禁止修改测试文件——测试断言在 /tdd 以最终业务行为形式写入（RED 靠 stub 抛 NotImplementedError/501 保证），GREEN 阶段只改实现（stage-gate-block 硬阻断执行）。测试有 bug → TEST_BUG: <file>:<line> — <原因>，等人工判断
   □ 无依赖 ticket 可并行 /implement；有 blocked_by 需等上游 GREEN
 	  🛑 /implement 反作弊规则（违反 = 实现无效，重新 /implement）:
 	     1. 禁止修改测试文件 — 测试 = spec 的可执行版本，只能改实现去适配测试

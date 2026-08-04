@@ -233,12 +233,13 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 | 5.1.6 | v3.2 tickets:reviewed 独立阶段（advisory→显式Gate） | `config-templates/default/hooks/stage-tracker.sh` · `docs/design/gate-design.md` |
 | 5.1.7 | 社区调研——四层渐进硬化模型+6维对标 | `docs/plans/06-testing-quality-roadmap.md` |
 | 5.7 | **stage-gate-block.sh**——PreToolUse 按 .devflow/stage 阻断越阶段操作（stage < tdd:done 禁写非测试文件，exit 2 硬阻断） | `config-templates/default/hooks/stage-gate-block.sh` · `config-templates/default/settings.json` |
+| 5.8 | **文件级阶段锁定**——GREEN 窗口（stage>=tdd:done + 最后commit RED）禁改测试文件（G1反作弊 exit 2 硬阻断）+ 断言最终形式标准化 + ADR-009 | `config-templates/default/hooks/stage-gate-block.sh` · `knowledge/09-测试质量宪法.md` · `docs/decisions/009-file-level-phase-locking.md` |
 
 ### 待办（按四层模型排序）
 
 | # | 事项 | 来源 | 优先级 | 层 | 阻塞条件 |
 |:--|------|------|:--:|:--:|------|
-| 5.8 | 文件级阶段锁定——RED 阶段禁写实现文件（G1反作弊升级为硬阻断） | F17+调研 | P1 | 二 | 5.7 落地后 |
+
 | 5.9 | 过渡门禁验证 stage-verify.sh——阶段推进前校验产物质量（非仅检测存在） | 调研 | P1 | 三 | 5.7 落地后 |
 | 5.3 | 断言强度等级纳入知识文档（ASI 五级量表 STARWEST 2026） | 4.3 迁入 | P1 | — | ✅ C0.8 已实现，文档待写 |
 | 5.4 | L3 独立会话审查——另一 session 跑 /review-cc-cli | F16+调研 | P2 | 四 | 5.7 落地后 |
@@ -327,6 +328,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-04 | v2.9 | 5.8 文件级阶段锁定——GREEN 窗口禁改测试（G1 硬阻断）+ 断言最终形式标准化 + ADR-009 |
 | 2026-08-04 | v2.8 | C0.8 三级检查全部升级为 FAIL=1 硬阻断——弱断言占比/文件级/行级不再仅警告 |
 | 2026-08-04 | v2.7 | 5.7 stage-gate-block.sh 落地——PreToolUse exit 2 按阶段阻断越级写入，四层硬化模型第一层完成 |
 | 2026-08-04 | v2.6 | 阶段五重写——社区对标(6维)+四层渐进硬化模型+5.7-5.9新增。行业调研(20+来源)写入。F22入Inbox |

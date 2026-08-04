@@ -1,14 +1,17 @@
 #!/bin/bash
 # stage-gate-block.sh — PreToolUse hook：按 .devflow/stage 阻断越阶段写入
-# 阶段 < tdd:done 时，禁止写实现源文件（强制先完成 /tdd RED 测试）
+# 两层阻断（四层硬化模型第一层+第二层）：
+#   第一层（5.7）: stage < tdd:done → 禁写实现源文件（强制先完成 /tdd RED）
+#   第二层（5.8）: GREEN 窗口（stage>=tdd:done + 最后commit是RED）→ 禁改测试文件（G1反作弊）
 # exit 2 = 硬阻断（Claude Code 唯一可靠阻断机制）
 #
 # 逻辑：
 # 1. 仅拦截 Edit/Write
 # 2. 项目无 .devflow/stage → 放行（未初始化，不干扰）
-# 3. stage >= tdd:done → 放行
-# 4. 目标文件是测试/文档/配置 → 放行
-# 5. 目标文件是实现代码 → exit 2 硬阻断
+# 3. GREEN 窗口检测（stage>=tdd:done + git log -1 含"TDD: RED"）
+# 4. GREEN 窗口 → 禁写测试文件，放行实现/配置/文档
+# 5. 非 GREEN 窗口 + stage>=tdd:done → 全部放行（多 ticket 流转入口）
+# 6. stage < tdd:done → 测试/配置放行，实现源文件 exit 2
 
 set -euo pipefail
 
@@ -39,12 +42,18 @@ for s in $stage_order; do
     i=$((i + 1))
 done
 
-# ── 阶段 >= tdd:done → 放行（含 implement:done / done / 未知阶段）──
-# 未知阶段（空或索引=0）视为未开始，仍需阻断
-if [ "$current_index" -eq 0 ] || [ "$current_index" -ge "$tdd_index" ]; then
-    # current_index=0 时 stage 文件存在但值不匹配 → 未知阶段，继续阻断
-    [ "$current_index" -ge "$tdd_index" ] && exit 0
+# ── GREEN 窗口检测：stage >= tdd:done 且最后 commit 为 TDD: RED ──
+# 双重信号：stage 文件保证 DevFlow 上下文，git log 提供精确相位
+# GREEN commit 后最后 commit 不再是 RED → 窗口自动关闭 → 多 ticket 自然流转
+in_green_window=0
+if [ "$current_index" -ge "$tdd_index" ]; then
+    if git -C "$WORKSPACE" log -1 --format=%s 2>/dev/null | grep -q "TDD: RED"; then
+        in_green_window=1
+    else
+        exit 0   # stage >= tdd:done 但非 GREEN 窗口 → 全部放行（多 ticket 入口）
+    fi
 fi
+# current_index=0（未知阶段）或 < tdd:done → 继续走 pre-tdd 阻断逻辑（原 5.7 行为）
 
 # ── 阶段 < tdd:done，检查目标文件类型 ──
 
@@ -54,6 +63,36 @@ if command -v jq >/dev/null 2>&1; then
     FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // empty' 2>/dev/null || true)
 fi
 [ -n "$FILE_PATH" ] || exit 0
+
+# ── 5.8: GREEN 窗口 → 禁写测试文件（G1 反作弊规则 #1 硬阻断）──
+if [ "$in_green_window" -eq 1 ]; then
+    if is_test_file "$FILE_PATH"; then
+        cat >&2 <<'GREEN_BLOCK'
+
+⛔ stage-gate-block: GREEN 阶段，禁止修改测试文件（exit 2 — 不可绕过）
+
+  状态: 实现阶段进行中（最后 commit 含 "TDD: RED"）
+  被拦截文件: $FILE_PATH
+
+  G1 反作弊规则 #1: 测试 = spec 的可执行版本
+  → 只能改实现去适配测试；禁止削弱断言 / 删除失败测试来"变绿"
+  → 测试断言在 /tdd 阶段以最终业务行为形式写入，GREEN 阶段不修改测试
+
+  合法路径:
+  1. 继续实现 → GREEN commit → 锁自动解除（最后 commit 不再是 RED）
+     → 之后方可修改测试（含下一个 ticket 的测试）
+  2. 测试确实有 bug → STOP，输出 TEST_BUG: <file>:<line> — <原因>，等人工判断
+  3. 人工确认需改测试 → 先 commit 当前 GREEN 工作 → 锁解除后修改
+
+  这不是 bug——改测试让测试通过 = 假 GREEN。
+  详情: ~/.claude/gate-checklists/test-checklist.md §G1
+
+GREEN_BLOCK
+        exit 2
+    fi
+    # GREEN 阶段写非测试文件（实现/配置/文档）→ 放行
+    exit 0
+fi
 
 # ── 测试文件检测 ──
 is_test_file() {
