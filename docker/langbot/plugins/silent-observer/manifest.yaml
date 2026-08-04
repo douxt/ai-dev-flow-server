@@ -171,6 +171,56 @@ spec:
         zh_Hans: 每小时反思生成上限，0 = 不限制
       default: 5
       required: false
+    - name: compression_enabled
+      type: boolean
+      label:
+        en_US: Enable Context Compression
+        zh_Hans: 启用上下文压缩
+      description:
+        en_US: Enable Anchored Incremental Summarization — compresses old messages into a structured summary, keeping token usage stable while expanding context coverage from ~1 day to ~1 week. Requires kb_enabled and a compression model UUID.
+        zh_Hans: 启用锚定增量摘要——将旧消息压缩为结构化摘要，保持 token 用量不变的同时将上下文覆盖从约 1 天扩展到约 1 周。需要开启 KB 并配置压缩模型 UUID。
+      default: false
+      required: false
+    - name: compression_model_uuid
+      type: string
+      label:
+        en_US: Compression Model UUID
+        zh_Hans: 压缩模型 UUID
+      description:
+        en_US: UUID of the LLM used for summary compression. Falls back to reflection_model_uuid if empty.
+        zh_Hans: 摘要压缩 LLM 的 UUID。为空时 fallback 到 reflection_model_uuid。
+      default: ""
+      required: false
+    - name: compression_tail_max_chars
+      type: integer
+      label:
+        en_US: Tail Max Characters
+        zh_Hans: Tail 最大字符数
+      description:
+        en_US: Recent messages within this character budget are preserved verbatim (tail). Older messages are compressed into the summary.
+        zh_Hans: 最近消息在此字符预算内保留原文（Tail），更早的消息压缩进摘要。
+      default: 1500
+      required: false
+    - name: compression_cooldown_minutes
+      type: integer
+      label:
+        en_US: Compression Cooldown (minutes)
+        zh_Hans: 压缩冷却时间（分钟）
+      description:
+        en_US: Minimum interval between two compression runs for the same session.
+        zh_Hans: 同一会话两次压缩的最短间隔。
+      default: 10
+      required: false
+    - name: compression_history_count
+      type: integer
+      label:
+        en_US: Compression History Count
+        zh_Hans: 压缩历史条数
+      description:
+        en_US: Number of recent messages to consider for compression. Older messages beyond this window are not covered by the summary.
+        zh_Hans: 压缩窗口的消息条数。此窗口之外的消息不被摘要覆盖。
+      default: 200
+      required: false
   components:
     EventListener:
       fromDirs:

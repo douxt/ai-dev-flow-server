@@ -187,7 +187,7 @@ class DefaultEventListener(EventListener):
         # 周期持久化（每 5 分钟）
         asyncio.create_task(self._periodic_save())
 
-        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled} reflection_enabled={self.reflection_enabled}'
+        init_msg = f'[silent] init: bot_qq={self.bot_qq} prob={self.prob} history={self.history_count} kb_enabled={self.kb_enabled} vision_enabled={self.vision_enabled} reflection_enabled={self.reflection_enabled} compression_enabled={self.compressor_enabled}'
         if saved:
             init_msg += f' [restored: gate={self._gate_hits}/{self._gate_misses} vision={self._vision_daily_count}]'
         print(init_msg, file=sys.stderr, flush=True)
@@ -928,14 +928,17 @@ class DefaultEventListener(EventListener):
             prompt = build_compression_prompt(doc, to_summarize)
             try:
                 new_doc = await self._call_compression_model(prompt)
-            except Exception:
+            except Exception as e:
                 # 失败也写 cooldown，防死循环重试
+                import traceback
                 doc.cooldown_until = time.time() + self._compression_cooldown_seconds
                 self.summary_store.upsert(session_name, doc)
-                print(f'[silent] compression failed for {session_name}, cooldown set',
+                safe_log('compression', f'FAILED for {session_name}: {e}')
+                print(f'[silent] compression failed: {e}\n{traceback.format_exc()}',
                       file=sys.stderr, flush=True)
                 return
             if new_doc is None:
+                safe_log('compression', f'parse returned None for {session_name}')
                 return
             # covered_until_ts = to_keep 中最老消息的时间戳
             if to_keep:
@@ -952,7 +955,7 @@ class DefaultEventListener(EventListener):
 
     async def _call_compression_model(self, prompt: str):
         """调压缩模型，60s 超时。失败抛异常由上层写 cooldown。"""
-        messages = [{'role': 'user', 'content': prompt}]
+        messages = [provider_message.Message(role='user', content=prompt)]
         resp = await asyncio.wait_for(
             self.plugin.invoke_llm(self.compression_model_uuid, messages),
             timeout=60,
