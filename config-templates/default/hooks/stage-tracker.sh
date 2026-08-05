@@ -1,7 +1,7 @@
 #!/bin/bash
-# stage-tracker.sh — PostToolUse hook：产物检测 + 阶段追踪
-# 检测关键产物文件，自动更新 .devflow/stage 状态
-# 阶段约束为 advisory 警告，不硬拦截
+# stage-tracker.sh — PostToolUse hook：产物检测 + 阶段追踪 + 过渡验证
+# 检测关键产物文件，调用 stage-verify.sh 验证产物质量后才写 .devflow/stage
+# 5.9: 过渡门禁验证——产物质量不达标 → exit 2 硬阻断，stage 不推进
 
 set -euo pipefail
 
@@ -57,16 +57,54 @@ previous_stage=""
 # 无变化 → 跳过
 [ "$detected_stage" = "$previous_stage" ] && exit 0
 
-# 阶段顺序校验（仅在状态变化时做 advisory 警告）
+# 阶段顺序校验
 stage_order="explore:done spec:done tickets:done tickets:reviewed tdd:done implement:done done"
 current_index=0
 prev_index=0
 i=1
 for s in $stage_order; do
     [ "$s" = "$detected_stage" ] && current_index=$i
+    [ "$s" = "tdd:done" ] && tdd_index=$i
     [ "$s" = "$previous_stage" ] && prev_index=$i
     i=$((i + 1))
 done
+
+# ── 5.9: 过渡门禁验证——硬阻断 stage 写入 ──
+VERIFY_SCRIPT="$WORKSPACE/.devflow/scripts/stage-verify.sh"
+if [ -f "$VERIFY_SCRIPT" ]; then
+    # 构建待验证阶段列表（含被跳过的中间阶段）
+    stages_to_verify=""
+    start=$((prev_index > 0 ? prev_index + 1 : 1))
+    j=1
+    for s in $stage_order; do
+        [ "$j" -ge "$start" ] && [ "$j" -le "$current_index" ] && stages_to_verify="$stages_to_verify $s"
+        j=$((j + 1))
+    done
+    if ! bash "$VERIFY_SCRIPT" $stages_to_verify 2>&1; then
+        # 死循环检测
+        BLOCK_FILE="$WORKSPACE/.devflow/.verify-blocks"
+        block_count=0
+        [ -f "$BLOCK_FILE" ] && block_count=$(grep "^$detected_stage:" "$BLOCK_FILE" 2>/dev/null | cut -d: -f2 || echo "0")
+        block_count=$((block_count + 1))
+        echo "$detected_stage:$block_count:$(date +%s)" > "$BLOCK_FILE"
+        if [ "$block_count" -ge 3 ]; then
+            cat >&2 <<EOF
+
+⚠️  同一阶段 ($detected_stage) 已连续阻断 ${block_count} 次——请停下来确认：
+  1. 检查是否理解验证条件（见上方 FAIL 项）
+  2. 确认修复方向正确（不要反复试同一路径）
+  3. 如果是验证条件过于严格 → 报告给人，不要绕过
+EOF
+        fi
+        trace "stage.blocked" from="$previous_stage" to="$detected_stage"
+        exit 2
+    fi
+    # 验证通过 → 清除阻断计数
+    rm -f "$BLOCK_FILE"
+    trace "stage.verify" from="$previous_stage" to="$detected_stage" stages="$stages_to_verify"
+else
+    echo "[stage-tracker] ⚠️ stage-verify.sh 未部署——本次推进跳过验证（advisory）" >&2
+fi
 
 # 写入新阶段
 echo "$detected_stage" > "$STAGE_FILE"

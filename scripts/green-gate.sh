@@ -69,6 +69,13 @@ echo ""
 echo "============================================"
 if [ $WARN -eq 0 ]; then
     echo "✅ green-gate G2.1-G2.3 全部通过"
+    exit 0
 else
     echo "⚠️  green-gate 有标记项——需人工确认后方可提交 GREEN commit"
+    echo "   exit 1 — 标记项未解决（GREEN_GATE_WARN_ONLY=1 可切换为 advisory）"
+    if [ "${GREEN_GATE_WARN_ONLY:-0}" = "1" ]; then
+        exit 0
+    else
+        exit 1
+    fi
 fi

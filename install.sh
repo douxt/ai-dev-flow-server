@@ -311,10 +311,12 @@ if [ "$UPDATE_MODE" = true ]; then
     deploy_file "$SOURCE/scripts/test-gate.sh" "$TARGET/.devflow/scripts/test-gate.sh"
     deploy_file "$SOURCE/scripts/green-gate.sh" "$TARGET/.devflow/scripts/green-gate.sh"
     deploy_file "$SOURCE/scripts/g0-inject.sh" "$TARGET/.devflow/scripts/g0-inject.sh"
+    deploy_file "$SOURCE/scripts/stage-verify.sh" "$TARGET/.devflow/scripts/stage-verify.sh"
     dry_run "chmod +x $TARGET/.devflow/scripts/trace.sh"
     dry_run "chmod +x $TARGET/.devflow/scripts/test-gate.sh"
     dry_run "chmod +x $TARGET/.devflow/scripts/green-gate.sh"
     dry_run "chmod +x $TARGET/.devflow/scripts/g0-inject.sh"
+    dry_run "chmod +x $TARGET/.devflow/scripts/stage-verify.sh"
     deploy_file "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
     for py in "$SOURCE/scripts/"*.py; do
         [ -f "$py" ] && deploy_file "$py" "$TARGET/.devflow/scripts/$(basename "$py")"

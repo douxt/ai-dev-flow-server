@@ -131,3 +131,79 @@ teardown() {
     [[ "$output" =~ "test-checklist" ]]
     [[ "$output" =~ "C1-C4" ]]
 }
+
+# ═══════════════════════════════════════
+# 5.9 stage-verify 集成
+# ═══════════════════════════════════════
+
+@test "verify 阻断 → hook exit 2，stage 不写" {
+    # 部署 stub verify（总是 exit 1）
+    mkdir -p "$TEST_DIR/.devflow/scripts"
+    cat > "$TEST_DIR/.devflow/scripts/stage-verify.sh" <<'STUB'
+#!/bin/bash
+echo "[stage-verify] spec:done — S1: FAIL"
+exit 1
+STUB
+    chmod +x "$TEST_DIR/.devflow/scripts/stage-verify.sh"
+    echo "# Test Spec
+## Testing
+## Risks & Mitigations
+| AC-01 |" > "$TEST_DIR/spec.md"
+
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"FAIL"* ]]
+    # stage 文件不应存在（写入被阻断）
+    [ ! -f "$TEST_DIR/.devflow/stage" ]
+}
+
+@test "verify 通过 → hook exit 0，stage 写入" {
+    # 部署 stub verify（总是 exit 0）
+    mkdir -p "$TEST_DIR/.devflow/scripts"
+    cat > "$TEST_DIR/.devflow/scripts/stage-verify.sh" <<'STUB'
+#!/bin/bash
+echo "[stage-verify] spec:done — S1: PASS"
+exit 0
+STUB
+    chmod +x "$TEST_DIR/.devflow/scripts/stage-verify.sh"
+    echo "# Test Spec
+## Testing
+## Risks & Mitigations
+| AC-01 |" > "$TEST_DIR/spec.md"
+
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/.devflow/stage" ]
+    [ "$(cat "$TEST_DIR/.devflow/stage")" = "spec:done" ]
+}
+
+@test "verify 脚本缺失 → legacy 行为，stage 照写" {
+    echo "# Test Spec" > "$TEST_DIR/spec.md"
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/.devflow/stage" ]
+}
+
+@test "stage-skip → 反向验证中间阶段" {
+    mkdir -p "$TEST_DIR/.devflow/scripts"
+    # stub verify 记录参数
+    cat > "$TEST_DIR/.devflow/scripts/stage-verify.sh" <<'STUB'
+#!/bin/bash
+echo "stages: $*"
+exit 0
+STUB
+    chmod +x "$TEST_DIR/.devflow/scripts/stage-verify.sh"
+    # 设 previous_stage = spec:done，检测到 tdd:done（跳过 tickets:done + tickets:reviewed）
+    echo "spec:done" > "$TEST_DIR/.devflow/stage"
+    echo "# spec" > "$TEST_DIR/spec.md"
+    # 创建 RED commit 以触发 tdd:done 检测
+    git init -q && git config user.email "t@t" && git config user.name "T"
+    echo "// test" > test.js && git add -A && git commit -q -m "TDD: RED — t1"
+
+    run bash "$HOOK" "Write" '{"file_path":"/tmp/test"}'
+    [ "$status" -eq 0 ]
+    # 应验证 tickets:done tickets:reviewed tdd:done（跳过的中间阶段 + 目标）
+    [[ "$output" == *"tickets:done"* ]]
+    [[ "$output" == *"tickets:reviewed"* ]]
+    [[ "$output" == *"tdd:done"* ]]
+}
