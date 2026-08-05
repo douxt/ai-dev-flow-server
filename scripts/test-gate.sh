@@ -161,7 +161,7 @@ if [ "$TOTAL_EXPECT" -gt 0 ]; then
     if [ "$WEAK_PCT" -gt 50 ]; then
         echo "⚠️  弱断言占比 ${WEAK_PCT}% > 50%——测试可能不验证操作结果"
         echo "  提示: click/fill/submit 之后必须有强断言（精确值/集合/数量），不能只有'元素可见'"
-        echo "  参考: .claude/gate-checklists/test-checklist.md §C0.8 + ASI 五级量表"
+        echo "  参考: .claude/gate-checklists/test-checklist.md §C0.8 + .devflow/knowledge/12-断言强度指数.md（ASI 五级量表）"
         FAIL=1
     else
         echo "✅ 弱断言占比 ${WEAK_PCT}%，在可接受范围"
