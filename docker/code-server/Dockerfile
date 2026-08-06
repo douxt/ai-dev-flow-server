@@ -73,7 +73,8 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
 # Klore:  python3 -m venv ~/.venvs/klore && ~/.venvs/klore/bin/pip install klore==0.1.1
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
-RUN curl -fsSL https://archon.diy/install | bash
+# --retry 5 防 NAS 网络波动
+RUN curl -fsSL --retry 5 --retry-delay 10 https://archon.diy/install | bash
 
 # P3: Archon 工作目录
 RUN mkdir -p /opt/archon/workspaces /tmp/archon-worktrees && \
