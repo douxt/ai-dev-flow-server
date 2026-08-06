@@ -1,6 +1,64 @@
 # Silent Observer 插件开发日志
 
-> 2026-07-08 ~ 2026-07-29
+> 2026-07-08 ~ 2026-08-06
+
+## 2026-08-06 — 全链路耗时分析与 Token 模块拆解
+
+### 耗时瓶颈诊断
+
+通过 `monitoring_llm_calls` 数据（156 次调用，7 天）分析：
+
+| 输出 Token | P50 延迟 | 倍数 |
+|---:|---:|---:|
+| 0-50 | 1.4s | 基线 |
+| 200-500 | 4.4s | 3.1x |
+| 500-1000 | 9.2s | 6.8x |
+| >1000 | 33.5s | 24x |
+
+**结论**：LLM 推理占 >90% 端到端延迟，输出 token 数量是最强相关因子。
+
+### Prompt 分模块 Token 拆解
+
+在 `litellmchat.py` 的 `_build_completion_args` 中插桩，捕获完整请求（7287 tokens）：
+
+| 模块 | Tokens | 占比 |
+|------|:---:|:---:|
+| Tools（11 个工具定义） | ~2500 | 34% |
+| Timeline（群聊历史） | 1259 | 17% |
+| Summary（压缩摘要） | 873 | 12% |
+| System Prompt（人物+指令） | 816 | 11% |
+| LTM RAG 检索 | 799 | 11% |
+| LTM 画像 | 394 | 5% |
+| KB Context | 420 | 6% |
+| 其他（时间/模式/反思） | ~230 | 3% |
+
+### 踩坑
+
+1. **LangBot 模块缓存**：修改 langbot 容器的 `.py` 文件后必须 `docker restart`，插件容器通过 WebSocket 自动重载，但 langbot 主进程缓存已加载模块
+2. **litellmchat.py 是 deepseek 的实际 requester**：`deepseekchatcmpl.yaml` 没有 `.py` 文件，`modelmgr.py` 检测到 `litellm_provider` 字段后跳过 Python 类加载，统一走 `LiteLLMRequester`
+3. **dump 文件覆盖**：固定文件名会被后续 LLM 调用覆盖，需带 bot 名 + 时间戳
+4. **/sync API 不走 LLM**：`/sync` 返回 200 但不触发 LLM 调用，测试只能靠真实 QQ 消息
+5. **Docker DNS 瞬断**：`Temporary failure in name resolution` 偶发，重启容器恢复
+6. **Shell heredoc 与 Python 特殊字符冲突**：`\n`、引号嵌套等导致静默失败，用 `scp` + 独立 `.py` 文件替代
+
+### 新增工具
+
+- `tests/scripts/bench_latency.py` — 全链路耗时分析（LLM 统计 + 插件阶段 + E2E 测试）
+- `tests/scripts/analyze_dump.py` — 解析 LLM 请求 dump，分模块 token 统计
+- `tests/scripts/patch_dump_request.py` / `fix_dump_patch.py` — NAS langbot 容器临时插桩补丁
+- `docs/bot/llm-full-request-20260806-1633.json` — 完整 LLM 请求样本（32KB）
+
+### 进化路线更新
+
+`evolution-roadmap.md` 新增「对话成熟度」并行方向——多轮纠正与渐进学习：
+- P1.1 话语重写层（补全省略句，捕获率 5%→50%）
+- P1.2 自我反思源（每 10 轮自我审视）
+- P1.3 检索增强（LLM Rerank）
+- P1.4 When-Then 可执行规则格式
+
+详见 memory: [[latency-token-analysis-20260806]]
+
+---
 
 ## 2026-07-29 — 自动化验证体系 + LTM 故障诊断
 
