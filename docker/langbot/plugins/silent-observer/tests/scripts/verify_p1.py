@@ -89,8 +89,11 @@ def get_dump_last():
             content = f.read()
     except FileNotFoundError:
         return None
-    parts = content.split("=== PROMPT DUMP ===")
-    return parts[-1] if len(parts) >= 2 else None
+    # 兼容 "=== PROMPT DUMP [HH:MM:SS] ===" 和 "=== PROMPT DUMP ===" 两种格式
+    idx = content.rfind("=== PROMPT DUMP")
+    if idx == -1:
+        return None
+    return content[idx:]
 
 
 # ── 场景 ──────────────────────────────────────────────
