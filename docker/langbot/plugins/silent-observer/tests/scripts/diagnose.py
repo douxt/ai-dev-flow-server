@@ -43,10 +43,11 @@ def ok(msg):
 def check_1_plugin_alive():
     """#1 插件进程存活 — stats.log 最近 120s 内有写入."""
     mtime = log_mtime(STATS_LOG)
-    age = time.time() - mtime if mtime else 9999
     if mtime == 0:
-        error(f"stats.log 不存在 ({STATS_LOG})")
-    elif age > 120:
+        warn(f"stats.log 不可用 ({STATS_LOG})——非 plugin 容器？")
+        return
+    age = time.time() - mtime
+    if age > 120:
         error(f"stats.log {age:.0f}s 未更新 — 插件可能已挂")
     else:
         ok(f"插件进程存活 (stats {age:.0f}s 前更新)")
@@ -116,7 +117,7 @@ def check_6_model_uuid():
     try:
         db = sqlite3.connect(LANGBOT_DB, timeout=5)
         row = db.execute(
-            "SELECT model_name FROM llm_models WHERE id=?", (effective,)
+            "SELECT name FROM llm_models WHERE uuid=?", (effective,)
         ).fetchone()
         db.close()
         if row:
