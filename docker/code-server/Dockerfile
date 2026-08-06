@@ -73,14 +73,9 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
 # Klore:  python3 -m venv ~/.venvs/klore && ~/.venvs/klore/bin/pip install klore==0.1.1
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
-# 构建代理加速下载（--build-arg 传入，放此处不影响前层缓存）
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG http_proxy
-ARG https_proxy
-ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} http_proxy=${http_proxy} https_proxy=${https_proxy}
-# --retry 5 防 NAS 网络波动
-RUN curl -fsSL --retry 5 --retry-delay 10 https://archon.diy/install | bash
+# NAS 网络不稳，预先下载 archon-linux-x64 到 Dockerfile 同目录，COPY 进镜像
+COPY archon-linux-x64 /usr/local/bin/archon
+RUN chmod +x /usr/local/bin/archon
 
 # P3: Archon 工作目录
 RUN mkdir -p /opt/archon/workspaces /tmp/archon-worktrees && \
