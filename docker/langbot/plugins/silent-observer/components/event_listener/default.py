@@ -2,6 +2,16 @@ import asyncio, base64, io, json, os, random, sqlite3, sys, time
 from datetime import datetime, timezone, timedelta
 BJT = timezone(timedelta(hours=8))
 _DB_PATH = '/app/data/plugins/dou__langbot-silent-observer/chat_index.db'
+_TIMING_LOG = '/tmp/silent_timing.log'
+
+def _write_timing(entry: dict):
+    """写计时日志（JSONL，每行一个事件）。轻量、不抛异常。"""
+    try:
+        entry['ts'] = time.time()
+        with open(_TIMING_LOG, 'a') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
 
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import events, context
@@ -202,6 +212,7 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
+            _t0 = time.time()
             session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
             self._strip_base64(ctx.event.message_chain)
             is_at = self._has_at(ctx.event.message_chain)
@@ -218,8 +229,11 @@ class DefaultEventListener(EventListener):
                 self._normalize_face_components(mc)
             if face_text:
                 self._face_cache[session_name] = face_text
+            _save_ms = 0
             if is_trigger:
+                _t_save = time.time()
                 doc_id = await self._save_text_only(ctx.event)
+                _save_ms = (time.time() - _t_save) * 1000
                 trigger = 'at' if is_at else 'random'
                 locked = session_name in self._last_trigger and not is_at
                 if not locked:
@@ -252,6 +266,11 @@ class DefaultEventListener(EventListener):
                 self._log_gate_msg('[silent] gate: prevented')
                 print(f'[silent] gate: prevented (is_at=False)', file=sys.stderr, flush=True)
                 ctx.prevent_default()
+
+            _gate_ms = (time.time() - _t0) * 1000
+            _write_timing({'stage': 'gate', 'session': session_name, 'trigger': is_trigger,
+                           'save_ms': round(_save_ms) if is_trigger else 0,
+                           'total_ms': round(_gate_ms)})
 
             # === 上下文压缩：消息存储后触发后台检查 ===
             if self.compressor_enabled and self.kb_enabled and is_trigger:
@@ -291,6 +310,7 @@ class DefaultEventListener(EventListener):
 
         @self.handler(events.PromptPreProcessing)
         async def inject(ctx: context.EventContext):
+            _t_inject = time.time()
             with open('/tmp/silent_gate.log', 'a') as f:
                 f.write('[silent] inject START\n')
             # 清掉 LangBot 原生 conversation 历史，避免与 timeline 双重注入
@@ -311,6 +331,9 @@ class DefaultEventListener(EventListener):
             ctx.event.prompt.append(provider_message.Message(role='system', content=f'当前时间:{now_str}。以下【】中所有时间戳均为北京时间,禁止转换为UTC或其他时区。'))
             items = []
             trigger = 'at'
+            session_name = ''
+            _vision_wait_ms = 0
+            _query_ms = 0
             try:
                 session_name = ctx.event.session_name
                 # 注入 gate 阶段提取的表情文本（inject 阶段无 message_chain，必须在 KB 检查前注入）
@@ -359,12 +382,14 @@ class DefaultEventListener(EventListener):
                 )
 
                 # 等待当前消息的 vision 识图完成（防时序竞态：inject 先于 vision upsert）
+                _t_vision_wait = time.time()
                 if trigger_doc_id and self.vision_enabled:
                     for _ in range(60):  # 最多等 60s
                         cached = self._image_cache.get(trigger_doc_id)
                         if cached and cached['status'] == 'done':
                             break
                         await asyncio.sleep(0.5)
+                _vision_wait_ms = (time.time() - _t_vision_wait) * 1000
 
                 # === 反思层：检索注入 ===
                 if self.reflection_enabled and self.reflection_store:
@@ -383,7 +408,9 @@ class DefaultEventListener(EventListener):
                     except Exception as e:
                         safe_log('reflection', f'inject error: {e}')
 
+                _t_query = time.time()
                 items = await self.store.get_recent_messages(session_name, 200)
+                _query_ms = (time.time() - _t_query) * 1000
                 if items:
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
                     if trigger_doc_id:
@@ -459,6 +486,11 @@ class DefaultEventListener(EventListener):
             if stats['total'] > 0:
                 print(f'[silent] vision stats: total={stats["total"]} ok={stats["success"]} fail={stats["fail"]}', file=sys.stderr, flush=True)
             print(f'[silent] inject: timeline={len(items)} ({trigger})', file=sys.stderr, flush=True)
+            _inject_ms = (time.time() - _t_inject) * 1000
+            _write_timing({'stage': 'inject', 'session': session_name, 'trigger': trigger,
+                           'timeline_count': len(items), 'vision_wait_ms': round(_vision_wait_ms),
+                           'query_ms': round(_query_ms),
+                           'total_ms': round(_inject_ms)})
             # DEBUG: dump full prompt
             self._dump_raw_prompt(ctx)
 
