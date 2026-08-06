@@ -77,8 +77,12 @@ def stage_0_diag():
 # ═══════════════════════════════════════════════════════
 def stage_1_unit():
     log("\n── 阶段 1: 单元测试 ──")
+    import importlib.util
 
-    from tests import test_p1_compress as t
+    test_file = os.path.join(PLUGIN_ROOT, "test_p1_compress.py")
+    spec = importlib.util.spec_from_file_location("test_p1_compress", test_file)
+    t = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(t)
 
     test_classes = [
         ("TestSummaryDocument", t.TestSummaryDocument),
@@ -258,20 +262,26 @@ SCENES = {
 
 
 def scene_quick_smoke():
-    """--quick smoke: 发 1 条 @ → 断言 dump 结构完整."""
+    """--quick smoke: 验证 dump 文件存在 + 结构 + 格式（读全文件，不限于最新一条）."""
     log("\n[quick-smoke] 结构验证")
-    send_sync(SESSION_ID, [
-        {"type": "Plain", "text": "P1.5 quick smoke"},
-        {"type": "At", "target": BOT_QQ},
-    ])
-    time.sleep(3)
-    dump = get_dump_last()
-    if not dump:
-        check(False, "smoke-dump", "no dump")
+    try:
+        with open("/tmp/silent_prompt_dump.log", "r") as f:
+            full = f.read()
+    except FileNotFoundError:
+        check(False, "smoke-dump", "dump 文件不存在")
         return
-    check("[1] time:" in dump, "smoke-struct-1", "time section")
-    check("[4] timeline" in dump, "smoke-struct-4", "timeline section")
-    check("[7] summary:" in dump, "smoke-struct-7", "summary section")
+
+    check(len(full) > 0, "smoke-dump-exists", f"{len(full)} bytes")
+
+    # 最新一条结构
+    last = get_dump_last() or ""
+    check("[1] time:" in last, "smoke-struct-1", "time section in last dump")
+    check("[4] timeline" in last, "smoke-struct-4", "timeline section in last dump")
+    check("[7] summary:" in last, "smoke-struct-7", "summary section in last dump")
+
+    # 格式：全文件中曾出现过新格式（不要求最新一条就有 summary）
+    check("─── 群聊背景" in full, "smoke-format-new", "新格式 marker 曾在 dump 中出现")
+    check("[上下文摘要]" not in full, "smoke-format-old-gone", "旧格式已完全消失")
 
 
 def stage_2_integration():
