@@ -71,8 +71,9 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
 # OpenKB Wiki 编译器（2026-08-06）
 # 先装 markitdown 基础版（不给 extras），再装 openkb — pip 自动跳过文档转换重依赖
 # 如需 docx/pptx/xlsx 转换：pip install 'markitdown[docx,pptx,xlsx,xls]'
-RUN pip3 install --no-cache-dir --break-system-packages 'markitdown==0.1.5' && \
-    pip3 install --no-cache-dir --break-system-packages 'openkb==0.4.5'
+# --retries 5 防 NAS 网络抖动导致下载失败
+RUN pip3 install --no-cache-dir --break-system-packages --retries 5 'markitdown==0.1.5' && \
+    pip3 install --no-cache-dir --break-system-packages --retries 5 'openkb==0.4.5'
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 RUN curl -fsSL https://archon.diy/install | bash
