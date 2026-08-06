@@ -1526,3 +1526,18 @@ multiMsgs = await Promise.race([
 - cron 巡检（每 5 分钟 `grep -q 'Promise.race'`，丢失时报警）
 - napcat 升级后需重新 apply
 - 长期方案：Dockerfile 预打包
+
+## 2026-08-06: QQ 表情修复
+
+**问题**：bot 群聊中 QQ 表情显示为 `Unknown component type: Face`，无法识别表情名。
+
+**根因**：LangBot 上游 `_get_component_types()` 未注册 `Face`，跨进程（langbot→plugin）序列化时 Face→Unknown。
+
+**修复**（3 层）：
+1. 插件 gate：`normalize_face_components` 移到 `_save_text_only` 之前
+2. 插件 fallback：`is_face_component` 检测 Unknown Face 文本
+3. langbot 核心 patch：`aiocqhttp.py` 中 Face→Plain `[QQ表情:xxx]` 直转
+
+**QQ 表情映射**：从 QQ 内置 `face_config.json`（sysface 282 条）替换 aiocqhttp 硬编码 60 条。
+
+详见 memory: [[qq-face-fix-complete]]
