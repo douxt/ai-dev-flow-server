@@ -25,16 +25,28 @@ QQ_FACE_NAME = {
 
 
 def is_face_component(c) -> bool:
-    """判断组件是否为 QQ 表情（兼容 Unknown 降级）"""
-    return c.type == 'Face' or hasattr(c, 'face_id')
+    """判断组件是否为 QQ 表情（兼容 Unknown 降级 + hasattr face_id）"""
+    if c.type == 'Face':
+        return True
+    if hasattr(c, 'face_id'):
+        return True
+    # Fallback: LangBot monkey-patch 失效时 Face 降级为 Unknown
+    if c.type == 'Unknown' and hasattr(c, 'text'):
+        return 'Unknown component type: Face' in (c.text or '')
+    return False
 
 
 def face_to_text(c) -> str:
-    """Face 组件 → Plain 文本，防止 pipeline 渲染为 [Unknown]"""
+    """Face/Unknown 组件 → Plain 文本"""
+    # 正常 Face 组件
     name = getattr(c, 'face_name', '') or QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
     if name:
         return f'[QQ表情:{name}]'
-    return f'[QQ表情:{getattr(c, "face_id", "?")}]'
+    face_id = getattr(c, 'face_id', None)
+    if face_id is not None:
+        return f'[QQ表情:{face_id}]'
+    # Unknown 降级：face_id 已丢失，只能标为表情
+    return '[QQ表情]'
 
 
 def extract_faces(message_chain) -> str:

@@ -51,14 +51,14 @@ class DefaultEventListener(EventListener):
     async def initialize(self):
         await super().initialize()
         # 修复 LangBot 缺少 Face 组件注册的 bug
+        # 直接操作 class __dict__ 中的 classmethod descriptor，比属性赋值更可靠
         from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
-        _orig = MessageChain._get_component_types.__func__
+        _orig = vars(MessageChain)['_get_component_types'].__func__
         def _patched(cls):
             types = _orig(cls)
-            if 'Face' not in types:
-                types['Face'] = LangBotFace
+            types['Face'] = LangBotFace  # 直接修改返回值 dict（每调用一次返回新 dict，无副作用）
             return types
-        MessageChain._get_component_types = classmethod(_patched)
+        vars(MessageChain)['_get_component_types'] = classmethod(_patched)
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
@@ -206,6 +206,10 @@ class DefaultEventListener(EventListener):
             self._strip_base64(ctx.event.message_chain)
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
+            # Face → Plain 替换：必须在 _save_text_only 之前，否则 Unknown Face 存入 KB
+            mc = ctx.event.message_chain
+            if mc:
+                self._normalize_face_components(mc)
             # 引用图片检测（轻量同步，不调 API）
             quote_has_img = self._quote_has_image(ctx.event.message_chain)
             # 提取引用文本 + 表情文本（gate 阶段有 message_chain，inject 阶段没有）
