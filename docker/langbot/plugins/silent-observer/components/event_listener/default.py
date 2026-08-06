@@ -51,14 +51,14 @@ class DefaultEventListener(EventListener):
     async def initialize(self):
         await super().initialize()
         # 修复 LangBot 缺少 Face 组件注册的 bug
-        # 直接操作 class __dict__ 中的 classmethod descriptor，比属性赋值更可靠
         from langbot_plugin.api.entities.builtin.platform.message import MessageChain, Face as LangBotFace
-        _orig = vars(MessageChain)['_get_component_types'].__func__
+        _orig = MessageChain._get_component_types.__func__
         def _patched(cls):
             types = _orig(cls)
-            types['Face'] = LangBotFace  # 直接修改返回值 dict（每调用一次返回新 dict，无副作用）
+            if 'Face' not in types:
+                types['Face'] = LangBotFace
             return types
-        vars(MessageChain)['_get_component_types'] = classmethod(_patched)
+        MessageChain._get_component_types = classmethod(_patched)
         config = self.plugin.get_config()
         self.bot_qq = str(config.get('bot_qq', ''))
         self.prob = float(config.get('reply_probability', 0.01))
