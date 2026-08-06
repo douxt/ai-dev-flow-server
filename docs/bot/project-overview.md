@@ -12,48 +12,48 @@
 - **视觉理解**：自动识别图片，注入视觉描述到 prompt
 - **工具调用**：群成员可通过 @bot 触发 search_chat_history
 
-## 当前状态（2026-07-13）
+## 当前状态（2026-08-06）
 
 ### ✅ 已完成
 
 1. **调研阶段**（2026-07-11）
    - Reflexion 框架、记忆系统、自我进化 Agent 全景调研
    - 下载 7 个参考项目到 `~/dev/references/bot-evolve-refs/`
-   - 产出 3 份调研文档（见下文）
 
 2. **代码评审**（2026-07-12）
    - 对照官方 SDK/示例，识别 P0-P2 缺陷
-   - 产出评审文档（见下文）
 
-3. **抢救批**（2026-07-13）
-   - 将高价值内容固化为文档（防止丢失）
-   - 产出 3 份高质量文档（见下文）
+3. **基础重构**（2026-07 ~ 2026-08）
+   - default.py 拆分为 util/store/service 模块
+   - QQ 表情识别修复（Unknown Face → `[QQ表情:名称]`）
+   - 视觉识别（图片 → AI 描述注入 prompt）
+   - 增量摘要（P1 Anchored Incremental Summarization）
 
-4. **其他会话贡献**
-   - 开发日志第17-22章（Face 组件、SQLite WAL、部署优化等）
-   - 自动化测试指南（499 行）
-   - 事故报告（Docker 僵尸进程、MCP 超时）
+4. **反思层**（2026-07 ~ 2026-08）
+   - 纠正检测 + 反思写入 + 检索注入闭环
+   - P0 参数调优（关键词 17→31、冷却 10min→3min 等）
+
+5. **耗时分析与诊断**（2026-08-06）
+   - 全链路耗时瓶颈分析（LLM 推理占 >90%）
+   - prompt 分模块 token 拆解（Tools 34%、Timeline 17% 等）
+   - bench_latency.py / analyze_dump.py 诊断工具
 
 ### ⏳ 待执行
 
+**对话成熟度**（P1 反思增强，~185 行）：
+- P1.1 话语重写层——补全省略句，提升纠正捕获率
+- P1.2 自我反思源——每 10 轮自我审视，主动发现错误
+- P1.3 检索增强——k=3→10 + LLM Rerank
+- P1.4 When-Then 格式——可执行规则替代描述性文本
+- 详见 [evolution-roadmap.md](evolution-roadmap.md)
+
 **地基重建**（7 步，计划已就绪）：
-- 步骤 0：新建 `plugins/silent-observer/` 标准插件目录
-- 步骤 1-5：渐进式拆分 default.py（util → store → service → event_listener）
-- 步骤 6：测试底座（pytest + FakePlugin 桩）
-- 步骤 7：灰度切换 + 清理旧代码
+- 标准插件目录 + pytest 底座 + 渐进式拆分
+- 详见 [ground-reconstruction-plan.md](ground-reconstruction-plan.md)
 
-详见 [ground-reconstruction-plan.md](ground-reconstruction-plan.md)
-
-## 下一步行动
-
-**启动地基重建步骤 0**：
-
-1. 创建 worktree：`wt create silent-base-0`
-2. 在 worktree 中新建 `plugins/silent-observer/` 目录
-3. 创建 `main.py`（薄入口，转发到 default.py）
-4. 创建 `tests/conftest.py`（FakePlugin 桩）
-5. 创建 `pyproject.toml`（pytest + ruff + coverage 配置）
-6. 提交 → PR → 合并
+**进化路线第二级**：
+- LLM-as-a-Judge 自我评估打分
+- 详见 [evolution-roadmap.md](evolution-roadmap.md)
 
 ## 文档体系
 
