@@ -78,6 +78,10 @@ RUN python3 -m venv /home/coder/.venvs/klore && \
 COPY patch-klore.py /tmp/patch-klore.py
 RUN python3 /tmp/patch-klore.py && rm /tmp/patch-klore.py
 
+# OpenKB Wiki 编译器（2026-08-06）
+# Klore 仍保留在 /home/coder/.venvs/klore/，供对比测试
+RUN pip3 install --no-cache-dir --break-system-packages openkb==0.4.5
+
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 RUN curl -fsSL https://archon.diy/install | bash
 
@@ -122,10 +126,8 @@ RUN mkdir -p /entrypoint.d && \
     > /entrypoint.d/supervisord.sh && \
     chmod +x /entrypoint.d/supervisord.sh
 
-# Docker HEALTHCHECK：诊断 supervisord + 2 个 program 状态
+# Docker HEALTHCHECK：检查 code-server 自身可用
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD pgrep -x supervisord >/dev/null && \
-        supervisorctl status bgutil-pot | grep -q RUNNING && \
-        supervisorctl status youtube-kb | grep -q RUNNING || exit 1
+    CMD curl -sf http://localhost:8080/healthz || exit 1
 
 USER coder
