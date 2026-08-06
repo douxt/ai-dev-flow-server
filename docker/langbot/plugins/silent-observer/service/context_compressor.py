@@ -1,4 +1,5 @@
 """ContextCompressor — 增量摘要核心逻辑（纯函数 + 后台调用）."""
+import ast
 import json
 import re
 import time
@@ -103,6 +104,29 @@ Return the updated summary as JSON:
 {{"topics": "...", "facts": "...", "decisions": "...", "refs": "..."}}"""
 
 
+def _list_to_bullets(val) -> str:
+    """LLM 返回值 → bullet 文本。兼容 list、JSON 数组字符串、Python repr 字符串."""
+    if isinstance(val, list):
+        return "\n".join(f"- {item}" for item in val if item)
+    if isinstance(val, str) and val.strip():
+        s = val.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                items = json.loads(s)
+                if isinstance(items, list):
+                    return "\n".join(f"- {item}" for item in items if item)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            try:
+                items = ast.literal_eval(s)
+                if isinstance(items, list):
+                    return "\n".join(f"- {item}" for item in items if item)
+            except (ValueError, SyntaxError):
+                pass
+        return s
+    return ""
+
+
 def parse_summary_response(response_text: str | dict | Any) -> SummaryDocument | None:
     """三层容错解析压缩模型返回的 JSON.
 
@@ -138,9 +162,9 @@ def parse_summary_response(response_text: str | dict | Any) -> SummaryDocument |
     if not isinstance(data, dict):
         return None
 
-    topics = str(data.get("topics", "") or "").strip()
-    facts = str(data.get("facts", "") or "").strip()
-    decisions = str(data.get("decisions", "") or "").strip()
+    topics = _list_to_bullets(data.get("topics", ""))
+    facts = _list_to_bullets(data.get("facts", ""))
+    decisions = _list_to_bullets(data.get("decisions", ""))
     refs = str(data.get("refs", "") or "").strip()
 
     # 全空 → 不覆盖旧摘要

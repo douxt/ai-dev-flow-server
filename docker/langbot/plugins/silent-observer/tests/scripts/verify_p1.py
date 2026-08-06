@@ -138,7 +138,7 @@ def scene_1_trigger():
 
 
 def scene_2_inject():
-    """压缩后再发消息 → prompt dump 含 [上下文摘要]."""
+    """压缩后再发消息 → prompt dump 含新格式摘要块."""
     print("\n[2] 摘要注入")
 
     resp = send_sync([
@@ -151,9 +151,12 @@ def scene_2_inject():
     if not dump:
         check(False, "summary-in-prompt", "no prompt dump found")
         return
-    has_summary = "[上下文摘要]" in dump
-    check(has_summary, "summary-in-prompt",
-          f"dump {'contains' if has_summary else 'missing'} summary block")
+    has_new = "─── 群聊背景" in dump
+    no_old = "[上下文摘要]" not in dump
+    has_bullet = "- " in dump
+    check(has_new, "summary-marker-new", f"dump {'contains' if has_new else 'missing'} ─── marker")
+    check(no_old, "summary-marker-old-gone", f"dump {'contains' if not no_old else 'no'} [上下文摘要] (should be gone)")
+    check(has_bullet, "summary-bullets", f"dump {'contains' if has_bullet else 'missing'} bullet lines")
 
 
 def scene_3_facts_preserved():

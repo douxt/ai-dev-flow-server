@@ -13,6 +13,7 @@ from service.context_compressor import (
     parse_summary_response,
     should_compress,
     _item_text,
+    _list_to_bullets,
 )
 
 
@@ -248,3 +249,23 @@ class TestBuildCompressionPrompt:
         assert "NEW MESSAGES" in prompt
         assert "hello world" in prompt
         assert '"topics": "t"' in prompt
+
+
+class TestListToBullets:
+    def test_list_input(self):
+        assert _list_to_bullets(["a", "b"]) == "- a\n- b"
+
+    def test_json_array_string(self):
+        assert _list_to_bullets('["a", "b"]') == "- a\n- b"
+
+    def test_python_repr_string(self):
+        assert _list_to_bullets("['a', 'b']") == "- a\n- b"
+
+    def test_plain_string(self):
+        assert _list_to_bullets("plain text") == "plain text"
+
+    def test_empty_list(self):
+        assert _list_to_bullets([]) == ""
+
+    def test_none(self):
+        assert _list_to_bullets(None) == ""

@@ -391,6 +391,7 @@ class DefaultEventListener(EventListener):
                 lines, _identified, _pending, _failed = self.timeline_service.enhance_image_markers(lines)
 
                 # === 上下文摘要注入（模式指令之前、timeline 之前） ===
+                summary_text = ''
                 if self.compressor_enabled and self.summary_store:
                     try:
                         doc = self.summary_store.load_or_default(session_name)
@@ -417,7 +418,7 @@ class DefaultEventListener(EventListener):
                         # 降级：照常注 timeline
 
                 # DEBUG: dump prompt for analysis
-                await self._dump_prompt_debug(api, now_str, trigger, _identified, _pending, _failed, lines, face_text)
+                await self._dump_prompt_debug(api, now_str, trigger, _identified, _pending, _failed, lines, face_text, summary_text=summary_text)
 
                 lock_dur = time.time() - self._lock_set_ts.pop(session_name, time.time())
                 self._log_event('inject', session_name, trigger=trigger, lock_dur=f'{lock_dur:.1f}s')
@@ -544,7 +545,7 @@ class DefaultEventListener(EventListener):
             content=f'【\n' + '\n'.join(lines) + f'\n共{len(lines)}条\n】'
         ))
 
-    async def _dump_prompt_debug(self, api, now_str, trigger, _identified, _pending, _failed, lines, face_text):
+    async def _dump_prompt_debug(self, api, now_str, trigger, _identified, _pending, _failed, lines, face_text, summary_text=''):
         """DEBUG: dump inject prompt analysis 到 /tmp/silent_prompt_dump.log。"""
         try:
             query_vars = await api.get_query_vars()
@@ -559,6 +560,7 @@ class DefaultEventListener(EventListener):
                 _face_in_timeline = sum(1 for l in lines if '[QQ表情:' in l)
                 _face_info = face_text if face_text else (f'timeline 含 {_face_in_timeline} 条' if _face_in_timeline else '(无)')
                 f.write(f'[6] face: {_face_info}\n')
+                f.write(f'[7] summary: {summary_text[:500] if summary_text else "(无)"}\n')
         except:
             pass
 
@@ -963,19 +965,28 @@ class DefaultEventListener(EventListener):
         return parse_summary_response(resp)
 
     def _format_summary(self, doc: SummaryDocument) -> str:
-        """格式化摘要为注入文本，只渲染非空字段."""
-        parts = []
-        if doc.facts:
-            parts.append(f"事实：{doc.facts}")
-        if doc.topics:
-            parts.append(f"主题：{doc.topics}")
-        if doc.decisions:
-            parts.append(f"决策：{doc.decisions}")
-        if doc.refs:
-            parts.append(f"参考：{doc.refs}")
-        if not parts:
-            return ""
+        """格式化摘要为注入文本：分隔线 + bullet 格式."""
         from datetime import datetime, timezone, timedelta
         BJT = timezone(timedelta(hours=8))
         covered_str = datetime.fromtimestamp(doc.covered_until_ts, tz=BJT).strftime('%Y-%m-%d %H:%M') if doc.covered_until_ts > 0 else "无"
-        return "[上下文摘要]\n" + "\n".join(parts) + f"\n（覆盖至：{covered_str}）"
+
+        lines = [f"─── 群聊背景（覆盖至 {covered_str}）───"]
+
+        if doc.facts:
+            lines.append(doc.facts)
+
+        if doc.topics:
+            # bullet 行 → 顿号连接的短标签
+            topic_items = [t[2:] if t.startswith('- ') else t for t in doc.topics.split('\n') if t.strip()]
+            lines.append(f"话题：{'、'.join(topic_items)}")
+
+        if doc.decisions:
+            lines.append("决策：")
+            lines.append(doc.decisions)
+
+        if doc.refs:
+            lines.append(f"参考：{doc.refs}")
+
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines)
