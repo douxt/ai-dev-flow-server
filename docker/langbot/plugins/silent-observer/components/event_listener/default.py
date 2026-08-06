@@ -206,15 +206,16 @@ class DefaultEventListener(EventListener):
             self._strip_base64(ctx.event.message_chain)
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
+            # 引用图片检测（轻量同步，不调 API）
+            quote_has_img = self._quote_has_image(ctx.event.message_chain)
+            # 提取引用文本 + 表情文本（gate 阶段有 message_chain，inject 阶段没有）
+            # 必须在 normalize_face_components 之前提取，否则 Face 已被转为 Plain
+            quote_text = await self._extract_quote(ctx.event.message_chain)
+            face_text = self._extract_faces(ctx.event.message_chain)
             # Face → Plain 替换：必须在 _save_text_only 之前，否则 Unknown Face 存入 KB
             mc = ctx.event.message_chain
             if mc:
                 self._normalize_face_components(mc)
-            # 引用图片检测（轻量同步，不调 API）
-            quote_has_img = self._quote_has_image(ctx.event.message_chain)
-            # 提取引用文本 + 表情文本（gate 阶段有 message_chain，inject 阶段没有）
-            quote_text = await self._extract_quote(ctx.event.message_chain)
-            face_text = self._extract_faces(ctx.event.message_chain)
             if face_text:
                 self._face_cache[session_name] = face_text
             if is_trigger:

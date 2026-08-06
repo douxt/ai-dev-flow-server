@@ -38,14 +38,17 @@ def is_face_component(c) -> bool:
 
 def face_to_text(c) -> str:
     """Face/Unknown 组件 → Plain 文本"""
-    # 正常 Face 组件
-    name = getattr(c, 'face_name', '') or QQ_FACE_NAME.get(getattr(c, 'face_id', 0), '')
-    if name:
-        return f'[QQ表情:{name}]'
-    face_id = getattr(c, 'face_id', None)
-    if face_id is not None:
-        return f'[QQ表情:{face_id}]'
-    # Unknown 降级：face_id 已丢失，只能标为表情
+    has_face_id = hasattr(c, 'face_id')
+    has_face_name = hasattr(c, 'face_name')
+    # 正常 Face 组件：有 face_name 或用 face_id 查 QQ_FACE_NAME
+    if has_face_name and c.face_name:
+        return f'[QQ表情:{c.face_name}]'
+    if has_face_id:
+        name = QQ_FACE_NAME.get(c.face_id, '')
+        if name:
+            return f'[QQ表情:{name}]'
+        return f'[QQ表情:{c.face_id}]'
+    # Unknown 降级：face_id/face_name 均已丢失，只能标为表情
     return '[QQ表情]'
 
 
