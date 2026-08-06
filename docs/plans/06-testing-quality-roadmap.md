@@ -47,7 +47,7 @@ UMES3 feedback/memory/xxx.md   →   Inbox  →  归类到阶段 N  →  重大�
 | F23 | UMES3 `weak-assertion-gate-failure-20260804.md` | C0.8 三级检查全为 ⚠️ 警告不被 test-gate-block.sh 拦截。升级为 FAIL=1 硬阻断 | P0 | 08-04 | ✅ C0.8 升级硬阻断 |
 | F24 | 同上 | 语义弱断言——`toBeGreaterThan(0)` 在白名单但语义弱（搜唯一订单返 19 条仍 PASS）。grep 无法区分，需 G0/G4 覆盖 | P2 | 08-04 | → 阶段八 G0/G4 |
 | F25 | 同上 | AC-断言一致性校验——测试断言方向（正向/反向）与 spec AC 对齐检查，需 LLM 语义理解 | P3 | 08-04 | → 阶段五 5.4 |
-| F26 | 2026-08-05 综合调研（20+来源） | G0 硬性化——将"建议跑 G0"升级为 implement:done 硬阻断（stage-verify.sh 检查 G0 执行证据） | P1 | 08-05 | → S1 立即执行 |
+| F26 | 2026-08-05 综合调研（20+来源） | G0 硬性化——将"建议跑 G0"升级为 implement:done 硬阻断（stage-verify.sh 检查 G0 执行证据） | P1 | 08-05 | ✅ 已实施 (5.10) |
 | F27 | 同上 | 5.4 独立审查最低成本版——implement:done 强制要求 /code-review 产物 + stage-verify 检测 | P1 | 08-05 | → S2 短期 |
 | F28 | 同上 | G0 全自动化——CI 集成变异测试，RED commit 后自动触发 g0-inject.sh | P2 | 08-05 | → S3 中期 |
 
@@ -258,7 +258,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 优先级 | # | 事项 | 投入 | 堵什么漏洞 |
 |:--:|:--|------|:--:|------|
-| **S1 立即** | 5.10 | G0 硬性化——stage-verify.sh `implement:done` 加 G0 执行证据检查（g0-inject 日志/commit marker），未跑 G0 不推进 | ~15行 | Agent 跳过 G0 → 假 GREEN 漏网 |
+| **S1 立即** | 5.10 | ✅ G0 硬性化——g0-inject.sh 成功后写 `.devflow/.g0-passed` 标记；stage-verify.sh `implement:done` I4 检查标记存在且比 RED commit 新，未跑 G0 不推进 | ~15行 | Agent 跳过 G0 → 假 GREEN 漏网 |
 | **S2 短期** | 5.4-Lite | 独立审查最低成本版——implement:done 强制 /code-review 产物 + stage-verify 检测 `.devflow/code-review-report.md` | ~20行 | Agent 自审自代码 → 恒真断言无人发现 |
 | **S3 中期** | 8.5 | G0 全自动化——RED commit 后自动触发 g0-inject.sh 关键路径，结果写入 trace | ~30行 | G0 靠人记 → 忘跑 |
 | 远期 | 5.4-Full | L3 完整独立审查——另一 session 跑 /review-cc-cli | 流程设计 | 同模型审查回声效应 |
@@ -345,6 +345,7 @@ L3: 独立会话审查                ← 另一 session 审代码（铁律 2）
 
 | 日期 | 版本 | 变更 |
 |------|:--:|------|
+| 2026-08-06 | v2.13 | 5.10 G0 硬性化——g0-inject.sh 成功后写 `.devflow/.g0-passed` 标记；stage-verify.sh implement:done I4 检查标记存在且比 RED commit 新；未跑 G0 不推进 implement:done |
 | 2026-08-05 | v2.12 | 2026-08 综合调研（20+来源）→ 五层防护模型 + S1/S2/S3 优先级路线 + F26-F28 Inbox |
 | 2026-08-05 | v2.11 | 5.3 ASI 五级量表知识文档——5级+场景决策矩阵+C0.8映射+G0关系 + test-checklist C0.8 级别同步（警告→硬阻断）|
 | 2026-08-04 | v2.10 | 5.9 stage-verify.sh——过渡门禁验证 + 阶段跳跃反向验证 + green-gate exit 1 + 死循环检测 |

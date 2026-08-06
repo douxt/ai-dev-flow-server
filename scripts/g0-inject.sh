@@ -312,3 +312,8 @@ echo "✅ G0 故障注入验证通过"
 echo "   $(echo "$FAULT_MSG" | cut -c1-60)"
 echo "   → 故障注入后测试失败 → 恢复后测试通过"
 echo "   → 证明了: 测试真能拦住 Bug"
+
+# 写 G0 执行证据（供 stage-verify.sh implement:done 检查）
+G0_MARKER=".devflow/.g0-passed"
+mkdir -p "$(dirname "$G0_MARKER")"
+echo "$(date +%s) $(git rev-parse HEAD 2>/dev/null || echo 'no-git') $SOURCE_FILE" > "$G0_MARKER"

@@ -170,22 +170,64 @@ MD
 # implement:done
 # ═══════════════════════════════════════
 
-@test "implement:done — RED commit 存在 + stubs 全绿 → pass" {
+@test "implement:done — RED commit 存在 + stubs 全绿 + G0 marker → pass" {
     echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
     stub_green_gate 0
     stub_test_gate 0
+    # G0 证据：marker 比 RED commit 新
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    local red_ts=$(git log --grep="TDD: RED" -1 --format=%ct)
+    echo "$red_ts $(git rev-parse HEAD) src/x.js" > "$TEST_DIR/.devflow/.g0-passed"
     run bash "$VERIFY" "implement:done"
     [ "$status" -eq 0 ]
     [[ "$output" == *"I1 RED commit: PASS"* ]]
     [[ "$output" == *"I2 green-gate: PASS"* ]]
+    [[ "$output" == *"I4 G0 evidence: PASS"* ]]
 }
 
-@test "implement:done — 无 RED commit → fail" {
+@test "implement:done — 无 RED commit → fail（I4 不检查，I1 先拦）" {
     stub_green_gate 0
     stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
     run bash "$VERIFY" "implement:done"
     [ "$status" -eq 1 ]
     [[ "$output" == *"I1 RED commit: FAIL"* ]]
+}
+
+@test "implement:done — G0 marker 缺失 → fail" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    # 不创建 marker
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"I4 G0 evidence: FAIL"* ]]
+    [[ "$output" == *"未找到 G0 执行证据"* ]]
+}
+
+@test "implement:done — G0 marker 比 RED 旧 → fail" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    # marker 时间戳比 RED commit 早
+    local old_ts=$(($(git log --grep="TDD: RED" -1 --format=%ct) - 3600))
+    echo "$old_ts deadbeef src/old.js" > "$TEST_DIR/.devflow/.g0-passed"
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"I4 G0 evidence: FAIL"* ]]
+    [[ "$output" == *"早于 RED commit"* ]]
+}
+
+@test "implement:done — g0-inject.sh 未部署 → I4 跳过" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    # 不创建 g0-inject.sh stub
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"I4 G0 evidence: PASS"*"跳过"* ]]
 }
 
 # ═══════════════════════════════════════
