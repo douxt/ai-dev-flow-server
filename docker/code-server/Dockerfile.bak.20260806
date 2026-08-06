@@ -68,19 +68,18 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
     rm /tmp/plugin.zip && \
     chown -R coder:coder /home/coder/.config/yt-dlp
 
-# ====== 按需安装（不在 Dockerfile 中，容器启动后手动装）======
-# OpenKB: pip3 install --break-system-packages 'openkb==0.4.5'
-# Klore:  python3 -m venv ~/.venvs/klore && ~/.venvs/klore/bin/pip install klore==0.1.1
+# ====== Klore Wiki 编译体系（2026-07-28）======
+# venv + 源码补丁（models.py 3处 + ingester.py 1处）；pip upgrade 会覆盖需重打
+
+RUN python3 -m venv /home/coder/.venvs/klore && \
+    /home/coder/.venvs/klore/bin/pip install --no-cache-dir klore==0.1.1 && \
+    chown -R coder:coder /home/coder/.venvs/klore
+
+COPY patch-klore.py /tmp/patch-klore.py
+RUN python3 /tmp/patch-klore.py && rm /tmp/patch-klore.py
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
-# 构建代理加速下载（--build-arg 传入，放此处不影响前层缓存）
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG http_proxy
-ARG https_proxy
-ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} http_proxy=${http_proxy} https_proxy=${https_proxy}
-# --retry 5 防 NAS 网络波动
-RUN curl -fsSL --retry 5 --retry-delay 10 https://archon.diy/install | bash
+RUN curl -fsSL https://archon.diy/install | bash
 
 # P3: Archon 工作目录
 RUN mkdir -p /opt/archon/workspaces /tmp/archon-worktrees && \
@@ -123,8 +122,10 @@ RUN mkdir -p /entrypoint.d && \
     > /entrypoint.d/supervisord.sh && \
     chmod +x /entrypoint.d/supervisord.sh
 
-# Docker HEALTHCHECK：检查 code-server 自身可用
+# Docker HEALTHCHECK：诊断 supervisord + 2 个 program 状态
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -sf http://localhost:8080/healthz || exit 1
+    CMD pgrep -x supervisord >/dev/null && \
+        supervisorctl status bgutil-pot | grep -q RUNNING && \
+        supervisorctl status youtube-kb | grep -q RUNNING || exit 1
 
 USER coder
