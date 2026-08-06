@@ -3,6 +3,8 @@ import json
 import sys
 import os
 import time
+import tempfile
+import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -47,68 +49,80 @@ class TestSummaryDocument:
 
 
 class TestSummaryStore:
-    """SummaryStore SQLite 读写（内存数据库）."""
+    """SummaryStore SQLite 读写（内存数据库）.
 
-    def test_load_or_default_new_session(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        # 建表
-        import sqlite3
-        db = sqlite3.connect(db_path)
-        SummaryStore.create_table(db)
-        db.commit()
-        db.close()
+    使用 tempfile.mkdtemp() 而非 pytest tmp_path fixture，确保无 pytest 也能跑.
+    """
 
-        store = SummaryStore(db_path)
-        doc = store.load_or_default("group_123")
-        assert doc.covered_until_ts == 0.0
-        assert doc.message_count == 0
-        # load 不存在 → None
-        assert store.load("group_123") is None
+    def test_load_or_default_new_session(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            db_path = os.path.join(tmp, "test.db")
+            import sqlite3
+            db = sqlite3.connect(db_path)
+            SummaryStore.create_table(db)
+            db.commit()
+            db.close()
 
-    def test_upsert_and_load(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        import sqlite3
-        db = sqlite3.connect(db_path)
-        SummaryStore.create_table(db)
-        db.commit()
-        db.close()
+            store = SummaryStore(db_path)
+            doc = store.load_or_default("group_123")
+            assert doc.covered_until_ts == 0.0
+            assert doc.message_count == 0
+            assert store.load("group_123") is None
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
-        store = SummaryStore(db_path)
-        doc = SummaryDocument(
-            topics="Python性能",
-            facts="DS920+ NAS",
-            covered_until_ts=1234567890.0,
-            message_count=42,
-        )
-        store.upsert("group_123", doc)
+    def test_upsert_and_load(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            db_path = os.path.join(tmp, "test.db")
+            import sqlite3
+            db = sqlite3.connect(db_path)
+            SummaryStore.create_table(db)
+            db.commit()
+            db.close()
 
-        loaded = store.load("group_123")
-        assert loaded is not None
-        assert loaded.topics == "Python性能"
-        assert loaded.facts == "DS920+ NAS"
-        assert loaded.covered_until_ts == 1234567890.0
-        assert loaded.message_count == 42
-        assert loaded.updated_at > 0
+            store = SummaryStore(db_path)
+            doc = SummaryDocument(
+                topics="Python性能",
+                facts="DS920+ NAS",
+                covered_until_ts=1234567890.0,
+                message_count=42,
+            )
+            store.upsert("group_123", doc)
 
-        # load_or_default 也应返回同一份
-        doc2 = store.load_or_default("group_123")
-        assert doc2.topics == "Python性能"
+            loaded = store.load("group_123")
+            assert loaded is not None
+            assert loaded.topics == "Python性能"
+            assert loaded.facts == "DS920+ NAS"
+            assert loaded.covered_until_ts == 1234567890.0
+            assert loaded.message_count == 42
+            assert loaded.updated_at > 0
 
-    def test_upsert_update_existing(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        import sqlite3
-        db = sqlite3.connect(db_path)
-        SummaryStore.create_table(db)
-        db.commit()
-        db.close()
+            doc2 = store.load_or_default("group_123")
+            assert doc2.topics == "Python性能"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
-        store = SummaryStore(db_path)
-        store.upsert("g1", SummaryDocument(facts="v1"))
-        store.upsert("g1", SummaryDocument(facts="v2", topics="new"))
+    def test_upsert_update_existing(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            db_path = os.path.join(tmp, "test.db")
+            import sqlite3
+            db = sqlite3.connect(db_path)
+            SummaryStore.create_table(db)
+            db.commit()
+            db.close()
 
-        loaded = store.load("g1")
-        assert loaded.facts == "v2"
-        assert loaded.topics == "new"
+            store = SummaryStore(db_path)
+            store.upsert("g1", SummaryDocument(facts="v1"))
+            store.upsert("g1", SummaryDocument(facts="v2", topics="new"))
+
+            loaded = store.load("g1")
+            assert loaded.facts == "v2"
+            assert loaded.topics == "new"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ── ContextCompressor 纯函数测试 ──────────────────────────────
