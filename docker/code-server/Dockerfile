@@ -68,18 +68,7 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
     rm /tmp/plugin.zip && \
     chown -R coder:coder /home/coder/.config/yt-dlp
 
-# ====== Klore Wiki 编译体系（2026-07-28）======
-# venv + 源码补丁（models.py 3处 + ingester.py 1处）；pip upgrade 会覆盖需重打
-
-RUN python3 -m venv /home/coder/.venvs/klore && \
-    /home/coder/.venvs/klore/bin/pip install --no-cache-dir klore==0.1.1 && \
-    chown -R coder:coder /home/coder/.venvs/klore
-
-COPY patch-klore.py /tmp/patch-klore.py
-RUN python3 /tmp/patch-klore.py && rm /tmp/patch-klore.py
-
 # OpenKB Wiki 编译器（2026-08-06）
-# Klore 仍保留在 /home/coder/.venvs/klore/，供对比测试
 RUN pip3 install --no-cache-dir --break-system-packages openkb==0.4.5
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
