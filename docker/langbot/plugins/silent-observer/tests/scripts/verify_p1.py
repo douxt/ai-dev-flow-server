@@ -5,7 +5,7 @@
   python3 /tmp/verify_p1.py --scene 1 # 单场景
   python3 /tmp/verify_p1.py --json    # JSON 输出
 """
-import urllib.request, json, time, hmac, hashlib, sys, os, re, sqlite3
+import urllib.request, urllib.error, json, time, hmac, hashlib, sys, os, re, sqlite3
 
 BOT_UUID = os.environ.get("BOT_UUID", "dcbe70d9-af11-4624-908a-9928e4a08bdb")
 SECRET = os.environ.get("SECRET", "udimc123").encode()
@@ -36,11 +36,21 @@ def send_sync(message_parts, timeout=120):
         headers={"Content-Type": "application/json", "X-LB-Timestamp": ts, "X-LB-Signature": sig},
         method="POST",
     )
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    last_err = None
+    for attempt in range(5):
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 409:  # session locked, wait and retry
+                time.sleep(3)
+                continue
+            return {"error": str(e)}
+        except Exception as e:
+            last_err = e
+            time.sleep(2)
+    return {"error": str(last_err)}
 
 
 def extract_text(resp):
@@ -112,8 +122,8 @@ def scene_1_trigger():
     except Exception:
         pass
 
-    # 发送 15 条消息（@bot 才能过 gate 触发压缩）
-    for i in range(15):
+    # 发送消息触发压缩（@bot 确保 is_trigger=True，每条等 LLM 返回后再发下一条）
+    for i in range(8):
         resp = send_sync([
             {"type": "Plain", "text": f"P1压缩测试第{i}条。请简单回复。"},
             {"type": "At", "target": BOT_QQ},
@@ -122,7 +132,7 @@ def scene_1_trigger():
         if not reply and resp.get("error"):
             check(False, f"compress-msg-{i}", f"HTTP error: {resp['error']}")
             return
-        time.sleep(2)  # 给后台压缩时间
+        time.sleep(1)
 
     # 等待后台压缩完成（轮询 summary 表，最多 60s）
     for _ in range(30):
