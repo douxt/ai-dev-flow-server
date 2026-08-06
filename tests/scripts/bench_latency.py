@@ -13,7 +13,7 @@
   python3 bench_latency.py --bottleneck       # 仅输出瓶颈诊断结论
 """
 
-import json, os, sqlite3, sys, time, urllib.request, urllib.error
+import json, os, sqlite3, subprocess, sys, time, urllib.request, urllib.error
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -27,44 +27,43 @@ BOT_UUID = '8053e7b4-f0b7-4264-b348-abc70eaa3550'  # AI对话
 SECRET = 'udimc123'
 SYNC_URL = f'http://langbot:2280/plugins/dou__langbot-silent-observer/sync?secret={SECRET}'
 TEST_SESSION = 'group_1104330614'
-DOCKER_EXEC = f'ssh root@{NAS} docker exec langbot'
-PLUGIN_EXEC = f'ssh root@{NAS} docker exec langbot-plugin'
 
 
-def ssh(cmd: str) -> str:
-    """在 NAS langbot 容器中执行命令并返回 stdout。"""
-    full = f'{DOCKER_EXEC} {cmd}'
-    import subprocess
-    r = subprocess.run(full, shell=True, capture_output=True, text=True, timeout=30)
+def _ssh_exec(container: str, python_code: str, timeout: int = 30) -> str:
+    """通过 SSH 在 NAS 容器中执行 Python 代码，返回 stdout。"""
+    r = subprocess.run(
+        ['ssh', f'root@{NAS}', 'docker', 'exec', '-i', container, 'python3'],
+        input=python_code, capture_output=True, text=True, timeout=timeout
+    )
     return r.stdout
 
 
-def plugin_ssh(cmd: str) -> str:
-    import subprocess
-    full = f'{PLUGIN_EXEC} {cmd}'
-    r = subprocess.run(full, shell=True, capture_output=True, text=True, timeout=30)
+def _ssh_cmd(container: str, cmd: str, timeout: int = 30) -> str:
+    """通过 SSH 在 NAS 容器中执行 shell 命令，返回 stdout。"""
+    r = subprocess.run(
+        ['ssh', f'root@{NAS}', 'docker', 'exec', container, 'sh', '-c', cmd],
+        capture_output=True, text=True, timeout=timeout
+    )
     return r.stdout
 
 
 def query_llm_stats(days: int = 7, limit: int = None) -> dict:
     """从 langbot.db 查询 LLM 调用统计数据。"""
-    sql = f"""
-    SELECT timestamp, model_name, input_tokens, output_tokens, total_tokens,
-           duration, status, session_id, error_message
-    FROM monitoring_llm_calls
-    WHERE bot_id = '{BOT_UUID}' AND status = 'success'
-      AND timestamp > datetime('now', '-{days} days')
-    ORDER BY timestamp DESC
-    """
-    if limit:
-        sql += f' LIMIT {limit}'
-
-    raw = ssh(f'python3 -c "
+    limit_clause = f'LIMIT {limit}' if limit else ''
+    code = f'''
 import sqlite3, json
-db = sqlite3.connect(\\\"{LANGBOT_DB}\\\")
-rows = list(db.execute(\\\"\\\"\\\"{sql}\\\"\\\"\\\"))
+db = sqlite3.connect("{LANGBOT_DB}")
+sql = \"\"\"SELECT timestamp, model_name, input_tokens, output_tokens, total_tokens,
+       duration, status, session_id, error_message
+FROM monitoring_llm_calls
+WHERE bot_id = '{BOT_UUID}' AND status = 'success'
+  AND timestamp > datetime('now', '-{days} days')
+ORDER BY timestamp DESC
+{limit_clause}\"\"\"
+rows = list(db.execute(sql))
 print(json.dumps([list(r) for r in rows], ensure_ascii=False))
-"')
+'''
+    raw = _ssh_exec('langbot', code)
     try:
         rows = json.loads(raw.strip())
     except json.JSONDecodeError:
@@ -141,7 +140,7 @@ print(json.dumps([list(r) for r in rows], ensure_ascii=False))
 
 def query_timing_log() -> list:
     """从 /tmp/silent_timing.log 读取插件阶段耗时。"""
-    raw = plugin_ssh('cat /tmp/silent_timing.log 2>/dev/null | tail -200')
+    raw = _ssh_cmd('langbot-plugin', 'cat /tmp/silent_timing.log 2>/dev/null | tail -200')
     entries = []
     for line in raw.strip().split('\n'):
         try:
