@@ -170,7 +170,7 @@ MD
 # implement:done
 # ═══════════════════════════════════════
 
-@test "implement:done — RED commit 存在 + stubs 全绿 + G0 marker → pass" {
+@test "implement:done — RED commit 存在 + stubs 全绿 + G0 marker + review 报告 → pass" {
     echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
     stub_green_gate 0
     stub_test_gate 0
@@ -178,11 +178,14 @@ MD
     touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
     local red_ts=$(git log --grep="TDD: RED" -1 --format=%ct)
     echo "$red_ts $(git rev-parse HEAD) src/x.js" > "$TEST_DIR/.devflow/.g0-passed"
+    # code-review 报告
+    echo "## Code Review Report" > "$TEST_DIR/.devflow/code-review-report.md"
     run bash "$VERIFY" "implement:done"
     [ "$status" -eq 0 ]
     [[ "$output" == *"I1 RED commit: PASS"* ]]
     [[ "$output" == *"I2 green-gate: PASS"* ]]
     [[ "$output" == *"I4 G0 evidence: PASS"* ]]
+    [[ "$output" == *"I5 review report: PASS"* ]]
 }
 
 @test "implement:done — 无 RED commit → fail（I4 不检查，I1 先拦）" {
@@ -220,14 +223,57 @@ MD
     [[ "$output" == *"早于 RED commit"* ]]
 }
 
-@test "implement:done — g0-inject.sh 未部署 → I4 跳过" {
+@test "implement:done — g0-inject.sh 未部署 → I4 跳过, I5 仍需检查" {
     echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
     stub_green_gate 0
     stub_test_gate 0
     # 不创建 g0-inject.sh stub
+    # code-review 报告
+    echo "## Code Review" > "$TEST_DIR/.devflow/code-review-report.md"
     run bash "$VERIFY" "implement:done"
     [ "$status" -eq 0 ]
     [[ "$output" == *"I4 G0 evidence: PASS"*"跳过"* ]]
+    [[ "$output" == *"I5 review report: PASS"* ]]
+}
+
+@test "implement:done — review 报告缺失 → fail" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    local red_ts=$(git log --grep="TDD: RED" -1 --format=%ct)
+    echo "$red_ts $(git rev-parse HEAD) src/x.js" > "$TEST_DIR/.devflow/.g0-passed"
+    # 不创建 review 报告
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"I5 review report: FAIL"* ]]
+    [[ "$output" == *"未找到 code-review 报告"* ]]
+}
+
+@test "implement:done — review 报告为空 → fail" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    local red_ts=$(git log --grep="TDD: RED" -1 --format=%ct)
+    echo "$red_ts $(git rev-parse HEAD) src/x.js" > "$TEST_DIR/.devflow/.g0-passed"
+    touch "$TEST_DIR/.devflow/code-review-report.md"  # 空文件
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"I5 review report: FAIL"* ]]
+}
+
+@test "implement:done — review 报告存在 → I5 pass" {
+    echo "// stub" > x.js && git add -A && git commit -q -m "TDD: RED — t1"
+    stub_green_gate 0
+    stub_test_gate 0
+    touch "$TEST_DIR/.devflow/scripts/g0-inject.sh"
+    local red_ts=$(git log --grep="TDD: RED" -1 --format=%ct)
+    echo "$red_ts $(git rev-parse HEAD) src/x.js" > "$TEST_DIR/.devflow/.g0-passed"
+    echo "## Code Review — PASS" > "$TEST_DIR/.devflow/code-review-report.md"
+    run bash "$VERIFY" "implement:done"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"I5 review report: PASS"* ]]
 }
 
 # ═══════════════════════════════════════

@@ -167,22 +167,31 @@ verify_implement_done() {
     local g0="$SCRIPTS_DIR/g0-inject.sh"
     if [ ! -f "$g0" ]; then
         check "implement:done" "I4 G0 evidence" 0 "(g0-inject.sh 未部署，跳过)"
-        return
-    fi
-    local g0_marker="$WORKSPACE/.devflow/.g0-passed"
-    if [ -f "$g0_marker" ] && [ -s "$g0_marker" ]; then
-        local red_ts g0_ts
-        red_ts=$(git -C "$WORKSPACE" log --grep="TDD: RED" -1 --format=%ct 2>/dev/null || echo "0")
-        g0_ts=$(head -1 "$g0_marker" 2>/dev/null | cut -d' ' -f1 || echo "0")
-        if [ "${g0_ts:-0}" -ge "${red_ts:-0}" ]; then
-            check "implement:done" "I4 G0 evidence" 0 ""
+    else
+        local g0_marker="$WORKSPACE/.devflow/.g0-passed"
+        if [ -f "$g0_marker" ] && [ -s "$g0_marker" ]; then
+            local red_ts g0_ts
+            red_ts=$(git -C "$WORKSPACE" log --grep="TDD: RED" -1 --format=%ct 2>/dev/null || echo "0")
+            g0_ts=$(head -1 "$g0_marker" 2>/dev/null | cut -d' ' -f1 || echo "0")
+            if [ "${g0_ts:-0}" -ge "${red_ts:-0}" ]; then
+                check "implement:done" "I4 G0 evidence" 0 ""
+            else
+                check "implement:done" "I4 G0 evidence" 1 \
+                    "G0 标记 ($(date -d @"$g0_ts" '+%F %T' 2>/dev/null || echo "$g0_ts")) 早于 RED commit ($(date -d @"$red_ts" '+%F %T' 2>/dev/null || echo "$red_ts"))——重新运行: bash .devflow/scripts/g0-inject.sh <源文件>"
+            fi
         else
             check "implement:done" "I4 G0 evidence" 1 \
-                "G0 标记 ($(date -d @"$g0_ts" '+%F %T' 2>/dev/null || echo "$g0_ts")) 早于 RED commit ($(date -d @"$red_ts" '+%F %T' 2>/dev/null || echo "$red_ts"))——重新运行: bash .devflow/scripts/g0-inject.sh <源文件>"
+                "未找到 G0 执行证据——运行: bash .devflow/scripts/g0-inject.sh <你改的源文件> [测试名关键字]"
         fi
+    fi
+
+    # I5: 独立 code-review 报告（防 Agent 自审自代码）
+    local review_report="$WORKSPACE/.devflow/code-review-report.md"
+    if [ -f "$review_report" ] && [ -s "$review_report" ]; then
+        check "implement:done" "I5 review report" 0 ""
     else
-        check "implement:done" "I4 G0 evidence" 1 \
-            "未找到 G0 执行证据——运行: bash .devflow/scripts/g0-inject.sh <你改的源文件> [测试名关键字]"
+        check "implement:done" "I5 review report" 1 \
+            "未找到 code-review 报告——请用独立子代理审查 diff 并写入 .devflow/code-review-report.md（写代码的 agent 不能审自己的代码）"
     fi
 }
 
