@@ -69,6 +69,12 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
     chown -R coder:coder /home/coder/.config/yt-dlp
 
 # OpenKB Wiki 编译器（2026-08-06）
+# 构建代理（--build-arg，放此处不影响上层缓存）
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG http_proxy
+ARG https_proxy
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} http_proxy=${http_proxy} https_proxy=${https_proxy}
 # 先装 markitdown 基础版（不给 extras），再装 openkb — pip 自动跳过文档转换重依赖
 # 如需 docx/pptx/xlsx 转换：pip install 'markitdown[docx,pptx,xlsx,xls]'
 # --retries 5 防 NAS 网络抖动导致下载失败
