@@ -1,6 +1,18 @@
 FROM codercom/code-server:latest
 USER root
 
+# 构建代理（通过 --build-arg 传入，加速 GitHub/PyPI 下载）
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG NO_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    NO_PROXY=${NO_PROXY}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm tmux git gh jq curl python3-pip python3-venv iputils-ping && \
     rm -rf /var/lib/apt/lists/*
