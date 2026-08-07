@@ -209,6 +209,7 @@ class DefaultEventListener(EventListener):
 
         if self.kb_enabled:
             self.store.init_chat_index()
+            asyncio.create_task(self.store.backfill_chat_index())
 
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):

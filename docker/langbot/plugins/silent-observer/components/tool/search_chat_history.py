@@ -64,10 +64,13 @@ class SearchChatHistory(Tool):
             query_id, session_id, query[:80], sender_name, days,
         )
 
-        # RRF 混合搜索（优先）
+        # RRF 混合搜索（Vector + Keyword）
         try:
             raw = await asyncio.wait_for(
-                store.search_history([query.strip()], session_name=session_id, top_k=top_k),
+                store.search_history(
+                    [query.strip()], session_name=session_id, top_k=top_k,
+                    sender_name=sender_name, days=days or 0,
+                ),
                 timeout=_API_TIMEOUT,
             )
         except Exception as e:

@@ -2,9 +2,11 @@
 import asyncio
 import json
 import math
+import re
 import sqlite3
 import sys
 import time
+from datetime import datetime
 
 from util.logs import safe_log
 from util.text import build_document_id, ROLE_CN
@@ -126,9 +128,93 @@ class KBStore:
             print(f'[silent] chat_index read error: {e}', file=sys.stderr, flush=True)
             return []
 
-    async def search_history(self, queries: list[str], session_name: str = '', top_k: int = 10) -> list[dict]:
-        """RRF 混合搜索：Vector + Keyword（jieba 分词）."""
-        safe_log('search', f'ENTER: {len(queries)} queries')
+    def _session_ids_for_search(self, session_name: str) -> list[str]:
+        """双前缀：LangBot session_id 格式迁移遗留兼容。
+
+        chat_index 中同一 QQ 群存在两种格式：
+        - group_116381172（新格式）
+        - group_group_116381172（旧格式）
+        """
+        if not session_name:
+            return ['']
+        ids = [session_name]
+        if session_name.startswith('group_group_'):
+            ids.append(session_name[len('group_'):])
+        elif session_name.startswith('group_'):
+            ids.append(f'group_{session_name}')
+        return ids
+
+    @staticmethod
+    def _escape_like(s: str) -> str:
+        """转义 SQL LIKE 通配符 % _ 及 ESCAPE 字符 \\（顺序关键：\\ 先转义）."""
+        return re.sub(r'([\\%_])', r'\\\1', s)
+
+    def _keyword_search_sqlite(self, query: str, session_name: str,
+                                top_k: int, sender_name: str, days: int,
+                                rrf_scores: dict, doc_map: dict, K: int = 60):
+        """SQLite LIKE 关键词搜索 → 写入 RRF scores/dict.
+
+        查询安全：query 截断 ≤300 字符，分词 ≤8 个。
+        异常静默降级：保留 rrf_scores/doc_map 中 vector 通道已有结果。
+        """
+        if not query or not query.strip():
+            return
+        query = query.strip()[:300]
+
+        words = list(dict.fromkeys(
+            w for w in re.split(r'[\s,，]+', query) if len(w) >= 2
+        ))
+        if len(words) > 8:
+            words = words[:8]
+        if not words:
+            words = [query]
+
+        session_ids = self._session_ids_for_search(session_name)
+
+        db = self._get_db()
+        try:
+            for word in words:
+                sw = self._escape_like(word)
+                wp = f'%{sw}%'
+                kw_rank = 0
+                for sid in session_ids:
+                    # 动态 SQL：sender_name / days 按需拼接
+                    where = "session_id = ? AND formatted_text LIKE ? ESCAPE '\\'"
+                    params = [sid, wp]
+                    if days and days > 0:
+                        cutoff = time.time() - days * 86400
+                        where += " AND timestamp_unix >= ?"
+                        params.append(cutoff)
+                    if sender_name:
+                        where += " AND formatted_text LIKE ? ESCAPE '\\'"
+                        params.append(f'%] {self._escape_like(sender_name)}:%')
+
+                    rows = db.execute(
+                        f"SELECT doc_id, formatted_text, timestamp_unix FROM chat_index"
+                        f" WHERE {where} ORDER BY timestamp_unix DESC LIMIT ?",
+                        (*params, top_k * 2)
+                    ).fetchall()
+                    for r in rows:
+                        doc_id = r[0]
+                        score = 1.0 / (K + kw_rank + 1)
+                        if score > rrf_scores.get(doc_id, 0):
+                            rrf_scores[doc_id] = score
+                        if doc_id not in doc_map:
+                            doc_map[doc_id] = {
+                                'id': doc_id, 'document': r[1],
+                                'metadata': {'text': r[1], 'timestamp_unix': r[2]},
+                                'distance': 0.0,
+                            }
+                        kw_rank += 1
+        except Exception as e:
+            safe_log('search', f'keyword sqlite error (fallback to semantic-only): {e}')
+        finally:
+            db.close()
+
+    async def search_history(self, queries: list[str], session_name: str = '',
+                             top_k: int = 10, sender_name: str = '', days: int = 0) -> list[dict]:
+        """RRF 混合搜索：Vector 语义 + SQLite LIKE 关键词."""
+        safe_log('search', f'ENTER: {len(queries)} queries sender={sender_name} days={days}')
         if not queries:
             return []
         valid_queries = [q for q in queries if q and q.strip()]
@@ -139,6 +225,8 @@ class KBStore:
         rrf_scores: dict[str, float] = {}
         doc_map: dict[str, dict] = {}
         K = 60
+        session_ids = self._session_ids_for_search(session_name)
+        vec_raw: list = []  # 默认值，vector 通道失败时使用
 
         # === Vector 通道 ===
         try:
@@ -147,7 +235,6 @@ class KBStore:
                 timeout=_API_TIMEOUT,
             )
             qv = vectors[0]
-            # 维度探测（首次成功后缓存）
             if self._embedding_dim is None:
                 self._embedding_dim = len(qv)
                 safe_log('store', f'embedding dim detected: {self._embedding_dim}')
@@ -156,7 +243,15 @@ class KBStore:
                 qv = [v / norm for v in qv]
             vec_filters: dict = {"type": "chat_history"}
             if session_name:
-                vec_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
+                if len(session_ids) > 1:
+                    vec_filters = {"$and": [{"type": "chat_history"}, {"session_id": {"$in": session_ids}}]}
+                else:
+                    vec_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
+            if sender_name:
+                if "$and" in vec_filters:
+                    vec_filters["$and"].append({"sender_name": sender_name})
+                else:
+                    vec_filters = {"$and": [{"type": "chat_history"}, {"sender_name": sender_name}]}
             vec_raw = await asyncio.wait_for(
                 self._plugin.vector_search(
                     collection_id=self.kb_id,
@@ -180,53 +275,95 @@ class KBStore:
         except Exception as e:
             safe_log('search', f'vector error: {e}')
 
-        # === Keyword 通道：jieba 分词 + BM25 全文搜索 ===
-        try:
-            import jieba
-            words = [w for w in jieba.cut(q) if len(w) >= 2]
-            stopwords = {'之前', '有没有', '没有人', '有人', '聊过', '吗', '什么', '怎么', '为什么', '可以', '这个', '那个', '一下', '在吗', '能不能', '是否', '还有', '以及', '或者', '不过', '但是', '因为', '所以', '如果', '虽然', '而且', '然后', '的话', '吧', '呢', '啊', '哈', '哦', '嗯', '一个', '哪些', '哪个', '那种', '什么样', '真是', '就是', '不是'}
-            words = [w for w in words if w not in stopwords]
-            words = list(set(words))
-            kw_rank = 0
-            zero_vec = [0.0] * self.embedding_dim
-            for kw in words:
-                try:
-                    kw_filters: dict = {"type": "chat_history"}
-                    if session_name:
-                        kw_filters = {"$and": [{"type": "chat_history"}, {"session_id": session_name}]}
-                    kw_raw = await asyncio.wait_for(
-                        self._plugin.vector_search(
-                            collection_id=self.kb_id,
-                            query_vector=zero_vec,
-                            top_k=5,
-                            filters=kw_filters,
-                            search_type='full_text',
-                            query_text=kw,
-                        ),
-                        timeout=_API_TIMEOUT,
-                    )
-                    for entry in (kw_raw or []):
-                        if not isinstance(entry, dict):
-                            continue
-                        doc_id = entry.get('id', '')
-                        meta = entry.get('metadata', {})
-                        doc_text = meta.get('text', '') or entry.get('document', '')
-                        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1.0 / (K + kw_rank + 1)
-                        if doc_id not in doc_map:
-                            doc_map[doc_id] = {'id': doc_id, 'document': doc_text, 'metadata': meta,
-                                               'distance': entry.get('distance', 99)}
-                        kw_rank += 1
-                except Exception:
-                    pass
-            kw_count = sum(1 for did in rrf_scores if did in doc_map and doc_map[did].get('distance', 99) < 0.01)
-            safe_log('search', f'keyword: {kw_count} docs from {len(words)} words')
-        except Exception as e:
-            safe_log('search', f'keyword error: {e}')
+        # === Keyword 通道：SQLite LIKE ===
+        self._keyword_search_sqlite(
+            q, session_name, top_k, sender_name, days,
+            rrf_scores, doc_map, K,
+        )
 
         # RRF 排序
         sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
         results = [doc_map[did] for did in sorted_ids if did in doc_map]
-        return results[:5]
+
+        # 统计 keyword-only 命中数（证明 keyword 通道在工作）
+        vec_ids = {e.get('id', '') for e in (vec_raw or []) if isinstance(e, dict)}
+        kw_only = sum(1 for did in rrf_scores if did in doc_map and did not in vec_ids)
+        safe_log('search', f'vector: {len(vec_ids)} / keyword: {len(rrf_scores) - len(vec_ids)} / keyword-only: {kw_only}')
+
+        return results[:top_k]
+
+    async def backfill_chat_index(self):
+        """从 ChromaDB 回填 chat_index 缺失的消息（幂等，启动时 create_task 调用）.
+
+        已回填则跳过（__backfill_done__ 持久化标记）。
+        timestamp_unix=0 的历史消息从 formatted_text 时间前缀解析重算。
+        """
+        db = self._get_db()
+        try:
+            done = db.execute(
+                "SELECT 1 FROM chat_index WHERE doc_id = '__backfill_done__'"
+            ).fetchone()
+            if done:
+                db.close()
+                safe_log('backfill', 'already completed, skip')
+                return
+        except Exception:
+            pass
+        db.close()
+
+        filled = 0
+        async with self._api_sem:
+            db = self._get_db()
+            try:
+                offset = 0
+                while True:
+                    try:
+                        result = await asyncio.wait_for(
+                            self._plugin.vector_list(
+                                self.kb_id,
+                                filters={"type": "chat_history"},
+                                limit=500, offset=offset,
+                            ),
+                            timeout=30,
+                        )
+                    except Exception as e:
+                        safe_log('backfill', f'vector_list error at offset {offset}: {e}')
+                        break
+                    items = result.get('items', []) if isinstance(result, dict) else []
+                    if not items:
+                        break
+                    for item in items:
+                        meta = item.get('metadata', {})
+                        doc_id = item.get('id')
+                        text = meta.get('text', '') or item.get('document', '')
+                        session_id = meta.get('session_id', '')
+                        ts = meta.get('timestamp_unix', 0)
+                        # 修复 timestamp_unix=0 的历史数据
+                        if ts <= 0 and text.startswith('['):
+                            m = re.match(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})', text)
+                            if m:
+                                try:
+                                    dt = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M')
+                                    ts = dt.timestamp()
+                                except ValueError:
+                                    pass
+                        try:
+                            db.execute(
+                                "INSERT OR IGNORE INTO chat_index (doc_id, session_id, timestamp_unix, formatted_text) VALUES (?, ?, ?, ?)",
+                                (doc_id, session_id, ts, text)
+                            )
+                            filled += 1
+                        except Exception:
+                            pass
+                    db.commit()
+                    offset += 500
+                db.execute(
+                    "INSERT OR IGNORE INTO chat_index (doc_id, session_id, timestamp_unix, formatted_text) VALUES ('__backfill_done__', '', 0, '')"
+                )
+                db.commit()
+            finally:
+                db.close()
+        safe_log('backfill', f'done: {filled} new rows inserted')
 
     async def backfill_sender(self, sender_id: str, new_name: str, title: str, role: str):
         """回填历史消息中 sender 的群名片/头衔."""
