@@ -68,9 +68,8 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
     rm /tmp/plugin.zip && \
     chown -R coder:coder /home/coder/.config/yt-dlp
 
-# ====== 按需安装（不在 Dockerfile 中，容器启动后手动装）======
-# OpenKB: pip3 install --break-system-packages 'openkb==0.4.5'
-# Klore:  python3 -m venv ~/.venvs/klore && ~/.venvs/klore/bin/pip install klore==0.1.1
+# OpenKB Wiki 编译器（2026-08-06）
+RUN pip3 install --no-cache-dir --break-system-packages openkb==0.4.5
 
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 # NAS 网络不稳，预先下载 archon-linux-x64 到 Dockerfile 同目录，COPY 进镜像
