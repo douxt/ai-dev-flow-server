@@ -90,67 +90,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV ARCHON_HOME=/home/coder/.archon
 EXPOSE 8420
 
-# ====== Supervisor 配置（2026-07-28 / 2026-08-06 heredoc 修复）======
+# ====== Supervisor 配置（2026-07-28 / 2026-08-06 修复 % 转义）======
+# printf 中 % 需写为 %% 才能输出字面 %
 
 RUN mkdir -p /etc/supervisor/conf.d
 
 # Archon serve
-RUN cat > /etc/supervisor/conf.d/archon.conf << 'EOF'
-[program:archon]
-command=archon serve --port 8420
-directory=/home/coder/project
-user=coder
-autostart=true
-autorestart=true
-environment=HOME="/home/coder",ARCHON_HOME="/home/coder/.archon"
-EOF
+RUN printf '[program:archon]\ncommand=archon serve --port 8420\ndirectory=/home/coder/project\nuser=coder\nautostart=true\nautorestart=true\nenvironment=HOME="/home/coder",ARCHON_HOME="/home/coder/.archon"\n' \
+    > /etc/supervisor/conf.d/archon.conf
 
-# bgutil-pot（代理注入此进程，supervisor %(ENV_VAR)s 从 compose 继承）
-RUN cat > /etc/supervisor/conf.d/bgutil-pot.conf << 'EOF'
-[program:bgutil-pot]
-command=bgutil-pot server
-directory=/tmp
-user=coder
-autostart=true
-autorestart=true
-priority=10
-stdout_logfile_maxbytes=10MB
-stdout_logfile_backups=3
-stderr_logfile_maxbytes=10MB
-stderr_logfile_backups=3
-environment=HTTP_PROXY="%(ENV_CLASH_PROXY_URL)s",HTTPS_PROXY="%(ENV_CLASH_PROXY_URL)s",ALL_PROXY="%(ENV_CLASH_PROXY_URL)s"
-EOF
+# bgutil-pot（%%(ENV_VAR)s → 输出 %(ENV_VAR)s，supervisor 运行时解析）
+RUN printf '[program:bgutil-pot]\ncommand=bgutil-pot server\ndirectory=/tmp\nuser=coder\nautostart=true\nautorestart=true\npriority=10\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\nenvironment=HTTP_PROXY="%%(ENV_CLASH_PROXY_URL)s",HTTPS_PROXY="%%(ENV_CLASH_PROXY_URL)s",ALL_PROXY="%%(ENV_CLASH_PROXY_URL)s"\n' \
+    > /etc/supervisor/conf.d/bgutil-pot.conf
 
 # youtube-kb 启动包装脚本
-RUN cat > /usr/local/bin/youtube-kb-start.sh << 'EOF'
-#!/bin/bash
-set -e
-CONFIG="/home/coder/.config/claude/settings.local.json"
-if [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi
-ANTHROPIC_AUTH_TOKEN=$(jq -r ".env.ANTHROPIC_AUTH_TOKEN // empty" "$CONFIG" 2>/dev/null)
-if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: ANTHROPIC_AUTH_TOKEN empty in $CONFIG" >&2; exit 1; fi
-export ANTHROPIC_AUTH_TOKEN
-for i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done
-exec python3 -m app.main --source both
-EOF
-RUN chmod +x /usr/local/bin/youtube-kb-start.sh
+RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$$CONFIG" ]; then echo "FATAL: $$CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$$(jq -r ".env.ANTHROPIC_AUTH_TOKEN // empty" "$$CONFIG" 2>/dev/null)\nif [ -z "$$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: ANTHROPIC_AUTH_TOKEN empty in $$CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nfor i in $$(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
+    > /usr/local/bin/youtube-kb-start.sh && \
+    chmod +x /usr/local/bin/youtube-kb-start.sh
 
 # youtube-kb supervisor program
-RUN cat > /etc/supervisor/conf.d/youtube-kb.conf << 'EOF'
-[program:youtube-kb]
-command=/usr/local/bin/youtube-kb-start.sh
-directory=/home/coder/project/youtube-kb
-user=coder
-autostart=true
-autorestart=true
-priority=20
-startsecs=30
-startretries=5
-stdout_logfile_maxbytes=10MB
-stdout_logfile_backups=3
-stderr_logfile_maxbytes=10MB
-stderr_logfile_backups=3
-EOF
+RUN printf '[program:youtube-kb]\ncommand=/usr/local/bin/youtube-kb-start.sh\ndirectory=/home/coder/project/youtube-kb\nuser=coder\nautostart=true\nautorestart=true\npriority=20\nstartsecs=30\nstartretries=5\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\n' \
+    > /etc/supervisor/conf.d/youtube-kb.conf
 
 # ENTRYPOINTD：容器启动时自动拉起 supervisord
 # base image 的 /usr/bin/entrypoint.sh 内置此机制，创建目录即可
