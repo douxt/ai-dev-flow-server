@@ -68,9 +68,6 @@ RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
     rm /tmp/plugin.zip && \
     chown -R coder:coder /home/coder/.config/yt-dlp
 
-# OpenKB Wiki 编译器（2026-08-06）
-RUN pip3 install --no-cache-dir --break-system-packages openkb==0.4.5
-
 # P0: Archon CLI（coleam00/Archon, MIT, v0.5.0 binary）
 # NAS 网络不稳，预先下载 archon-linux-x64 到 Dockerfile 同目录，COPY 进镜像
 COPY archon-linux-x64 /usr/local/bin/archon
@@ -110,6 +107,9 @@ RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.loc
 # youtube-kb supervisor program
 RUN printf '[program:youtube-kb]\ncommand=/usr/local/bin/youtube-kb-start.sh\ndirectory=/home/coder/project/youtube-kb\nuser=coder\nautostart=true\nautorestart=true\npriority=20\nstartsecs=30\nstartretries=5\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\n' \
     > /etc/supervisor/conf.d/youtube-kb.conf
+
+# OpenKB Wiki 编译器（2026-08-06）——放最后，不影响前面层缓存
+RUN pip3 install --no-cache-dir --break-system-packages openkb==0.4.5
 
 # ENTRYPOINTD：容器启动时自动拉起 supervisord
 # base image 的 /usr/bin/entrypoint.sh 内置此机制，创建目录即可
