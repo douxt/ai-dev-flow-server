@@ -115,7 +115,7 @@ RUN printf '[program:youtube-kb]\ncommand=/usr/local/bin/youtube-kb-start.sh\ndi
 # ENTRYPOINTD：容器启动时自动拉起 supervisord
 # base image 的 /usr/bin/entrypoint.sh 内置此机制，创建目录即可
 RUN mkdir -p /entrypoint.d && \
-    printf '#!/bin/bash\nsudo supervisord -c /etc/supervisor/supervisord.conf\n' \
+    printf '#!/bin/bash\nsudo -E supervisord -c /etc/supervisor/supervisord.conf\n' \
     > /entrypoint.d/supervisord.sh && \
     chmod +x /entrypoint.d/supervisord.sh
 
