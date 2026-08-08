@@ -10,7 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN pip3 install --no-cache-dir --break-system-packages uv paramiko mcp
+# 全量 pip wheel 离线安装（一次性 COPY，后续全用本地）
+COPY all-wheels /tmp/all-wheels
+
+RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels uv paramiko mcp
 
 RUN mkdir -p /home/coder/.config/claude && \
     if [ -d /home/coder/.claude ] && [ ! -L /home/coder/.claude ]; then \
@@ -41,13 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends cron unzip && \
 RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
 
 # P0: Python 包
-RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-frontmatter
+RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels pyyaml requests python-frontmatter
 
-# ====== 全量 pip wheel 离线安装（2026-08-08）======
-# 所有 pip 包预下载到 all-wheels/，构建零网络依赖
-COPY all-wheels /tmp/all-wheels
-
-# youtube-kb 开发依赖 + PySocks（SOCKS5 代理）
+# youtube-kb 开发依赖 + PySocks（SOCKS5 代理）——离线安装
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels \
     yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client PySocks
 
