@@ -14,6 +14,8 @@ services:
       - /volume7/docker/codeserver/projects:/home/coder/project
       - /volume7/docker/codeserver/config/code-server-data:/home/coder/.local/share/code-server
       - /volume7/docker/codeserver/data:/data
+    sysctls:
+      - fs.inotify.max_user_watches=524288
     ports:
       - '127.0.0.1:8686:8080'
       - '0.0.0.0:25252:8080'
