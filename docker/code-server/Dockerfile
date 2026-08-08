@@ -36,12 +36,11 @@ RUN mkdir -p /home/coder/.config && \
     ln -sf /home/coder/.config/claude.json /home/coder/.claude.json
 
 # ====== AFK 管线依赖（2026-07-03）======
-# P2: cron（systemd 替代，jq 已在上方装过）+ unzip（Bun 安装需要）
+# P2: cron（systemd 替代）+ unzip（deno.zip 解压）
 RUN apt-get update && apt-get install -y --no-install-recommends cron unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# Bun — Archon 运行时前提
-RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+# Bun（Archon 运行时）—— 不再需要，Archon 预编译 COPY
 
 # P0: Python 包
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels pyyaml requests python-frontmatter
