@@ -2,7 +2,6 @@ services:
   code-server:
     build: .
     container_name: code-server
-    init: true
     env_file:
       - .env
     environment:
@@ -14,17 +13,9 @@ services:
       - /volume7/docker/codeserver/projects:/home/coder/project
       - /volume7/docker/codeserver/config/code-server-data:/home/coder/.local/share/code-server
       - /volume7/docker/codeserver/data:/data
-    sysctls:
-      - fs.inotify.max_user_watches=524288
     ports:
       - '127.0.0.1:8686:8080'
       - '0.0.0.0:25252:8080'
       - '0.0.0.0:9876:9876'
       - '0.0.0.0:8420:8420'
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
