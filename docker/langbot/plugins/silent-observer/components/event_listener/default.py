@@ -177,19 +177,25 @@ class DefaultEventListener(EventListener):
         self.compressor_enabled = bool(config.get('compression_enabled', False))
         if self.compressor_enabled:
             comp_model_uuid = str(config.get('compression_model_uuid', '') or ref_model_uuid)
-            self.compression_model_uuid = comp_model_uuid
-            self.compression_tail_max_chars = int(config.get('compression_tail_max_chars', 1500))
-            self.compression_cooldown_minutes = int(config.get('compression_cooldown_minutes', 10))
-            self.compression_history_count = int(config.get('compression_history_count', 200))
-            self._compression_cooldown_seconds = self.compression_cooldown_minutes * 60
-            self._compression_min_tail_items = 3  # 保底：压缩后至少保留 3 条原文
-            self.summary_store = SummaryStore(_DB_PATH)
-            self._compression_queue = asyncio.Queue(maxsize=20)
-            self._compression_inflight = set()
-            self._compression_worker_task = asyncio.create_task(self._compression_worker())
-            print(f'[silent] compression enabled: model={comp_model_uuid} tail={self.compression_tail_max_chars} '
-                  f'history={self.compression_history_count} cooldown={self.compression_cooldown_minutes}m',
-                  file=sys.stderr, flush=True)
+            if not comp_model_uuid:
+                print('[silent] compression disabled: no model_uuid (set compression_model_uuid or reflection_model_uuid)',
+                      file=sys.stderr, flush=True)
+                self.compressor_enabled = False
+                self.summary_store = None
+            else:
+                self.compression_model_uuid = comp_model_uuid
+                self.compression_tail_max_chars = int(config.get('compression_tail_max_chars', 1500))
+                self.compression_cooldown_minutes = int(config.get('compression_cooldown_minutes', 10))
+                self.compression_history_count = int(config.get('compression_history_count', 200))
+                self._compression_cooldown_seconds = self.compression_cooldown_minutes * 60
+                self._compression_min_tail_items = 3  # 保底：压缩后至少保留 3 条原文
+                self.summary_store = SummaryStore(_DB_PATH)
+                self._compression_queue = asyncio.Queue(maxsize=20)
+                self._compression_inflight = set()
+                self._compression_worker_task = asyncio.create_task(self._compression_worker())
+                print(f'[silent] compression enabled: model={comp_model_uuid} tail={self.compression_tail_max_chars} '
+                      f'history={self.compression_history_count} cooldown={self.compression_cooldown_minutes}m',
+                      file=sys.stderr, flush=True)
         else:
             self.compressor_enabled = False
             self.summary_store = None
@@ -416,7 +422,8 @@ class DefaultEventListener(EventListener):
                     items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
                     if trigger_doc_id:
                         items = [i for i in items if i.get('id') != trigger_doc_id]
-                    items = items[-self.history_count:]
+                    if not self.compressor_enabled:
+                        items = items[-self.history_count:]
 
                 lines = _format_timeline(items)
                 lines = self.timeline_service.deduplicate(lines)
@@ -438,7 +445,7 @@ class DefaultEventListener(EventListener):
                         covered = doc.covered_until_ts
                         if covered > 0:
                             filtered = [i for i in items
-                                        if i.get('metadata', {}).get('timestamp_unix', 0) > covered]
+                                        if i.get('metadata', {}).get('timestamp_unix', 0) >= covered]
                             # 保底：至少保留最近 N 条原文
                             if len(filtered) < self._compression_min_tail_items:
                                 filtered = items[-self._compression_min_tail_items:]
@@ -978,7 +985,9 @@ class DefaultEventListener(EventListener):
                       file=sys.stderr, flush=True)
                 return
             if new_doc is None:
-                safe_log('compression', f'parse returned None for {session_name}')
+                doc.cooldown_until = time.time() + self._compression_cooldown_seconds
+                self.summary_store.upsert(session_name, doc)
+                safe_log('compression', f'parse returned None for {session_name}, cooldown set')
                 return
             # covered_until_ts = to_keep 中最老消息的时间戳
             if to_keep:
