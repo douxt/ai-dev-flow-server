@@ -1,6 +1,9 @@
 FROM codercom/code-server:latest
 USER root
 
+# 阿里云源加速（国内环境）
+RUN sed -i "s|http://deb.debian.org|http://mirrors.aliyun.com|g" /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm tmux git gh jq curl python3-pip python3-venv iputils-ping && \
     rm -rf /var/lib/apt/lists/*
@@ -84,10 +87,12 @@ RUN mkdir -p /opt/archon/workspaces /tmp/archon-worktrees && \
     chown -R coder:coder /opt/archon /tmp/archon-worktrees
 
 # ====== 基础设施增量（2026-07-04）======
-# 编译工具链 + SQLite（cuotiben 错题本）+ 辅助工具 + 进程守护
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libsqlite3-dev sqlite3 less supervisor && \
-    rm -rf /var/lib/apt/lists/*
+# 编译工具链 + SQLite（cuotiben 错题本）+ 进程守护
+# 预下载 69 个 .deb (80MB) COPY 进镜像，离线安装
+COPY debs /tmp/debs
+RUN dpkg -i /tmp/debs/*.deb 2>/dev/null || true && \
+    apt-get install -f -y --no-install-recommends && \
+    rm -rf /tmp/debs /var/lib/apt/lists/*
 
 ENV ARCHON_HOME=/home/coder/.archon
 EXPOSE 8420
