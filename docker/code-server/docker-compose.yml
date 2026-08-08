@@ -19,7 +19,7 @@ services:
       - '0.0.0.0:25252:8080'
       - '0.0.0.0:9876:9876'
       - '0.0.0.0:8420:8420'
-      - '3000-3010:3000-3010'
+      - '4000-4010:4000-4010'
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
