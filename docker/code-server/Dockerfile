@@ -40,14 +40,12 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
 # P0: Python 包
 RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-frontmatter
 
-# youtube-kb 开发依赖（2026-07-04）
-# yt-dlp + yt-dlp-ejs 版本锁定（2026-07-28），防 PO Token 插件不兼容
-# PySocks（2026-08-08）— OAuth 走 SOCKS5 代理必需
-# 构建代理（--build-arg 传入加速下载；放此处不影响上层缓存）
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY}
-RUN pip3 install --no-cache-dir --break-system-packages \
+# ====== 全量 pip wheel 离线安装（2026-08-08）======
+# 所有 pip 包预下载到 all-wheels/，构建零网络依赖
+COPY all-wheels /tmp/all-wheels
+
+# youtube-kb 开发依赖 + PySocks（SOCKS5 代理）
+RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels \
     yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client PySocks
 
 # ====== PO Token 体系（2026-07-28）======
@@ -113,10 +111,9 @@ RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.loc
 RUN printf '[program:youtube-kb]\ncommand=/usr/local/bin/youtube-kb-start.sh\ndirectory=/home/coder/project/youtube-kb\nuser=coder\nautostart=true\nautorestart=true\npriority=20\nstartsecs=30\nstartretries=5\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\n' \
     > /etc/supervisor/conf.d/youtube-kb.conf
 
-# OpenKB Wiki 编译器（2026-08-06）——预下载 wheel，离线安装
-COPY openkb-wheels /tmp/openkb-wheels
-RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/openkb-wheels openkb==0.4.5 && \
-    rm -rf /tmp/openkb-wheels
+# OpenKB Wiki 编译器（2026-08-06）——离线安装
+RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=/tmp/all-wheels openkb==0.4.5 && \
+    rm -rf /tmp/all-wheels
 
 # ENTRYPOINTD：容器启动时自动拉起 supervisord
 # base image 的 /usr/bin/entrypoint.sh 内置此机制，创建目录即可
