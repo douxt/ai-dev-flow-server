@@ -51,21 +51,24 @@ RUN pip3 install --no-cache-dir --break-system-packages --no-index --find-links=
 # ====== PO Token 体系（2026-07-28）======
 # 防 YouTube 字幕 429；SHA256 校验防供应链攻击
 
-# deno（yt-dlp-ejs JS 运行时，~106MB）
-RUN curl -fsSL --retry 3 https://github.com/denoland/deno/releases/download/v2.9.2/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip && \
-    echo "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a  /tmp/deno.zip" | sha256sum -c - && \
+# deno（yt-dlp-ejs JS 运行时）
+# 预下载 + SHA256 校验，COPY 进镜像（NAS 无稳定 GitHub 访问）
+COPY deno.zip /tmp/deno.zip
+RUN echo "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a  /tmp/deno.zip" | sha256sum -c - && \
     unzip -o /tmp/deno.zip -d /usr/local/bin && \
     chmod +x /usr/local/bin/deno && \
     rm /tmp/deno.zip
 
-# bgutil-pot（PO Token HTTP server，端口 4416，~51MB）
-RUN curl -fsSL --retry 3 https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-pot-linux-x86_64 -o /usr/local/bin/bgutil-pot && \
-    echo "e7c264a574fa2705b6e5dc62283a8a4e80130f27b9d7e9df44e6b09aa6151a87  /usr/local/bin/bgutil-pot" | sha256sum -c - && \
+# bgutil-pot（PO Token HTTP server，端口 4416）
+# 预下载 + SHA256 校验，COPY 进镜像
+COPY bgutil-pot /usr/local/bin/bgutil-pot
+RUN echo "e7c264a574fa2705b6e5dc62283a8a4e80130f27b9d7e9df44e6b09aa6151a87  /usr/local/bin/bgutil-pot" | sha256sum -c - && \
     chmod +x /usr/local/bin/bgutil-pot
 
 # bgutil pot provider 插件（yt-dlp extractor）
+# 预下载 + SHA256 校验，COPY 进镜像
+COPY plugin.zip /tmp/plugin.zip
 RUN mkdir -p /home/coder/.config/yt-dlp/plugins && \
-    curl -fsSL --retry 3 https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-ytdlp-pot-provider-rs.zip -o /tmp/plugin.zip && \
     echo "99fd83b98fa93b193d6a3b69dc74410d76e7a2b889868c54d16121cac9060344  /tmp/plugin.zip" | sha256sum -c - && \
     unzip -o /tmp/plugin.zip -d /home/coder/.config/yt-dlp/plugins/bgutil-ytdlp-pot-provider-rs/ && \
     rm /tmp/plugin.zip && \
