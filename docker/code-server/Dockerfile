@@ -42,8 +42,9 @@ RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-f
 
 # youtube-kb 开发依赖（2026-07-04）
 # yt-dlp + yt-dlp-ejs 版本锁定（2026-07-28），防 PO Token 插件不兼容
+# PySocks（2026-08-08）— OAuth 走 SOCKS5 代理必需
 RUN pip3 install --no-cache-dir --break-system-packages \
-    yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client
+    yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client PySocks
 
 # ====== PO Token 体系（2026-07-28）======
 # 防 YouTube 字幕 429；SHA256 校验防供应链攻击
@@ -99,8 +100,8 @@ RUN printf '[program:archon]\ncommand=archon serve --port 8420\ndirectory=/home/
 RUN printf '[program:bgutil-pot]\ncommand=bgutil-pot server\ndirectory=/tmp\nuser=coder\nautostart=true\nautorestart=true\npriority=10\nstdout_logfile_maxbytes=10MB\nstdout_logfile_backups=3\nstderr_logfile_maxbytes=10MB\nstderr_logfile_backups=3\nenvironment=HTTP_PROXY="%%(ENV_CLASH_PROXY_URL)s",HTTPS_PROXY="%%(ENV_CLASH_PROXY_URL)s",ALL_PROXY="%%(ENV_CLASH_PROXY_URL)s"\n' \
     > /etc/supervisor/conf.d/bgutil-pot.conf
 
-# youtube-kb 启动包装脚本
-RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$(jq -r ".env.ANTHROPIC_AUTH_TOKEN // empty" "$CONFIG" 2>/dev/null)\nif [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: ANTHROPIC_AUTH_TOKEN empty in $CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nfor i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
+# youtube-kb 启动包装脚本（含 PROXY_URL 环境变量注入）
+RUN printf '#!/bin/bash\nset -e\nCONFIG="/home/coder/.config/claude/settings.local.json"\nif [ ! -f "$CONFIG" ]; then echo "FATAL: $CONFIG not found" >&2; exit 1; fi\nANTHROPIC_AUTH_TOKEN=$(jq -r ".env.ANTHROPIC_AUTH_TOKEN // empty" "$CONFIG" 2>/dev/null)\nif [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then echo "FATAL: ANTHROPIC_AUTH_TOKEN empty in $CONFIG" >&2; exit 1; fi\nexport ANTHROPIC_AUTH_TOKEN\nENVFILE="/home/coder/project/youtube-kb/.env"\nif [ -f "$ENVFILE" ]; then set -a; source "$ENVFILE"; set +a; fi\nfor i in $(seq 30); do curl -sf http://127.0.0.1:4416 >/dev/null 2>&1 && break; sleep 1; done\nexec python3 -m app.main --source both\n' \
     > /usr/local/bin/youtube-kb-start.sh && \
     chmod +x /usr/local/bin/youtube-kb-start.sh
 
@@ -123,5 +124,8 @@ RUN mkdir -p /entrypoint.d && \
 # Docker HEALTHCHECK：检查 code-server 自身可用
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -sf http://localhost:8080/healthz || exit 1
+
+# /data/ Volume 权限（2026-08-08）—— 首次挂载属 root，coder 需写权限
+RUN chown -R coder:coder /data || true
 
 USER coder
