@@ -43,6 +43,10 @@ RUN pip3 install --no-cache-dir --break-system-packages pyyaml requests python-f
 # youtube-kb 开发依赖（2026-07-04）
 # yt-dlp + yt-dlp-ejs 版本锁定（2026-07-28），防 PO Token 插件不兼容
 # PySocks（2026-08-08）— OAuth 走 SOCKS5 代理必需
+# 构建代理（--build-arg 传入加速下载；放此处不影响上层缓存）
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY}
 RUN pip3 install --no-cache-dir --break-system-packages \
     yt-dlp==2026.6.9 yt-dlp-ejs==0.8.0 openai google-auth-oauthlib google-api-python-client PySocks
 
