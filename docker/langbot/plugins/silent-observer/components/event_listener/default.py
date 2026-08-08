@@ -31,7 +31,7 @@ from service.retrieval import RetrievalService
 from store.reflection_store import ReflectionStore
 from service.correction import CorrectionDetector
 from service.reflection import ReflectionGenerator, ReflectionInjector
-from store.summary_store import SummaryStore, SummaryDocument
+from store.summary_store import SummaryStore, SummaryDocument, CompressionLogStore
 from service.context_compressor import (
     split_messages, build_compression_prompt, parse_summary_response, should_compress,
 )
@@ -190,9 +190,14 @@ class DefaultEventListener(EventListener):
                 self._compression_cooldown_seconds = self.compression_cooldown_minutes * 60
                 self._compression_min_tail_items = 3  # 保底：压缩后至少保留 3 条原文
                 self.summary_store = SummaryStore(_DB_PATH)
+                self.compression_log_store = CompressionLogStore(_DB_PATH)
                 self._compression_queue = asyncio.Queue(maxsize=20)
                 self._compression_inflight = set()
                 self._compression_worker_task = asyncio.create_task(self._compression_worker())
+                self._compression_stats = {
+                    'ok': 0, 'fail': 0, 'parse_none': 0, 'timeout': 0,
+                    'cooldown_skip': 0, 'queue_full': 0, 'no_signal': 0, 'inflight_skip': 0,
+                }
                 print(f'[silent] compression enabled: model={comp_model_uuid} tail={self.compression_tail_max_chars} '
                       f'history={self.compression_history_count} cooldown={self.compression_cooldown_minutes}m',
                       file=sys.stderr, flush=True)
@@ -938,11 +943,12 @@ class DefaultEventListener(EventListener):
             return
         doc = self.summary_store.load_or_default(session_name)
         if time.time() < doc.cooldown_until:
+            self._compression_stats['cooldown_skip'] += 1
             return
         try:
             self._compression_queue.put_nowait(session_name)
         except asyncio.QueueFull:
-            pass  # 队列满则丢弃，等下一轮
+            self._compression_stats['queue_full'] += 1  # 队列满则丢弃，等下一轮
 
     async def _compression_worker(self):
         """独立单 worker，避免 30s 压缩阻塞 vision/存储任务。"""
@@ -960,55 +966,131 @@ class DefaultEventListener(EventListener):
             return
         # per-session 并发保护
         if session_name in self._compression_inflight:
+            self._compression_stats['inflight_skip'] += 1
             return
         self._compression_inflight.add(session_name)
+        _t0 = time.time()
+        prompt = ''
+        status = 'no_signal'
+        error = ''
+        input_chars = 0
+        output_chars = 0
+        summary_before = 0
+        summary_after = 0
+        covered_until_ts = 0.0
+        msg_count = 0
         try:
             doc = self.summary_store.load_or_default(session_name)
             items = await self.store.get_recent_messages(session_name, self.compression_history_count)
             items.sort(key=lambda i: i.get('metadata', {}).get('timestamp_unix', 0))
             if not should_compress(doc.covered_until_ts, items,
                                    self.compression_tail_max_chars, doc.cooldown_until):
+                self._compression_stats['no_signal'] += 1
                 return
             to_summarize, to_keep = split_messages(items, self.compression_tail_max_chars)
             if not to_summarize:
+                self._compression_stats['no_signal'] += 1
                 return
+            msg_count = len(to_summarize)
+            summary_before = len(doc.facts) + len(doc.topics) + len(doc.decisions) + len(doc.refs)
             prompt = build_compression_prompt(doc, to_summarize)
+            input_chars = len(prompt)
             try:
-                new_doc = await self._call_compression_model(prompt)
+                resp_text_ref = []
+                new_doc = await self._call_compression_model(prompt, resp_text_ref)
+                resp_text = resp_text_ref[0] if resp_text_ref else ''
+                output_chars = len(resp_text)
+            except asyncio.TimeoutError:
+                status = 'timeout'
+                error = '60s timeout'
+                self._compression_stats['timeout'] += 1
             except Exception as e:
-                # 失败也写 cooldown，防死循环重试
+                status = 'fail'
+                error = str(e)[:200]
+                self._compression_stats['fail'] += 1
                 import traceback
-                doc.cooldown_until = time.time() + self._compression_cooldown_seconds
-                self.summary_store.upsert(session_name, doc)
-                safe_log('compression', f'FAILED for {session_name}: {e}')
                 print(f'[silent] compression failed: {e}\n{traceback.format_exc()}',
                       file=sys.stderr, flush=True)
-                return
-            if new_doc is None:
+
+            if status in ('timeout', 'fail'):
                 doc.cooldown_until = time.time() + self._compression_cooldown_seconds
                 self.summary_store.upsert(session_name, doc)
-                safe_log('compression', f'parse returned None for {session_name}, cooldown set')
+                duration_ms = int((time.time() - _t0) * 1000)
+                safe_log('compression',
+                         f'{session_name}: {status} {error} input={input_chars}chars '
+                         f'output={output_chars}chars {duration_ms}ms '
+                         f'stats=ok={self._compression_stats["ok"]} fail={self._compression_stats["fail"]} '
+                         f'timeout={self._compression_stats["timeout"]}')
+                self._log_compression(session_name, _t0, duration_ms, input_chars,
+                                      output_chars, msg_count, summary_before, 0,
+                                      doc.covered_until_ts, status, error)
                 return
-            # covered_until_ts = to_keep 中最老消息的时间戳
+
+            if new_doc is None:
+                status = 'parse_none'
+                self._compression_stats['parse_none'] += 1
+                doc.cooldown_until = time.time() + self._compression_cooldown_seconds
+                self.summary_store.upsert(session_name, doc)
+                duration_ms = int((time.time() - _t0) * 1000)
+                safe_log('compression',
+                         f'{session_name}: parse_none input={input_chars}chars '
+                         f'output={output_chars}chars {duration_ms}ms '
+                         f'stats=ok={self._compression_stats["ok"]} fail={self._compression_stats["fail"]} '
+                         f'parse_none={self._compression_stats["parse_none"]}')
+                self._log_compression(session_name, _t0, duration_ms, input_chars,
+                                      output_chars, msg_count, summary_before, 0,
+                                      doc.covered_until_ts, status, '')
+                return
+
+            # 成功
+            status = 'ok'
+            self._compression_stats['ok'] += 1
             if to_keep:
                 new_doc.covered_until_ts = to_keep[0].get('metadata', {}).get('timestamp_unix', doc.covered_until_ts)
             else:
                 new_doc.covered_until_ts = items[-1].get('metadata', {}).get('timestamp_unix', doc.covered_until_ts) if items else doc.covered_until_ts
-            new_doc.message_count = len(to_summarize) + doc.message_count
+            new_doc.message_count = msg_count + doc.message_count
             new_doc.cooldown_until = time.time() + self._compression_cooldown_seconds
+            summary_after = len(new_doc.facts) + len(new_doc.topics) + len(new_doc.decisions) + len(new_doc.refs)
+            covered_until_ts = new_doc.covered_until_ts
             self.summary_store.upsert(session_name, new_doc)
-            safe_log('compression', f'{session_name}: compressed {len(to_summarize)} msgs, '
-                     f'covered_until={new_doc.covered_until_ts:.0f}')
+            delta = summary_after - summary_before
+            duration_ms = int((time.time() - _t0) * 1000)
+            safe_log('compression',
+                     f'{session_name}: {msg_count}msgs→{summary_after}chars Δ{delta:+d} '
+                     f'in≈{input_chars}chars out≈{output_chars}chars {duration_ms}ms '
+                     f'covered={covered_until_ts:.0f} '
+                     f'stats=ok={self._compression_stats["ok"]} fail={self._compression_stats["fail"]} '
+                     f'parse_none={self._compression_stats["parse_none"]} timeout={self._compression_stats["timeout"]}')
+            self._log_compression(session_name, _t0, duration_ms, input_chars,
+                                  output_chars, msg_count, summary_before,
+                                  summary_after, covered_until_ts, status, '')
         finally:
             self._compression_inflight.discard(session_name)
 
-    async def _call_compression_model(self, prompt: str):
-        """调压缩模型，60s 超时。失败抛异常由上层写 cooldown。"""
+    def _log_compression(self, session_name, started_at, duration_ms, input_chars,
+                         output_chars, msg_count, summary_before, summary_after,
+                         covered_until_ts, status, error):
+        """写 compression_log 行，失败不影响主流程."""
+        try:
+            self.compression_log_store.insert(
+                session_name, started_at, duration_ms, input_chars,
+                output_chars, msg_count, summary_before, summary_after,
+                covered_until_ts, status, error, self.compression_model_uuid,
+            )
+        except Exception as e:
+            print(f'[silent] compression_log insert error: {e}', file=sys.stderr, flush=True)
+
+    async def _call_compression_model(self, prompt: str, resp_collector: list | None = None):
+        """调压缩模型，60s 超时。失败抛异常由上层写 cooldown。
+        resp_collector 可选，用于收集原始响应文本（输出字符数统计）."""
         messages = [provider_message.Message(role='user', content=prompt)]
         resp = await asyncio.wait_for(
             self.plugin.invoke_llm(self.compression_model_uuid, messages),
             timeout=60,
         )
+        if resp_collector is not None:
+            resp_collector.append(resp)
         return parse_summary_response(resp)
 
     def _format_summary(self, doc: SummaryDocument) -> str:

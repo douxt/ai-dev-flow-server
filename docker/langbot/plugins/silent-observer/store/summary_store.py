@@ -112,3 +112,59 @@ class SummaryStore:
             db.close()
         except Exception as e:
             print(f"[summary] upsert error: {e}", file=sys.stderr, flush=True)
+
+
+class CompressionLogStore:
+    """压缩日志持久化，每次压缩写一行，供 query_compression.py 查询."""
+
+    def __init__(self, db_path: str):
+        self._db_path = db_path
+
+    def _get_db(self):
+        db = sqlite3.connect(self._db_path, timeout=10)
+        db.execute("PRAGMA journal_mode=WAL")
+        return db
+
+    @staticmethod
+    def create_table(db: sqlite3.Connection):
+        db.execute("""CREATE TABLE IF NOT EXISTS compression_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_name TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            duration_ms INTEGER,
+            input_chars INTEGER,
+            output_chars INTEGER,
+            msg_count INTEGER,
+            summary_chars_before INTEGER,
+            summary_chars_after INTEGER,
+            covered_until_ts REAL,
+            status TEXT NOT NULL,
+            error TEXT DEFAULT '',
+            model_uuid TEXT DEFAULT ''
+        )""")
+        db.execute("""CREATE INDEX IF NOT EXISTS idx_comp_log_session
+            ON compression_log(session_name, started_at DESC)""")
+
+    def insert(self, session_name: str, started_at: float, duration_ms: int,
+               input_chars: int, output_chars: int, msg_count: int,
+               summary_chars_before: int, summary_chars_after: int,
+               covered_until_ts: float, status: str, error: str = '',
+               model_uuid: str = ''):
+        try:
+            db = self._get_db()
+            db.execute(
+                """INSERT INTO compression_log
+                   (session_name, started_at, duration_ms, input_chars,
+                    output_chars, msg_count, summary_chars_before,
+                    summary_chars_after, covered_until_ts, status, error,
+                    model_uuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (session_name, started_at, duration_ms, input_chars,
+                 output_chars, msg_count, summary_chars_before,
+                 summary_chars_after, covered_until_ts, status, error,
+                 model_uuid),
+            )
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"[compression_log] insert error: {e}", file=sys.stderr, flush=True)

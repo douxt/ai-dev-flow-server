@@ -44,8 +44,9 @@ class KBStore:
                 formatted_text TEXT NOT NULL
             )""")
             db.execute("CREATE INDEX IF NOT EXISTS idx_chat_session_time ON chat_index(session_id, timestamp_unix DESC)")
-            from store.summary_store import SummaryStore
+            from store.summary_store import SummaryStore, CompressionLogStore
             SummaryStore.create_table(db)
+            CompressionLogStore.create_table(db)
             db.commit()
             db.close()
         except Exception as e:
