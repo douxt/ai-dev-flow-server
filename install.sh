@@ -223,8 +223,8 @@ case "$MODE" in
 esac
 
 # ── update 模式：读 config.yaml mode ──
+CONFIG_YAML="$TARGET/.devflow/config.yaml"
 if [ "$UPDATE_MODE" = true ]; then
-    CONFIG_YAML="$TARGET/.devflow/config.yaml"
     if [ -f "$CONFIG_YAML" ]; then
         STORED_MODE=$(grep -E '^[[:space:]]*mode:[[:space:]]*[^[:space:]#]+' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/^[[:space:]]*mode:[[:space:]]*//;s/[[:space:]]*#.*//;s/[[:space:]]*$//' || echo "")
         if [ -n "$STORED_MODE" ] && [ "$MODE" = "full" ]; then
