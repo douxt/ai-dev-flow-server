@@ -458,29 +458,18 @@ if [ "$UPDATE_MODE" = true ]; then
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
     deploy_file "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
 
-    # RULES.md 测试质量规则追加（标记区间，--update 时同步）
+    # RULES.md 测试质量规则（标记区间，--update 时同步；先删旧区间再追加，保证幂等）
     if [ -f "$TARGET/RULES.md" ]; then
         rules_section="$SOURCE/templates/RULES.md.test-quality"
         if [ -f "$rules_section" ]; then
             marker_start="<!-- DEVLOW:TEST-QUALITY-START -->"
             marker_end="<!-- DEVLOW:TEST-QUALITY-END -->"
             if grep -q "$marker_start" "$TARGET/RULES.md" 2>/dev/null; then
-                # 已有标记 → 替换区间
-                tmp_rules=$(mktemp)
-                awk -v start="$marker_start" -v end="$marker_end" '
-                    BEGIN { skip=0 }
-                    $0 ~ start { print; while (getline < "'"$rules_section"'") print; skip=1; next }
-                    $0 ~ end   { skip=0; next }
-                    !skip { print }
-                ' "$TARGET/RULES.md" > "$tmp_rules"
-                dry_run "cp $tmp_rules $TARGET/RULES.md"
-                rm -f "$tmp_rules"
-                echo "  [update] RULES.md 测试质量规则已刷新"
-            else
-                # 无标记 → 追加
-                cat "$rules_section" >> "$TARGET/RULES.md"
-                echo "  [update] RULES.md 已追加测试质量规则"
+                dry_run "sed -i '/<!-- DEVLOW:TEST-QUALITY-START -->/,/<!-- DEVLOW:TEST-QUALITY-END -->/d' $TARGET/RULES.md"
             fi
+            # 追加全新内容（含 START/END 标记）
+            dry_run "cat $rules_section >> $TARGET/RULES.md"
+            echo "  [update] RULES.md 测试质量规则已刷新"
         fi
     fi
 
@@ -523,7 +512,7 @@ if [ "$UPDATE_MODE" = true ]; then
             cat "$BASE_TMPL" "$ROLE_TMPL" > "$COMBINED_FILE"
             sed -i "s/__PROJECT__/${PROJECT}/g" "$COMBINED_FILE"
             TMP_MD="${CLAUDE_MD}.devflow-tmp"
-            sed '/<!-- ai-dev-flow-server -->/,/<!-- ai-dev-flow-server end -->/d' "$CLAUDE_MD" > "$TMP_MD"
+            sed '/<!-- ai-dev-flow-server\( v[0-9.]*\)\? -->/,/<!-- ai-dev-flow-server end -->/d' "$CLAUDE_MD" > "$TMP_MD"
             cat "$COMBINED_FILE" >> "$TMP_MD"
             rm -f "$COMBINED_FILE"
             mv "$TMP_MD" "$CLAUDE_MD"

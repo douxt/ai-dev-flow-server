@@ -195,9 +195,9 @@ fi
 echo "4. 清理 CLAUDE.md..."
 for md in "$TARGET/.claude/CLAUDE.md" "$TARGET/CLAUDE.md"; do
     if [ -f "$md" ] && grep -q "ai-dev-flow-server" "$md" 2>/dev/null; then
-        dry_run "sed -i '/<!-- ⚠️ 以下由 ai-dev-flow-server/,/<!-- ai-dev-flow-server end -->/d' $md"
+        dry_run "sed -i '/<!-- \(⚠️ 以下由 \)\?ai-dev-flow-server/,/<!-- ai-dev-flow-server end -->/d' $md"
         if [ "$DRY_RUN" = false ]; then
-            sed -i '/<!-- ⚠️ 以下由 ai-dev-flow-server/,/<!-- ai-dev-flow-server end -->/d' "$md"
+            sed -i '/<!-- \(⚠️ 以下由 \)\?ai-dev-flow-server/,/<!-- ai-dev-flow-server end -->/d' "$md"
             echo "  ✅ $md 已清理"
         fi
     fi
