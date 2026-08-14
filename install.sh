@@ -912,23 +912,33 @@ if [ -n "$TAGS" ]; then
     done
 fi
 
-# archon/ + scripts/ — backend + full
+# gate scripts — 所有 mode（frontend 交互式工作流核心门禁）
+dry_run "mkdir -p $TARGET/.devflow/scripts"
+maybe_cp "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
+maybe_cp "$SOURCE/scripts/test-gate.sh" "$TARGET/.devflow/scripts/test-gate.sh"
+maybe_cp "$SOURCE/scripts/green-gate.sh" "$TARGET/.devflow/scripts/green-gate.sh"
+maybe_cp "$SOURCE/scripts/g0-inject.sh" "$TARGET/.devflow/scripts/g0-inject.sh"
+maybe_cp "$SOURCE/scripts/stage-verify.sh" "$TARGET/.devflow/scripts/stage-verify.sh"
+maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
+for py in "$SOURCE/scripts/check_constitution.py" "$SOURCE/scripts/merge-settings.py"; do
+    [ -f "$py" ] && maybe_cp "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
+done
+[ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.sh "$TARGET/.devflow/scripts/"*.py; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
+
+# archon/ + AFK scripts — backend + full
 if [ "$BACKEND" = true ]; then
-    dry_run "mkdir -p $TARGET/.devflow/archon $TARGET/.devflow/scripts"
+    dry_run "mkdir -p $TARGET/.devflow/archon"
     maybe_cp "$SOURCE/archon/dispatch.sh" "$TARGET/.devflow/archon/dispatch.sh"
     maybe_cp "$SOURCE/archon/reconciler.sh" "$TARGET/.devflow/archon/reconciler.sh"
     maybe_cp "$SOURCE/archon/auto-execute-afk.yaml" "$TARGET/.devflow/archon/auto-execute-afk.yaml"
     [ "$DRY_RUN" = false ] && chmod +x "$TARGET/.devflow/archon/dispatch.sh" "$TARGET/.devflow/archon/reconciler.sh" 2>/dev/null || true
 
-    # scripts/
-    maybe_cp "$SOURCE/scripts/check_constitution.py" "$TARGET/.devflow/scripts/check_constitution.py"
+    # AFK 专用 scripts
     maybe_cp "$SOURCE/scripts/cost_tracker.py" "$TARGET/.devflow/scripts/cost_tracker.py"
     maybe_cp "$SOURCE/scripts/notify.py" "$TARGET/.devflow/scripts/notify.py"
     maybe_cp "$SOURCE/archon/status.sh" "$TARGET/.devflow/scripts/status.sh"
-    maybe_cp "$SOURCE/scripts/check-layer.sh" "$TARGET/.devflow/scripts/check-layer.sh"
-    maybe_cp "$SOURCE/scripts/trace.sh" "$TARGET/.devflow/scripts/trace.sh"
     maybe_cp "$SOURCE/scripts/metrics.py" "$TARGET/.devflow/scripts/metrics.py"
-    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh" "$TARGET/.devflow/scripts/check-layer.sh" "$TARGET/.devflow/scripts/trace.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
+    [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.py "$TARGET/.devflow/scripts/status.sh"; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
 
     # .archon/workflows/
     echo "── 步骤 5b: 注册 Archon workflow ──"
