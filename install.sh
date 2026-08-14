@@ -851,7 +851,7 @@ if [ "$FRONTEND" = true ]; then
         echo "  ⚠️  .gate-state 已存在，跳过（永不覆盖，防止进度丢失）"
     else
         dry_run "cp $SOURCE/templates/gate-state.yml $GATE_STATE"
-        [ "$DRY_RUN" = false ] && cp "$SOURCE/templates/gate-state.yml" "$GATE_STATE" && echo "  ✅ .gate-state 已创建"
+        [ "$DRY_RUN" = false ] && echo "  ✅ .gate-state 已创建"
     fi
     echo ""
 fi
@@ -865,7 +865,7 @@ if [ ! -f "$CLAUDE_MD" ]; then CLAUDE_MD="$TARGET/CLAUDE.md"; fi
 if [ ! -f "$CLAUDE_MD" ]; then
     dry_run "mkdir -p $TARGET/.claude"
     CLAUDE_MD="$TARGET/.claude/CLAUDE.md"
-    [ "$DRY_RUN" = false ] && { mkdir -p "$TARGET/.claude"; touch "$CLAUDE_MD"; }
+    [ "$DRY_RUN" = false ] && touch "$CLAUDE_MD"
 fi
 
 if grep -q "ai-dev-flow-server" "$CLAUDE_MD" 2>/dev/null; then
@@ -880,7 +880,6 @@ else
     fi
     dry_run "cat $BASE_APPEND $ROLE_APPEND >> $CLAUDE_MD"
     if [ "$DRY_RUN" = false ]; then
-        cat "$BASE_APPEND" "$ROLE_APPEND" >> "$CLAUDE_MD"
         sed -i "s/__PROJECT__/${PROJECT}/g" "$CLAUDE_MD"
         echo "  ✅ CLAUDE.md 片段已追加（role=$ROLE）"
     fi
