@@ -338,7 +338,7 @@ if [ "$UPDATE_MODE" = true ]; then
     done
 
     # 按 tech_stack.tags 部署技术栈模块
-    TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//')
+    TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//' || echo "")
     if [ -n "$TAGS" ]; then
         echo "  更新 knowledge/stacks/ ..."
         IFS=',' read -ra TAG_LIST <<< "$TAGS"
@@ -897,7 +897,7 @@ dry_run "mkdir -p $TARGET/.devflow/knowledge"
 maybe_cp_dir "$SOURCE/knowledge" "$TARGET/.devflow/knowledge"
 
 # 按 tech_stack.tags 部署技术栈模块
-TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//')
+TAGS=$(grep -E '^\s*tags:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*tags:\s*//;s/#.*//;s/\s*$//' || echo "")
 if [ -n "$TAGS" ]; then
     IFS=',' read -ra TAG_LIST <<< "$TAGS"
     for tag in "${TAG_LIST[@]}"; do
