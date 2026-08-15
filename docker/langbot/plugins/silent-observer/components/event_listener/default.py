@@ -34,6 +34,7 @@ from service.reflection import ReflectionGenerator, ReflectionInjector
 from store.summary_store import SummaryStore, SummaryDocument, CompressionLogStore
 from service.context_compressor import (
     split_messages, build_compression_prompt, parse_summary_response, should_compress,
+    _extract_llm_text,
 )
 
 # 兼容旧代码的别名
@@ -1089,9 +1090,11 @@ class DefaultEventListener(EventListener):
             self.plugin.invoke_llm(self.compression_model_uuid, messages),
             timeout=60,
         )
+        # invoke_llm 返回 Message 对象，先提取纯文本——上层 len() 需要 str
+        resp_text = _extract_llm_text(resp)
         if resp_collector is not None:
-            resp_collector.append(resp)
-        return parse_summary_response(resp)
+            resp_collector.append(resp_text)
+        return parse_summary_response(resp_text)
 
     def _format_summary(self, doc: SummaryDocument) -> str:
         """格式化摘要为注入文本：分隔线 + bullet 格式."""
