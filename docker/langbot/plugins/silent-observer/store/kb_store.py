@@ -14,6 +14,30 @@ from util.text import build_document_id, ROLE_CN
 _API_TIMEOUT = 30  # 所有 API 调用超时秒数
 
 
+def _session_ids_for_search(session_name: str) -> list[str]:
+    """双前缀：LangBot session_id 格式迁移遗留兼容。
+
+    chat_index 中同一 QQ 群存在两种格式：
+    - group_116381172（新格式）
+    - group_group_116381172（旧格式）
+    """
+    if not session_name:
+        return ['']
+    ids = [session_name]
+    if session_name.startswith('group_group_'):
+        ids.append(session_name[len('group_'):])
+    elif session_name.startswith('group_'):
+        ids.append(f'group_{session_name}')
+    return ids
+
+
+def canonical_session_name(session_name: str) -> str:
+    """group_group_X → group_X，其余透传。统一内存 key 与 summary 行 key."""
+    if session_name.startswith('group_group_'):
+        return session_name[len('group_'):]
+    return session_name
+
+
 class KBStore:
     """KB 读写封装：向量存储 + SQLite 索引 + 维度探测 + 超时保护."""
 
@@ -113,18 +137,30 @@ class KBStore:
             print(f'[silent] chat_index write error: {e}', file=sys.stderr, flush=True)
 
     async def get_recent_messages(self, session_name: str, limit: int) -> list[dict]:
-        """SQLite 时间线查询（最近N条消息）."""
+        """SQLite 时间线查询（最近N条消息），双前缀合并.
+
+        同一 QQ 群存在 group_X / group_group_X 两种 session_id 格式，
+        单条 IN 查询跨前缀合并排序，(ts, text) 去重兜底。
+        """
         try:
+            ids = _session_ids_for_search(session_name)
+            placeholders = ','.join('?' * len(ids))
             db = self._get_db()
             rows = db.execute(
-                "SELECT doc_id, formatted_text, timestamp_unix FROM chat_index WHERE session_id = ? ORDER BY timestamp_unix DESC LIMIT ?",
-                (session_name, limit)
+                f"SELECT doc_id, formatted_text, timestamp_unix FROM chat_index"
+                f" WHERE session_id IN ({placeholders}) ORDER BY timestamp_unix DESC LIMIT ?",
+                (*ids, limit)
             ).fetchall()
             db.close()
-            return [
-                {'id': row[0], 'metadata': {'text': row[1], 'timestamp_unix': row[2]}, 'document': row[1]}
-                for row in rows
-            ]
+            seen: set[tuple[float, str]] = set()
+            items = []
+            for row in rows:
+                key = (row[2], row[1])
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append({'id': row[0], 'metadata': {'text': row[1], 'timestamp_unix': row[2]}, 'document': row[1]})
+            return items
         except Exception as e:
             print(f'[silent] chat_index read error: {e}', file=sys.stderr, flush=True)
             return []
@@ -136,14 +172,7 @@ class KBStore:
         - group_116381172（新格式）
         - group_group_116381172（旧格式）
         """
-        if not session_name:
-            return ['']
-        ids = [session_name]
-        if session_name.startswith('group_group_'):
-            ids.append(session_name[len('group_'):])
-        elif session_name.startswith('group_'):
-            ids.append(f'group_{session_name}')
-        return ids
+        return _session_ids_for_search(session_name)
 
     @staticmethod
     def _escape_like(s: str) -> str:

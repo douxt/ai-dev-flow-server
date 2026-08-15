@@ -73,6 +73,72 @@ def test_session_ids_person_prefix():
     assert ids == ['person_12345']
 
 
+# ── canonical_session_name 单元测试 ───────────────────────────
+
+@pytest.mark.parametrize('input_str, expected', [
+    ('group_116381172', 'group_116381172'),
+    ('group_group_116381172', 'group_116381172'),
+    ('person_12345', 'person_12345'),
+    ('', ''),
+])
+def test_canonical_session_name(input_str, expected):
+    from store.kb_store import canonical_session_name
+    assert canonical_session_name(input_str) == expected
+
+
+# ── get_recent_messages 双前缀合并测试 ────────────────────────
+
+@pytest.mark.asyncio
+async def test_recent_messages_dual_prefix_merge(store):
+    """两前缀消息合并、按 ts 排序、limit 生效."""
+    _insert_test_data(store, [
+        ('n1', 'group_123', 1000, 'new-prefix old'),
+        ('n2', 'group_123', 3000, 'new-prefix recent'),
+        ('o1', 'group_group_123', 2000, 'old-prefix mid'),
+    ])
+    items = await store.get_recent_messages('group_123', 10)
+    texts = [i['metadata']['text'] for i in items]
+    assert texts == ['new-prefix recent', 'old-prefix mid', 'new-prefix old']
+
+
+@pytest.mark.asyncio
+async def test_recent_messages_dual_prefix_limit(store):
+    _insert_test_data(store, [
+        ('n1', 'group_123', 1000, 'a'),
+        ('n2', 'group_123', 3000, 'c'),
+        ('o1', 'group_group_123', 2000, 'b'),
+    ])
+    items = await store.get_recent_messages('group_123', 2)
+    assert len(items) == 2
+    assert items[0]['metadata']['text'] == 'c'
+
+
+@pytest.mark.asyncio
+async def test_recent_messages_dedup_ts_text(store):
+    """同 (ts, text) 跨前缀重复只留一条，新前缀优先."""
+    _insert_test_data(store, [
+        ('n1', 'group_123', 1000, 'dup content'),
+        ('o1', 'group_group_123', 1000, 'dup content'),
+        ('n2', 'group_123', 2000, 'unique'),
+    ])
+    items = await store.get_recent_messages('group_123', 10)
+    texts = [i['metadata']['text'] for i in items]
+    assert texts == ['unique', 'dup content']  # 重复只出现一次
+    assert items[1]['id'] == 'n1'  # 新前缀的 doc_id 优先
+
+
+@pytest.mark.asyncio
+async def test_recent_messages_single_prefix_unchanged(store):
+    """单前缀 session 行为不变（person 透传）."""
+    _insert_test_data(store, [
+        ('p1', 'person_99', 1000, 'person msg'),
+        ('p2', 'person_99', 2000, 'person msg2'),
+    ])
+    items = await store.get_recent_messages('person_99', 1)
+    assert len(items) == 1
+    assert items[0]['metadata']['text'] == 'person msg2'
+
+
 # ── _keyword_search_sqlite 集成测试 ───────────────────────────
 
 def _insert_test_data(store, messages):

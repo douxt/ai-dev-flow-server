@@ -16,6 +16,8 @@ from service.context_compressor import (
     should_compress,
     _item_text,
     _list_to_bullets,
+    _truncate_summary,
+    _MAX_SUMMARY_CHARS,
 )
 
 
@@ -283,3 +285,64 @@ class TestListToBullets:
 
     def test_none(self):
         assert _list_to_bullets(None) == ""
+
+
+# ── _truncate_summary 硬截断测试 ──────────────────────────────
+
+
+class TestTruncateSummary:
+    def test_under_budget_unchanged(self):
+        topics, facts, decisions, refs = 't', 'f', 'd', 'r'
+        assert _truncate_summary(topics, facts, decisions, refs) == ('t', 'f', 'd', 'r')
+
+    def test_total_capped(self):
+        """4 字段总量 ≤ 预算."""
+        topics = '话题' * 100
+        facts = '事实' * 100
+        decisions = '决策' * 100
+        refs = '参考' * 100
+        out = _truncate_summary(topics, facts, decisions, refs)
+        assert sum(len(s) for s in out) == _MAX_SUMMARY_CHARS
+
+    def test_refs_cut_first(self):
+        """refs 优先级最低，先被砍."""
+        refs = 'x' * 900
+        out = _truncate_summary('t', 'f', 'd', refs)
+        topics, facts, decisions, refs_out = out
+        assert len(refs_out) < 900
+        assert topics == 't' and facts == 'f' and decisions == 'd'  # 高优先级不受影响
+
+    def test_facts_last_to_cut(self):
+        """facts 超预算时其余字段清空，facts 头部保留."""
+        facts = 'A' * 1000
+        out = _truncate_summary('t', facts, 'd', 'r')
+        topics, facts_out, decisions, refs = out
+        assert topics == '' and decisions == '' and refs == ''
+        assert facts_out.startswith('AAAA')
+        assert len(facts_out) == _MAX_SUMMARY_CHARS
+
+    def test_parse_integration_truncates(self):
+        """parse_summary_response 对超长 LLM 输出截断."""
+        raw = json.dumps({
+            "topics": "话题" * 200,
+            "facts": "事实" * 200,
+            "decisions": "决策" * 200,
+            "refs": "参考" * 200,
+        }, ensure_ascii=False)
+        doc = parse_summary_response(raw)
+        assert doc is not None
+        total = len(doc.topics) + len(doc.facts) + len(doc.decisions) + len(doc.refs)
+        assert total == _MAX_SUMMARY_CHARS
+
+    def test_prompt_integration_truncates_existing(self):
+        """build_compression_prompt 对存量超预算摘要截断."""
+        doc = SummaryDocument(
+            topics="话题" * 200,
+            facts="事实" * 200,
+            decisions="决策" * 200,
+            refs="参考" * 200,
+        )
+        prompt = build_compression_prompt(doc, [_make_item("new message")])
+        assert "EXISTING SUMMARY" in prompt
+        # 截断后的字段不再全量出现在 prompt 中（refs 被砍）
+        assert "参考" * 200 not in prompt

@@ -24,6 +24,7 @@ from util.image import open_image, resize_image
 from util.logs import safe_log
 from util.text import ROLE_CN, build_document_id, build_msg_metadata, clean_description, format_timeline, norm_role
 from store import KBStore
+from store.kb_store import canonical_session_name
 from service.vision import VisionService
 from service.timeline import TimelineService
 from service.quote import QuoteService
@@ -226,7 +227,7 @@ class DefaultEventListener(EventListener):
         @self.handler(events.GroupMessageReceived)
         async def gate(ctx: context.EventContext):
             _t0 = time.time()
-            session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
+            session_name = canonical_session_name(f'{ctx.event.launcher_type}_{ctx.event.launcher_id}')
             self._strip_base64(ctx.event.message_chain)
             is_at = self._has_at(ctx.event.message_chain)
             is_trigger = is_at or random.random() < self.prob
@@ -304,7 +305,7 @@ class DefaultEventListener(EventListener):
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
             # 流式去重：同一 session 1 秒内只存第一条
-            session_name = f'{ctx.event.launcher_type}_{ctx.event.launcher_id}'
+            session_name = canonical_session_name(f'{ctx.event.launcher_type}_{ctx.event.launcher_id}')
             _ts = time.time()
             _last = self._reply_ts.get(session_name, 0)
             self._reply_ts[session_name] = _ts
@@ -348,7 +349,7 @@ class DefaultEventListener(EventListener):
             _vision_wait_ms = 0
             _query_ms = 0
             try:
-                session_name = ctx.event.session_name
+                session_name = canonical_session_name(ctx.event.session_name)
                 # 注入 gate 阶段提取的表情文本（inject 阶段无 message_chain，必须在 KB 检查前注入）
                 face_text = self._face_cache.pop(session_name, '')
                 if face_text:
@@ -942,6 +943,7 @@ class DefaultEventListener(EventListener):
         """入队前预判 cooldown，避免无效入队。"""
         if self.summary_store is None:
             return
+        session_name = canonical_session_name(session_name)
         doc = self.summary_store.load_or_default(session_name)
         if time.time() < doc.cooldown_until:
             self._compression_stats['cooldown_skip'] += 1
@@ -965,6 +967,7 @@ class DefaultEventListener(EventListener):
     async def _process_compression(self, session_name: str):
         if self.store is None or self.summary_store is None:
             return
+        session_name = canonical_session_name(session_name)
         # per-session 并发保护
         if session_name in self._compression_inflight:
             self._compression_stats['inflight_skip'] += 1

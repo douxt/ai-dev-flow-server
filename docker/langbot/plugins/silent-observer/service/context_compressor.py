@@ -10,6 +10,32 @@ from store.summary_store import SummaryDocument
 # to_summarize 字符上限（防首次压缩 token 爆炸）
 _MAX_TO_SUMMARIZE_CHARS = 6000
 
+# 摘要总字符预算（与 prompt 规则 4 一致，硬截断兜底）
+_MAX_SUMMARY_CHARS = 800
+
+# 字段优先级：facts 最高（数字/约束最需模型注意力），refs 最低
+_SUMMARY_FIELD_PRIORITY = ['facts', 'decisions', 'topics', 'refs']
+
+
+def _truncate_summary(topics: str, facts: str, decisions: str, refs: str,
+                      budget: int = _MAX_SUMMARY_CHARS) -> tuple[str, str, str, str]:
+    """硬截断摘要四字段到总预算，从低优先级字段尾部砍起."""
+    fields = {'topics': topics, 'facts': facts, 'decisions': decisions, 'refs': refs}
+    total = sum(len(v) for v in fields.values())
+    if total <= budget:
+        return topics, facts, decisions, refs
+    overflow = total - budget
+    for name in reversed(_SUMMARY_FIELD_PRIORITY):
+        if overflow <= 0:
+            break
+        cur = len(fields[name])
+        if cur == 0:
+            continue
+        cut = min(cur, overflow)
+        fields[name] = fields[name][: cur - cut]
+        overflow -= cut
+    return fields['topics'], fields['facts'], fields['decisions'], fields['refs']
+
 
 def split_messages(
     items: list[dict],
@@ -66,12 +92,14 @@ def _items_to_text(items: list[dict]) -> str:
 
 def build_compression_prompt(doc: SummaryDocument, to_summarize: list[dict]) -> str:
     """构造增量摘要 prompt."""
+    topics, facts, decisions, refs = _truncate_summary(
+        doc.topics, doc.facts, doc.decisions, doc.refs)
     existing_json = json.dumps(
         {
-            "topics": doc.topics,
-            "facts": doc.facts,
-            "decisions": doc.decisions,
-            "refs": doc.refs,
+            "topics": topics,
+            "facts": facts,
+            "decisions": decisions,
+            "refs": refs,
         },
         ensure_ascii=False,
     )
@@ -170,6 +198,8 @@ def parse_summary_response(response_text: str | dict | Any) -> SummaryDocument |
     # 全空 → 不覆盖旧摘要
     if not any([topics, facts, decisions, refs]):
         return None
+
+    topics, facts, decisions, refs = _truncate_summary(topics, facts, decisions, refs)
 
     return SummaryDocument(
         topics=topics,
