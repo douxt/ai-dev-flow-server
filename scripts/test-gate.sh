@@ -132,7 +132,7 @@ fi
 echo ""
 echo "--- C0.7: if-count/length === 0 → return ---"
 C07_HITS=""
-for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \)     -not -path "*/characterization/*"     -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
+for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \)     -not -path "*/characterization/*" -not -path "*/node_modules/*"     -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
     [ -f "$f" ] || continue
     # 单行: if (...count() === 0) { return; }
     single=$(grep -n "if\s*.*\.count()\s*===\s*0\b.*return\b\|if\s*.*\.length\s*===\s*0\b.*return\b" "$f" 2>/dev/null || true)
@@ -151,7 +151,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \)     -not
     done <<< "$multi"
 done
 if [ -n "$C07_HITS" ]; then
-    COUNT=$(echo -e "$C07_HITS" | grep -c ":" || echo "0")
+    COUNT=$(echo -e "$C07_HITS" | grep -c ":" || true)
     echo "❌ 发现 ${COUNT} 处 if-count/length === 0 → return（Skip Test 硬阻断）"
     echo -e "$C07_HITS" | head -10
     [ "$COUNT" -gt 10 ] && echo "  ... 共 ${COUNT} 处"
@@ -165,11 +165,11 @@ echo "--- C0.8: 断言强度分布 ---"
 # 统计 expect 总数（排除注释行）
 TOTAL_EXPECT=$(grep -rn "expect(" "$TESTS_DIR" $INCLUDE_FLAG \
     --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
-    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || true)
 # 统计弱断言：toBeVisible / toBeDefined / toBeTruthy / toBeNull / toBeFalsy
 WEAK_ASSERT=$(grep -rnE "expect\([^)]*\)\.toBeVisible\(|expect\([^)]*\)\.toBeDefined\(|expect\([^)]*\)\.toBeTruthy\(|expect\([^)]*\)\.toBeNull\(|expect\([^)]*\)\.toBeFalsy\(" "$TESTS_DIR" $INCLUDE_FLAG \
     --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
-    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
+    --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || true)
 if [ "$TOTAL_EXPECT" -gt 0 ]; then
     WEAK_PCT=$((WEAK_ASSERT * 100 / TOTAL_EXPECT))
     echo "  总断言: ${TOTAL_EXPECT}, 弱断言: ${WEAK_ASSERT} (${WEAK_PCT}%)"
@@ -207,7 +207,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     C08_PERFILE_HITS="${C08_PERFILE_HITS}${f}: ${HAS_ACTION} 操作, 0 强断言, ${HAS_WEAK} 弱断言\n"
 done
 if [ -n "$C08_PERFILE_HITS" ]; then
-    COUNT=$(echo -e "$C08_PERFILE_HITS" | grep -c ":" || echo "0")
+    COUNT=$(echo -e "$C08_PERFILE_HITS" | grep -c ":" || true)
     echo "⚠️  发现 ${COUNT} 个文件有操作但零强断言（操作成败不区分）:"
     echo -e "$C08_PERFILE_HITS" | head -10 | sed 's/^/    /'
     [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
@@ -244,7 +244,7 @@ for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
     done
 done
 if [ -n "$C08_LINE_HITS" ]; then
-    COUNT=$(echo -e "$C08_LINE_HITS" | grep -c ":" || echo "0")
+    COUNT=$(echo -e "$C08_LINE_HITS" | grep -c ":" || true)
     echo "❌ 发现 ${COUNT} 个文件存在操作后仅有弱断言的行（单测试蒙面）:"
     echo -e "$C08_LINE_HITS" | head -10 | sed 's/^/    /'
     [ "$COUNT" -gt 10 ] && echo "    ... 共 ${COUNT} 个文件"
@@ -300,8 +300,8 @@ if [ -n "$COV_SUMMARY" ]; then
         fi
     elif [ "$COV_SUMMARY" = "coverage/lcov.info" ]; then
         # lcov 摘要（无 jq fallback）
-        TOTAL_LINES=$(grep -c '^DA:' "$COV_SUMMARY" 2>/dev/null || echo "0")
-        COVERED_LINES=$(grep '^DA:' "$COV_SUMMARY" 2>/dev/null | grep -c ',1$\|,2$\|,3$\|,4$\|,5$\|,6$\|,7$\|,8$\|,9$' || echo "0")
+        TOTAL_LINES=$(grep -c '^DA:' "$COV_SUMMARY" 2>/dev/null || true)
+        COVERED_LINES=$(grep '^DA:' "$COV_SUMMARY" 2>/dev/null | grep -c ',1$\|,2$\|,3$\|,4$\|,5$\|,6$\|,7$\|,8$\|,9$' || true)
         echo "  lcov: ${COVERED_LINES}/${TOTAL_LINES} 行覆盖"
         if [ "$TOTAL_LINES" -gt 0 ]; then
             LCOV_PCT=$((COVERED_LINES * 100 / TOTAL_LINES))
@@ -350,27 +350,27 @@ for MOD_DIR in $MODULE_DIRS; do
     if [ -n "$PW_CONFIG" ]; then
         # 用 Total: N 解析测试数（方案 A，最可靠——suites 数 ≠ 测试数）
         PW_LIST=$(npx playwright test --config="$PW_CONFIG" --list 2>&1 || true)
-        N=$(echo "$PW_LIST" | grep -oP 'Total:\s+\K\d+' || echo "0")
+        N=$(echo "$PW_LIST" | grep -oP 'Total:\s+\K\d+' || true)
         # fallback: 直接 node 调 playwright 二进制（绕过可能的 npx wrapper/RTK）
         if [ "$N" -eq 0 ] && [ -f "$MOD_DIR/node_modules/.bin/playwright" ]; then
             PW_LIST2=$(node "$MOD_DIR/node_modules/.bin/playwright" test --config="$PW_CONFIG" --list 2>&1 || true)
-            N=$(echo "$PW_LIST2" | grep -oP 'Total:\s+\K\d+' || echo "0")
+            N=$(echo "$PW_LIST2" | grep -oP 'Total:\s+\K\d+' || true)
         fi
         DISCOVERED=$((DISCOVERED + N))
     elif [ -f "$MOD_DIR/jest.config.js" ] || [ -f "$MOD_DIR/jest.config.ts" ] || grep -q '"jest"' "$MOD_DIR/package.json" 2>/dev/null; then
-        N=$(cd "$MOD_DIR" && npx jest --listTests 2>/dev/null | wc -l || echo "0")
+        N=$(cd "$MOD_DIR" && npx jest --listTests 2>/dev/null | wc -l || true)
         DISCOVERED=$((DISCOVERED + N))
     elif [ -f "$MOD_DIR/vitest.config.js" ] || [ -f "$MOD_DIR/vitest.config.ts" ]; then
-        N=$(npx --prefix "$MOD_DIR" vitest list 2>/dev/null | grep -cE '\.(test|spec)\.' || echo "0")
+        N=$(npx --prefix "$MOD_DIR" vitest list 2>/dev/null | grep -cE '\.(test|spec)\.' || true)
         DISCOVERED=$((DISCOVERED + N))
     elif [ -f "$MOD_DIR/phpunit.xml" ] || [ -f "$MOD_DIR/phpunit.xml.dist" ]; then
-        N=$(php "$MOD_DIR/vendor/bin/phpunit" --list-tests 2>/dev/null | grep -c '^\s*-' || echo "0")
+        N=$(php "$MOD_DIR/vendor/bin/phpunit" --list-tests 2>/dev/null | grep -c '^\s*-' || true)
         DISCOVERED=$((DISCOVERED + N))
     elif command -v pytest &>/dev/null; then
-        N=$(cd "$MOD_DIR" && python3 -m pytest --collect-only -q 2>/dev/null | grep -c '::' || echo "0")
+        N=$(cd "$MOD_DIR" && python3 -m pytest --collect-only -q 2>/dev/null | grep -c '::' || true)
         DISCOVERED=$((DISCOVERED + N))
     elif [ -f "$MOD_DIR/go.mod" ]; then
-        N=$(go -C "$MOD_DIR" test ./... -list '.*' 2>/dev/null | grep -c '^Test' || echo "0")
+        N=$(go -C "$MOD_DIR" test ./... -list '.*' 2>/dev/null | grep -c '^Test' || true)
         DISCOVERED=$((DISCOVERED + N))
     fi
 done
