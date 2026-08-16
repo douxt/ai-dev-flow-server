@@ -465,7 +465,8 @@ if [ "$UPDATE_MODE" = true ]; then
             marker_start="<!-- DEVLOW:TEST-QUALITY-START -->"
             marker_end="<!-- DEVLOW:TEST-QUALITY-END -->"
             if grep -q "$marker_start" "$TARGET/RULES.md" 2>/dev/null; then
-                dry_run "sed -i '/<!-- DEVLOW:TEST-QUALITY-START -->/,/<!-- DEVLOW:TEST-QUALITY-END -->/d' $TARGET/RULES.md"
+                # 从区块标题删到 END——标题+说明行在 START 标记之前，只删标记区间会残留导致标题重复
+                dry_run "sed -i '/^## DevFlow 测试质量规则$/,/<!-- DEVLOW:TEST-QUALITY-END -->/d' $TARGET/RULES.md"
             fi
             # 追加全新内容（含 START/END 标记）
             dry_run "cat $rules_section >> $TARGET/RULES.md"

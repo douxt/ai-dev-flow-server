@@ -57,6 +57,15 @@ backlog → ready → in_progress → done
 
 含 `auth`/`payment`/`crypto`/`delete`/`permission` 标记的 PR **禁止自动合并**，必须人工逐行审查。
 
+### 多票依赖链（A 模式）
+
+issues/ 下存在 `blocked_by` 依赖链的 ticket 组时，默认按 A 模式开发：
+
+- 只开一个 worktree，按依赖序顺序开发全部 ticket，每票一组 commit（RED/GREEN）
+- 末票 GREEN 前**禁止合并 master**；全部 ticket GREEN + 用户验证 + 用户明确下令后，一次性合并
+- 逐票合并 master 仅当用户明确指定时使用
+- 例外：同层可并行 ticket（依赖同父、无文件冲突）需并行时，可开第二个 worktree，合并规则同上
+
 ### 计划文件管理（防覆盖）
 
 - 每次新计划创建新文件，文件名含日期+主题，禁止覆盖已有计划文件
