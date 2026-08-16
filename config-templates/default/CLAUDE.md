@@ -146,6 +146,15 @@ ticket 含上述标记时，check_constitution.py 自动标记 `⚠️ HUMAN_REV
 | `git worktree remove` / `rm -rf` worktree | 用 `wt cleanup` |
 | 跨 worktree 复制文件 | 通过 git 共享 |
 
+### 多票依赖链（A 模式）
+
+issues/ 下存在 `blocked_by` 依赖链的 ticket 组时，默认按 A 模式开发：
+
+- 只开一个 worktree，按依赖序顺序开发全部 ticket，每票一组 commit（RED/GREEN）
+- 末票 GREEN 前**禁止合并 master**；全部 ticket GREEN + 用户验证 + 用户明确下令后，一次性合并
+- 逐票合并 master 仅当用户明确指定时使用
+- 例外：同层可并行 ticket（依赖同父、无文件冲突）需并行时，可开第二个 worktree，合并规则同上
+
 ## 代码修改安全
 
 - 修改前备份：`cp file file.bak`
