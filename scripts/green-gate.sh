@@ -23,7 +23,7 @@ WARN=0
 # ── G2.1: GREEN 阶段不应修改测试文件 ──
 echo ""
 echo "--- G2.1: 测试文件不应在 GREEN 阶段被修改 ---"
-TEST_CHANGES=$(git diff "$RED_COMMIT"..HEAD --name-only --diff-filter=M | grep -E '(\.spec\.|\.test\.|^tests/|^test/|^__tests__/|^e2e/)' || true)
+TEST_CHANGES=$(git diff "$RED_COMMIT"..HEAD --name-only --diff-filter=M | grep -E '(\.spec\.|\.test\.|_test\.go$|^tests/|^test/|^__tests__/|^e2e/)' || true)
 if [ -n "$TEST_CHANGES" ]; then
     COUNT=$(echo "$TEST_CHANGES" | grep -c . || echo "0")
     echo "⚠️  发现 ${COUNT} 个测试文件在 GREEN 阶段被修改（不应修改测试来适配实现）:"

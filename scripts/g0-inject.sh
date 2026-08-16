@@ -45,27 +45,40 @@ echo "=== g0-inject: G0 故障注入验证 ==="
 echo "  源文件: $SOURCE_FILE"
 [ -n "$TEST_FILTER" ] && echo "  测试过滤: $TEST_FILTER"
 
-# ── 检测测试运行器 + 定位 config 路径 ──
+# ── 模块目录定位（monorepo：go.mod/package.json 可能在子目录）──
+MOD_DIR=""
+d=$(dirname "$SOURCE_FILE")
+while [ "$d" != "." ] && [ "$d" != "/" ]; do
+    if [ -f "$d/go.mod" ] || [ -f "$d/package.json" ]; then
+        MOD_DIR="$d"
+        break
+    fi
+    d=$(dirname "$d")
+done
+[ -z "$MOD_DIR" ] && MOD_DIR="."
+echo "  模块目录: $MOD_DIR"
+
+# ── 检测测试运行器 + 定位 config 路径（模块目录内）──
 PW_CONFIG=""
 # 先定位 playwright config（必须在函数外，避免 subshell 变量丢失）
-for loc in "playwright.config.js" "playwright.config.ts" \
-           "tests/playwright.config.js" "tests/playwright.config.ts" \
-           "e2e/playwright.config.js" "e2e/playwright.config.ts"; do
+for loc in "$MOD_DIR/playwright.config.js" "$MOD_DIR/playwright.config.ts" \
+           "$MOD_DIR/tests/playwright.config.js" "$MOD_DIR/tests/playwright.config.ts" \
+           "$MOD_DIR/e2e/playwright.config.js" "$MOD_DIR/e2e/playwright.config.ts"; do
     [ -f "$loc" ] && { PW_CONFIG="$loc"; break; }
 done
 
 detect_test_runner() {
     [ -n "$PW_CONFIG" ] && { echo "playwright"; return; }
-    if [ -f "jest.config.js" ] || [ -f "jest.config.ts" ] || grep -q '"jest"' package.json 2>/dev/null; then
+    if [ -f "$MOD_DIR/go.mod" ]; then
+        echo "go"
+    elif [ -f "$MOD_DIR/jest.config.js" ] || [ -f "$MOD_DIR/jest.config.ts" ] || grep -q '"jest"' "$MOD_DIR/package.json" 2>/dev/null; then
         echo "jest"
-    elif [ -f "vitest.config.js" ] || [ -f "vitest.config.ts" ]; then
+    elif [ -f "$MOD_DIR/vitest.config.js" ] || [ -f "$MOD_DIR/vitest.config.ts" ]; then
         echo "vitest"
-    elif [ -f "phpunit.xml" ] || [ -f "phpunit.xml.dist" ]; then
+    elif [ -f "$MOD_DIR/phpunit.xml" ] || [ -f "$MOD_DIR/phpunit.xml.dist" ]; then
         echo "phpunit"
     elif command -v pytest &>/dev/null; then
         echo "pytest"
-    elif command -v go &>/dev/null; then
-        echo "go"
     else
         echo "unknown"
     fi
@@ -88,37 +101,37 @@ build_test_cmd() {
             ;;
         jest)
             if [ -n "$TEST_FILTER" ]; then
-                echo "npx jest --testNamePattern \"$TEST_FILTER\""
+                echo "cd \"$MOD_DIR\" && npx jest --testNamePattern \"$TEST_FILTER\""
             else
-                echo "npx jest"
+                echo "cd \"$MOD_DIR\" && npx jest"
             fi
             ;;
         vitest)
             if [ -n "$TEST_FILTER" ]; then
-                echo "npx vitest run --testNamePattern \"$TEST_FILTER\""
+                echo "npx --prefix \"$MOD_DIR\" vitest run --testNamePattern \"$TEST_FILTER\""
             else
-                echo "npx vitest run"
+                echo "npx --prefix \"$MOD_DIR\" vitest run"
             fi
             ;;
         phpunit)
             if [ -n "$TEST_FILTER" ]; then
-                echo "php vendor/bin/phpunit --filter \"$TEST_FILTER\""
+                echo "php \"$MOD_DIR/vendor/bin/phpunit\" --filter \"$TEST_FILTER\""
             else
-                echo "php vendor/bin/phpunit"
+                echo "php \"$MOD_DIR/vendor/bin/phpunit\""
             fi
             ;;
         pytest)
             if [ -n "$TEST_FILTER" ]; then
-                echo "python3 -m pytest -k \"$TEST_FILTER\""
+                echo "cd \"$MOD_DIR\" && python3 -m pytest -k \"$TEST_FILTER\""
             else
-                echo "python3 -m pytest"
+                echo "cd \"$MOD_DIR\" && python3 -m pytest"
             fi
             ;;
         go)
             if [ -n "$TEST_FILTER" ]; then
-                echo "go test ./... -run \"$TEST_FILTER\""
+                echo "go -C \"$MOD_DIR\" test ./... -run \"$TEST_FILTER\""
             else
-                echo "go test ./..."
+                echo "go -C \"$MOD_DIR\" test ./..."
             fi
             ;;
         *)
@@ -159,10 +172,25 @@ inject_fault() {
         return 0
     fi
 
+    # 策略 6: Go 布尔返回值翻转 (return true → return false)
+    if grep -qE 'return\s+true\b' "$file" 2>/dev/null; then
+        sed -i -E 's/return\s+true\b/return false/' "$file"
+        echo "策略6: return true → return false"
+        return 0
+    fi
+
+    # 策略 7: Go HTTP 状态字面量 (StatusOK → StatusInternalServerError / return 200 → return 500)
+    if grep -qE 'http\.StatusOK\b|return\s+200\b' "$file" 2>/dev/null; then
+        sed -i -E 's/http\.StatusOK\b/http.StatusInternalServerError/g; s/return\s+200\b/return 500/g' "$file"
+        echo "策略7: StatusOK/200 → StatusInternalServerError/500"
+        return 0
+    fi
+
     # 策略 4: 删除最后一条 return 语句前一行（破坏数据构建）
     # 跳过 JSX/TSX 组件——return 前的行通常不是数据逻辑，注释掉不影响功能
-    if echo "$SOURCE_FILE" | grep -qE '\.(jsx|tsx)$' || grep -qE '<[A-Z]\w+|<div|<span|className=' "$file" 2>/dev/null; then
-        echo "  策略4: 跳过（JSX组件，注释return前行无效）"
+    # 跳过 Go 文件——单行注释 // 破坏语法导致编译失败（编译失败虽 RED 但方式脏，6/7 已覆盖）
+    if echo "$SOURCE_FILE" | grep -qE '\.(jsx|tsx|go)$' || grep -qE '<[A-Z]\w+|<div|<span|className=' "$file" 2>/dev/null; then
+        echo "  策略4: 跳过（JSX组件/Go 文件，注释return前行无效）"
     else
         local last_return=$(grep -n 'return' "$file" | tail -1 | cut -d: -f1)
         if [ -n "$last_return" ] && [ "$last_return" -gt 1 ]; then
@@ -174,8 +202,12 @@ inject_fault() {
     fi
 
     # 策略 5: 在第一个非 render 的导出/事件处理函数体首行插入 early return
-    local first_func=$(grep -n 'export\s\+\(async\s\+\)\?function\|handle[A-Z]\|const\s\+\w\+\s*=\s*\(async\s*\)\?(' "$file" \
-        | grep -v 'render\s*(' | head -1 | cut -d: -f1)
+    # 跳过 Go 文件——JS 语法注入会导致编译失败
+    local first_func=""
+    if ! echo "$SOURCE_FILE" | grep -qE '\.go$'; then
+        first_func=$(grep -n 'export\s\+\(async\s\+\)\?function\|handle[A-Z]\|const\s\+\w\+\s*=\s*\(async\s*\)\?(' "$file" \
+            | grep -v 'render\s*(' | head -1 | cut -d: -f1)
+    fi
     if [ -n "$first_func" ]; then
         local inject=$((first_func + 1))
         sed -i "${inject}a\  return { code: -1, message: 'G0-FAULT-INJECTED' };" "$file"

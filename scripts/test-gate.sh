@@ -9,11 +9,27 @@
 set -euo pipefail
 FAIL=0
 
-# ── 检测测试目录 ──
+# ── 检测测试目录（monorepo + Go 同包测试支持）──
 TESTS_DIR=""
-for d in tests test __tests__ spec e2e; do
+INCLUDE_FLAG=""   # Go/FE 无独立测试目录时限定扫描文件类型，防源码误报
+for d in tests test __tests__ spec e2e frontend/tests backend/tests; do
     [ -d "$d" ] && { TESTS_DIR="$d"; break; }
 done
+if [ -z "$TESTS_DIR" ]; then
+    # Go 项目：测试与源码同包（backend/**/*_test.go）
+    GO_TEST=$(find . -maxdepth 4 -name "*_test.go" -not -path "*/node_modules/*" 2>/dev/null | head -1 || true)
+    if [ -n "$GO_TEST" ]; then
+        TESTS_DIR="."
+        INCLUDE_FLAG="--include='*_test.go'"
+    else
+        # 前端项目：*.test.ts / *.spec.ts（排除 node_modules）
+        FE_TEST=$(find . -maxdepth 4 \( -name "*.test.ts" -o -name "*.spec.ts" \) -not -path "*/node_modules/*" 2>/dev/null | head -1 || true)
+        if [ -n "$FE_TEST" ]; then
+            TESTS_DIR="."
+            INCLUDE_FLAG="--include='*.test.ts' --include='*.spec.ts'"
+        fi
+    fi
+fi
 if [ -z "$TESTS_DIR" ]; then
     echo "[test-gate] ⚠️ 未找到测试目录，跳过"
     exit 0
@@ -25,8 +41,8 @@ echo "  测试目录: $TESTS_DIR"
 # ── C0.1: 无调试残留 ──
 echo ""
 echo "--- C0.1: 无调试残留 ---"
-HITS=$(grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+HITS=$(grep -rn "test\.only\|describe\.only\|it\.only\|page\.pause" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 if [ -n "$HITS" ]; then
     echo "❌ 发现 test.only / describe.only / page.pause 残留："
@@ -39,8 +55,8 @@ fi
 # ── C0.2: 无恒真断言 ──
 echo ""
 echo "--- C0.2: 无恒真断言 ---"
-HITS=$(grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|\.toBeTruthy()\|\.toBeDefined()" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+HITS=$(grep -rn "toBeGreaterThanOrEqual(0)\|typeof.*toBe('number')\|\.toBeTruthy()\|\.toBeDefined()" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v "expect(typeof" || true)
 if [ -n "$HITS" ]; then
     echo "❌ 发现恒真断言："
@@ -53,8 +69,8 @@ fi
 # ── C0.3: 无硬编码端口 ──
 echo ""
 echo "--- C0.3: 无硬编码端口 ---"
-HITS=$(grep -rn "localhost:[0-9]\{4\}" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+HITS=$(grep -rn "localhost:[0-9]\{4\}" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' \
     --exclude='playwright.config.*' --exclude='vitest.config.*' --exclude='jest.config.*' \
     --exclude='cypress.config.*' --exclude='webpack*.js' --exclude='vite.config.*' 2>/dev/null || true)
@@ -71,8 +87,8 @@ fi
 # ── C0.4: 固定延时扫描（警告级）──
 echo ""
 echo "--- C0.4: 固定延时扫描 ---"
-HITS=$(grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+HITS=$(grep -rn "waitForTimeout\|page\.waitForTimeout\|setTimeout.*[0-9]\{4,\}" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v "test\.setTimeout" || true)
 if [ -n "$HITS" ]; then
     COUNT=$(echo "$HITS" | wc -l)
@@ -87,8 +103,8 @@ fi
 echo ""
 echo "--- C0.6: try/catch 包裹 expect ---"
 # 检测 try 块内包含 expect 且后续有 catch 的模式（腐烂断言高风险）
-HITS=$(grep -rn "try\s*{" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+HITS=$(grep -rn "try\s*{" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null || true)
 if [ -n "$HITS" ]; then
     # 进一步筛选：try 和 catch 之间是否有 expect
@@ -147,12 +163,12 @@ fi
 echo ""
 echo "--- C0.8: 断言强度分布 ---"
 # 统计 expect 总数（排除注释行）
-TOTAL_EXPECT=$(grep -rn "expect(" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+TOTAL_EXPECT=$(grep -rn "expect(" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
 # 统计弱断言：toBeVisible / toBeDefined / toBeTruthy / toBeNull / toBeFalsy
-WEAK_ASSERT=$(grep -rnE "expect\([^)]*\)\.toBeVisible\(|expect\([^)]*\)\.toBeDefined\(|expect\([^)]*\)\.toBeTruthy\(|expect\([^)]*\)\.toBeNull\(|expect\([^)]*\)\.toBeFalsy\(" "$TESTS_DIR" \
-    --exclude-dir=characterization \
+WEAK_ASSERT=$(grep -rnE "expect\([^)]*\)\.toBeVisible\(|expect\([^)]*\)\.toBeDefined\(|expect\([^)]*\)\.toBeTruthy\(|expect\([^)]*\)\.toBeNull\(|expect\([^)]*\)\.toBeFalsy\(" "$TESTS_DIR" $INCLUDE_FLAG \
+    --exclude-dir=characterization --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=vendor \
     --exclude='*.bak' --exclude='*.bak2' --exclude='*.bak-*' --exclude='*.skip' 2>/dev/null | grep -v '^\s*\/\/\|^\s*\*\|^\s*#' | wc -l || echo "0")
 if [ "$TOTAL_EXPECT" -gt 0 ]; then
     WEAK_PCT=$((WEAK_ASSERT * 100 / TOTAL_EXPECT))
@@ -175,7 +191,7 @@ echo ""
 echo "--- C0.8 单文件级：操作-断言匹配 ---"
 C08_PERFILE_HITS=""
 for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
-    -not -path "*/characterization/*" \
+    -not -path "*/characterization/*" -not -path "*/node_modules/*" \
     -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
     [ -f "$f" ] || continue
     # 有 UI 操作？（直接 grep 文件，注释行误判风险低）
@@ -206,7 +222,7 @@ echo ""
 echo "--- C0.8 操作行级：操作后断言检查 ---"
 C08_LINE_HITS=""
 for f in $(find "$TESTS_DIR" \( -name "*.spec.*" -o -name "*.test.*" \) \
-    -not -path "*/characterization/*" \
+    -not -path "*/characterization/*" -not -path "*/node_modules/*" \
     -not -name "*.bak" -not -name "*.bak2" -not -name "*.bak-*" -not -name "*.skip" 2>/dev/null); do
     [ -f "$f" ] || continue
     HAS_ACTION=$(grep -cE '\.(click|fill|submit|press|type|selectOption|check|dblclick)\(' "$f" 2>/dev/null) || HAS_ACTION=0
@@ -309,32 +325,55 @@ echo ""
 echo "--- C0.5: 测试实际执行 ---"
 DISCOVERED=0
 
-# 搜索 playwright config（cwd + 常见子目录）
-PW_CONFIG=""
-for loc in "playwright.config.js" "playwright.config.ts" \
-           "tests/playwright.config.js" "tests/playwright.config.ts" \
-           "e2e/playwright.config.js" "e2e/playwright.config.ts"; do
-    [ -f "$loc" ] && { PW_CONFIG="$loc"; break; }
-done
-
-if [ -n "$PW_CONFIG" ]; then
-    # 用 Total: N 解析测试数（方案 A，最可靠——suites 数 ≠ 测试数）
-    PW_LIST=$(npx playwright test --config="$PW_CONFIG" --list 2>&1 || true)
-    DISCOVERED=$(echo "$PW_LIST" | grep -oP 'Total:\s+\K\d+' || echo "0")
-    # fallback: 直接 node 调 playwright 二进制（绕过可能的 npx wrapper/RTK）
-    if [ "$DISCOVERED" -eq 0 ] && [ -f "./node_modules/.bin/playwright" ]; then
-        PW_LIST2=$(node "./node_modules/.bin/playwright" test --config="$PW_CONFIG" --list 2>&1 || true)
-        DISCOVERED=$(echo "$PW_LIST2" | grep -oP 'Total:\s+\K\d+' || echo "0")
-    fi
-elif [ -f "jest.config.js" ] || [ -f "jest.config.ts" ] || grep -q '"jest"' package.json 2>/dev/null; then
-    DISCOVERED=$(npx jest --listTests 2>/dev/null | wc -l || echo "0")
-elif [ -f "phpunit.xml" ] || [ -f "phpunit.xml.dist" ]; then
-    DISCOVERED=$(php vendor/bin/phpunit --list-tests 2>/dev/null | grep -c '^\s*-' || echo "0")
-elif command -v pytest &>/dev/null; then
-    DISCOVERED=$(python3 -m pytest --collect-only -q 2>/dev/null | grep -c '::' || echo "0")
-elif command -v go &>/dev/null; then
-    DISCOVERED=$(go test ./... -list '.*' 2>/dev/null | grep -c '^Test' || echo "0")
+# 模块目录定位（monorepo：go.mod/package.json 可能在子目录）
+MODULE_DIRS=""
+if [ -f "go.mod" ] || [ -f "package.json" ]; then
+    MODULE_DIRS="."
+else
+    for d in backend server api frontend web client; do
+        if [ -f "$d/go.mod" ] || [ -f "$d/package.json" ]; then
+            MODULE_DIRS="$MODULE_DIRS $d"
+        fi
+    done
 fi
+[ -z "$MODULE_DIRS" ] && MODULE_DIRS="."
+
+for MOD_DIR in $MODULE_DIRS; do
+    # 搜索 playwright config（模块内 + 常见子目录）
+    PW_CONFIG=""
+    for loc in "$MOD_DIR/playwright.config.js" "$MOD_DIR/playwright.config.ts" \
+               "$MOD_DIR/tests/playwright.config.js" "$MOD_DIR/tests/playwright.config.ts" \
+               "$MOD_DIR/e2e/playwright.config.js" "$MOD_DIR/e2e/playwright.config.ts"; do
+        [ -f "$loc" ] && { PW_CONFIG="$loc"; break; }
+    done
+
+    if [ -n "$PW_CONFIG" ]; then
+        # 用 Total: N 解析测试数（方案 A，最可靠——suites 数 ≠ 测试数）
+        PW_LIST=$(npx playwright test --config="$PW_CONFIG" --list 2>&1 || true)
+        N=$(echo "$PW_LIST" | grep -oP 'Total:\s+\K\d+' || echo "0")
+        # fallback: 直接 node 调 playwright 二进制（绕过可能的 npx wrapper/RTK）
+        if [ "$N" -eq 0 ] && [ -f "$MOD_DIR/node_modules/.bin/playwright" ]; then
+            PW_LIST2=$(node "$MOD_DIR/node_modules/.bin/playwright" test --config="$PW_CONFIG" --list 2>&1 || true)
+            N=$(echo "$PW_LIST2" | grep -oP 'Total:\s+\K\d+' || echo "0")
+        fi
+        DISCOVERED=$((DISCOVERED + N))
+    elif [ -f "$MOD_DIR/jest.config.js" ] || [ -f "$MOD_DIR/jest.config.ts" ] || grep -q '"jest"' "$MOD_DIR/package.json" 2>/dev/null; then
+        N=$(cd "$MOD_DIR" && npx jest --listTests 2>/dev/null | wc -l || echo "0")
+        DISCOVERED=$((DISCOVERED + N))
+    elif [ -f "$MOD_DIR/vitest.config.js" ] || [ -f "$MOD_DIR/vitest.config.ts" ]; then
+        N=$(npx --prefix "$MOD_DIR" vitest list 2>/dev/null | grep -cE '\.(test|spec)\.' || echo "0")
+        DISCOVERED=$((DISCOVERED + N))
+    elif [ -f "$MOD_DIR/phpunit.xml" ] || [ -f "$MOD_DIR/phpunit.xml.dist" ]; then
+        N=$(php "$MOD_DIR/vendor/bin/phpunit" --list-tests 2>/dev/null | grep -c '^\s*-' || echo "0")
+        DISCOVERED=$((DISCOVERED + N))
+    elif command -v pytest &>/dev/null; then
+        N=$(cd "$MOD_DIR" && python3 -m pytest --collect-only -q 2>/dev/null | grep -c '::' || echo "0")
+        DISCOVERED=$((DISCOVERED + N))
+    elif [ -f "$MOD_DIR/go.mod" ]; then
+        N=$(go -C "$MOD_DIR" test ./... -list '.*' 2>/dev/null | grep -c '^Test' || echo "0")
+        DISCOVERED=$((DISCOVERED + N))
+    fi
+done
 
 if [ "$DISCOVERED" -eq 0 ]; then
     echo "❌ 0 条测试被发现——test discovery 可能故障（PASS(0) 真空通过不可接受）"
