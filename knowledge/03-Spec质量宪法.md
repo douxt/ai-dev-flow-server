@@ -39,7 +39,7 @@
 
 | # | 规则 | 核心要求 | 违规后果 |
 |---|------|---------|----------|
-| 10 | **技术选型有理由** | 每个技术决策有 justification | 随意选型后期推翻 |
+| 10 | **技术选型有理由** | 每个技术决策有 justification；引入外部项目模式须声明：①来源（项目+版本/日期）②借鉴了什么 ③与本项目约束的差异点及裁剪理由 | 随意选型后期推翻 |
 | 11 | **架构约束已引用** | 显式列出不可变架构规则 | 实现违反架构设计 |
 
 ## Ponytail 四问（写入 spec §Decisions）
@@ -114,7 +114,7 @@ agent 在 spec 尾部输出：
 | 7 | ≤5d | ✅ | §Estimate: 3d |
 | 8 | US 可验证 | ✅ | US-001~US-005 各有 AC |
 | 9 | OOS 无 N+1 | ✅ | §Out of Scope 仅含 Phase 1 |
-| 10 | 技术选型有理由 | ✅ | §Decisions 每条有 justification |
+| 10 | 技术选型有理由 | ✅ | §Decisions 每条有 justification；外部引用含来源/借鉴/差异 |
 | 11 | 架构约束已引用 | ✅ | §Constraints 引用 R1-R5 |
 | P1 | 方案对比 | ✅ | §Decisions/Ponytail |
 | P2 | 失败影响 | ✅ | §Decisions/Ponytail |

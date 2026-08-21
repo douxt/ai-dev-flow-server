@@ -403,3 +403,17 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 - 所有通过 install.sh 新安装的项目自动获得计划防覆盖能力
 - 已有项目用 `bash install.sh <项目> --update` 可增量更新
 - install.sh 无需修改 — hook 目录整体复制，新增文件自动跟随
+
+---
+
+## v3.3 宪法外部引用声明（2026-08-21）
+
+> 租户反馈 FEEDBACK-003：spec 借鉴外部项目可能照抄历史遗留，无制度性拦截。
+
+### 新增
+- **Spec 宪法第 10 条扩展**：引入外部项目模式须声明 ①来源（项目+版本/日期）②借鉴了什么 ③与本项目约束的差异点及裁剪理由
+- **check_constitution.py 第 16 项 `16.external_ref`**：检测外部项目引用信号（github.com URL / 星标 / 借鉴类动词），无来源声明 → warning
+- **Ticket 宪法同步**：04 宪法第 16 行 + 速查卡；issue-template 自检清单第 17 条
+
+### 影响
+- `--update` 传播至所有已安装项目（check_constitution.py + 宪法 + issue-template + AGENTS.md）

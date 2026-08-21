@@ -145,7 +145,7 @@ if [ "$detected_stage" = "tickets:done" ] && [ "$detected_stage" != "$previous_s
 
 	  🛑 进入 /tdd 前，必须先通过 Ticket 审查 Gate（tickets:reviewed）:
      → 步骤1: python3 .devflow/scripts/check_constitution.py --batch issues/ --json > .devflow/constitution-report.json
-       (15 项 L1 自动检查: frontmatter/AC标注/estimate/blocked_by/安全红线)
+       (16 项 L1 自动检查: frontmatter/AC标注/estimate/blocked_by/安全红线)
      → 步骤2: LLM 对照 ~/.claude/gate-checklists/tickets-checklist.md §自动审查 L2 语义层
        (接口签名/前置准备具体性/AC覆盖完整性/DAG对齐)
      → 步骤3: 确认全部通过后，将审查结论追加写入 .devflow/constitution-report.json

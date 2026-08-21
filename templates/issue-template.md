@@ -62,7 +62,7 @@ safety: ""               # 安全敏感 → auth|payment|crypto|delete|permissio
 |----------|------|------|
 | - | - | - |
 
-## Ticket 质量自检（对照宪法 15 项 + 1 安全项）
+## Ticket 质量自检（对照宪法 16 项 + 1 安全项）
 
 - [ ] 1. estimate ≤1d
 - [ ] 2. type 正确（AFK/HITL）
@@ -80,3 +80,4 @@ safety: ""               # 安全敏感 → auth|payment|crypto|delete|permissio
 - [ ] 14. test_files 已指定
 - [ ] 15. 窗口预算 ≤40%（~48K token）
 - [ ] 16. safety 敏感类型已标记（auth/payment/crypto/delete/permission，如适用）
+- [ ] 17. 外部项目引用已声明来源/借鉴/差异（如适用）

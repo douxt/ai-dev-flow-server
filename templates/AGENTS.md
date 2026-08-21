@@ -33,7 +33,7 @@ ticket 状态机（frontmatter status 字段）：`backlog → ready → in_prog
 | GREEN commit 前 | `bash .devflow/scripts/g0-inject.sh <源文件> [测试名]` | G0 故障注入——验证测试真能拦住 Bug（注入→测试必须 RED→恢复→GREEN） |
 | 阶段推进验证 | `bash .devflow/scripts/stage-verify.sh <stage:done>` | I1-I5 证据检查（**只读验证，不推进状态**）。合法值：spec:done / tickets:done / tickets:reviewed / tdd:done / implement:done |
 | 阶段状态推进 | `echo "implement:done" > .devflow/stage` | 手动模式唯一写入口（无 CC hooks 时） |
-| ticket 宪法检查 | `python3 .devflow/scripts/check_constitution.py <ticket.md>` | 15 项自动检查 + 安全红线。需先 `pip install python-frontmatter` |
+| ticket 宪法检查 | `python3 .devflow/scripts/check_constitution.py <ticket.md>` | 16 项自动检查 + 安全红线。需先 `pip install python-frontmatter` |
 | 分层检查 | `bash .devflow/scripts/check-layer.sh [git-range]` | 业务代码 vs 管线文件判定（默认 main..HEAD） |
 | 事件记录 | `bash .devflow/scripts/trace.sh <event_type> <key=value> ...` | 追加事件到 `.devflow/trace.jsonl` |
 | 角色查看/切换 | `.devflow/scripts/devflow role [switch <R>|list]` | owner / developer / agent-b |

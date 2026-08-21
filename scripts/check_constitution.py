@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ticket 质量宪法机器检查 v3.0 — 15 项可自动化规则 + 安全红线扫描
+"""Ticket 质量宪法机器检查 v3.0 — 16 项可自动化规则 + 安全红线扫描
 
 用法:
   python3 check_constitution.py <ticket_file>           # 单文件检查
@@ -304,6 +304,21 @@ def run(issue_path, issues_dir=None, json_out=False, workspace=None):
             (f" ... 等 {len(third_party)} 个" if len(third_party) > 5 else ""))
     else:
         add("15.ponytail_imports", "pass", "无第三方依赖或无可替代的标准库替代")
+
+    # 16. 外部项目引用声明（Spec 宪法第 10 条扩展）
+    ref_signals = re.findall(
+        r'github\.com/[\w.\-]+/[\w.\-]+|\d+(?:\.\d+)?k?\s*(?:⭐|stars?)|(?:参考项目|借鉴|参照|模仿)',
+        body, re.IGNORECASE)
+    if ref_signals:
+        has_source = bool(re.search(r'(?:来源|Source)\s*[:：]', body, re.IGNORECASE))
+        if has_source:
+            add("16.external_ref", "pass",
+                f"外部引用已声明来源: {', '.join(ref_signals[:3])}")
+        else:
+            add("16.external_ref", "warning",
+                f"检测到外部项目引用但未声明来源: {', '.join(ref_signals[:3])} — 须在决策段声明 来源/借鉴/差异（如非借鉴可忽略）")
+    else:
+        add("16.external_ref", "pass", "无外部项目引用")
 
     # ── 输出 ──
     if json_out:
