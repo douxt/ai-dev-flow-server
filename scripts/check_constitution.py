@@ -215,7 +215,7 @@ def run(issue_path, issues_dir=None, json_out=False, workspace=None):
     # ── v3.0 新增 8 项 ──
 
     # 8. 安全红线扫描
-    full_text = json.dumps({k: str(v) for k, v in post.items()}) + " " + (content or "")
+    full_text = json.dumps({k: str(v) for k, v in dict(post).items()}) + " " + (content or "")
     safety_hits = detect_safety_types(full_text)
     existing_safety = post.get("safety", "")
     if safety_hits:

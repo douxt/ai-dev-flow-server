@@ -27,7 +27,12 @@ EOF
 <!-- ai-dev-flow-server end -->" > "$PROJECT/.devflow/templates/roles/owner.append"
     echo "agent-b content
 <!-- ai-dev-flow-server end -->" > "$PROJECT/.devflow/templates/roles/agent-b/CLAUDE.md.append"
-    echo "# AGENTS.md for __PROJECT__" > "$PROJECT/.devflow/templates/roles/agent-b/AGENTS.md"
+    echo "<!-- ai-dev-flow-server:AGENTS-START -->
+generic content
+<!-- ai-dev-flow-server:AGENTS-END -->" > "$PROJECT/.devflow/templates/AGENTS.md"
+    echo "<!-- ai-dev-flow-server:AGENT-B-START -->
+agent-b role segment
+<!-- ai-dev-flow-server:AGENT-B-END -->" > "$PROJECT/.devflow/templates/roles/agent-b/AGENTS.md"
 
     cp /code/scripts/devflow "$PROJECT/.devflow/scripts/devflow"
     chmod +x "$PROJECT/.devflow/scripts/devflow"
@@ -73,4 +78,22 @@ teardown() {
     [ -d "$PROJECT/_handoff/outbox/agent-b" ]
     [ -d "$PROJECT/_handoff/inbox/agent-b" ]
     [ -f "$PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENT-B-START" "$PROJECT/AGENTS.md"
+}
+
+@test "switch away from agent-b keeps generic AGENTS.md" {
+    # 模拟 fresh agent-b 安装产物：通用版 + 角色段
+    cat > "$PROJECT/AGENTS.md" << 'EOF'
+<!-- ai-dev-flow-server:AGENTS-START -->
+generic content
+<!-- ai-dev-flow-server:AGENTS-END -->
+<!-- ai-dev-flow-server:AGENT-B-START -->
+agent-b role segment
+<!-- ai-dev-flow-server:AGENT-B-END -->
+EOF
+    run devflow role switch owner
+    [ "$status" -eq 0 ]
+    [ -f "$PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENTS-START" "$PROJECT/AGENTS.md"
+    ! grep -q "ai-dev-flow-server:AGENT-B-START" "$PROJECT/AGENTS.md"
 }

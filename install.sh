@@ -287,7 +287,7 @@ if [ "$UPDATE_MODE" = true ]; then
         bash "$SOURCE/scripts/migrate-gate-state.sh" "$TARGET" || echo "  ⚠️  迁移失败，可手动处理"
     fi
 
-    install_wt
+    install_wt || true
     deploy_file() {
         local src="$1" dst="$2"
         [ -f "$src" ] || { echo "  ❌ 源文件不存在: $src"; return 1; }
@@ -471,6 +471,47 @@ if [ "$UPDATE_MODE" = true ]; then
             # 追加全新内容（含 START/END 标记）
             dry_run "cat $rules_section >> $TARGET/RULES.md"
             echo "  [update] RULES.md 测试质量规则已刷新"
+        fi
+    fi
+
+    # AGENTS.md 通用接入指引（标记区间，--update 时同步；同 RULES.md 模式）
+    AGENTS_MD="$TARGET/AGENTS.md"
+    AGENTS_TMPL="$SOURCE/templates/AGENTS.md"
+    if [ -f "$AGENTS_TMPL" ]; then
+        if [ -L "$AGENTS_MD" ]; then
+            echo "  [update] skip AGENTS.md — symlink，跳过（不覆盖用户链接）"
+        elif [ -f "$AGENTS_MD" ]; then
+            if grep -q 'ai-dev-flow-server:AGENTS-START' "$AGENTS_MD" 2>/dev/null; then
+                # 模板含 __PROJECT__，先替换再追加（临时文件避免直接改源模板）
+                AGENTS_TMP_COMBINED="${AGENTS_MD}.devflow-agents"
+                sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_TMPL" > "$AGENTS_TMP_COMBINED"
+                # agent-b 角色追加角色段
+                if [ "$ROLE" = "agent-b" ]; then
+                    AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
+                    if [ -f "$AGENTS_B_TMPL" ]; then
+                        sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_B_TMPL" >> "$AGENTS_TMP_COMBINED"
+                    fi
+                fi
+                dry_run "sed -i '/<!-- ai-dev-flow-server:AGENTS-START -->/,/<!-- ai-dev-flow-server:AGENTS-END -->/d' $AGENTS_MD"
+                dry_run "cat $AGENTS_TMP_COMBINED >> $AGENTS_MD"
+                echo "  [update] AGENTS.md 已刷新"
+            else
+                echo "  ⚠️  AGENTS.md 已存在但无 ai-dev-flow-server 标记（用户自定义），跳过不覆盖"
+            fi
+        else
+            # 目标不存在 → 直接生成
+            if [ "$DRY_RUN" = true ]; then
+                echo "  [DRY-RUN] 生成 AGENTS.md"
+            else
+                sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_TMPL" > "$AGENTS_MD"
+                if [ "$ROLE" = "agent-b" ]; then
+                    AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
+                    if [ -f "$AGENTS_B_TMPL" ]; then
+                        sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_B_TMPL" >> "$AGENTS_MD"
+                    fi
+                fi
+                echo "  ✅ AGENTS.md 已生成"
+            fi
         fi
     fi
 
@@ -666,7 +707,7 @@ DEVCONFIG
 fi
 echo ""
 
-install_wt
+install_wt || true
 
 # ═══════════════════════════════════
 # A. 安装 config（frontend + full）
@@ -732,6 +773,8 @@ fi
 # 4 个 hook（安全基础设施，所有 mode 都部署）
 if [ "$NO_CONFIG" = false ]; then
     if [ -d "$SOURCE/config-templates/default/hooks" ]; then
+        # backend 模式不经过步骤 A 的 mkdir，这里必须显式建目录
+        dry_run "mkdir -p $CLAUDE_HOME/.claude/hooks"
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
             [ -f "$hook" ] || continue
             hook_name=$(basename "$hook")
@@ -1029,27 +1072,34 @@ else
 fi
 
 # ═══════════════════════════════════
-# 8. AGENTS.md（仅 agent-b）
+# 8. AGENTS.md（所有 role：通用接入指引 + agent-b 角色段）
 # ═══════════════════════════════════
-if [ "$ROLE" = "agent-b" ]; then
 echo "── 步骤 8: 生成 AGENTS.md ──"
 AGENTS_MD="$TARGET/AGENTS.md"
+AGENTS_TMPL="$SOURCE/templates/AGENTS.md"
 if [ -f "$AGENTS_MD" ] && [ "$FORCE" != true ]; then
-    echo "  ⚠️  AGENTS.md 已存在，跳过"
+    echo "  ⚠️  AGENTS.md 已存在，跳过（如需重新生成用 --force）"
 else
     if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] 生成 AGENTS.md"
     else
-        cp "$SOURCE/templates/roles/agent-b/AGENTS.md" "$AGENTS_MD"
-        sed -i "s/__PROJECT__/${PROJECT}/g" "$AGENTS_MD"
-        echo "  ✅ AGENTS.md 已生成"
+        if [ -f "$AGENTS_TMPL" ]; then
+            cp "$AGENTS_TMPL" "$AGENTS_MD"
+            sed -i "s/__PROJECT__/${PROJECT}/g" "$AGENTS_MD"
+            # agent-b 角色追加角色段（带标记区间，模板源含 __PROJECT__）
+            if [ "$ROLE" = "agent-b" ]; then
+                AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
+                if [ -f "$AGENTS_B_TMPL" ]; then
+                    sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_B_TMPL" >> "$AGENTS_MD"
+                fi
+            fi
+            echo "  ✅ AGENTS.md 已生成"
+        else
+            echo "  ⚠️  AGENTS.md 模板不存在: $AGENTS_TMPL（跳过）"
+        fi
     fi
 fi
 echo ""
-else
-    echo "── 步骤 8: AGENTS.md 跳过（role=$ROLE）──"
-    echo ""
-fi
 
 # ═══════════════════════════════════
 # 9. git hooks
@@ -1087,7 +1137,7 @@ if [ "$BACKEND" = true ]; then
     echo "  [ ] logs/ — 确保属主正确"
 fi
 echo "  [ ] _handoff/ — Agent 协作收件箱（outbox/agent-b + inbox/agent-b + archive）"
-echo "  [ ] AGENTS.md — Agent 身份 + 壁垒声明"
+echo "  [ ] AGENTS.md — 通用接入指引（任何 AI agent 的入口文档，含角色段）"
 echo "  [ ] .git/hooks/pre-commit — 拦截修改受保护文件"
 echo "  [ ] .git/hooks/pre-push — 拦截直推 master"
 echo ""

@@ -35,3 +35,28 @@ load /code/tests/helpers/common.bash
     [ "$status" -eq 0 ]
     ! grep -q '# tampered' "$HOME/.claude/hooks/file-guard.sh" || false
 }
+
+@test "--update generates AGENTS.md (fresh project without one)" {
+    bash /code/install.sh "$TEST_PROJECT" --mode frontend
+    run bash /code/install.sh "$TEST_PROJECT" --update
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENTS-START" "$TEST_PROJECT/AGENTS.md"
+}
+
+@test "--update AGENTS.md idempotent (no duplicate sections)" {
+    bash /code/install.sh "$TEST_PROJECT" --mode frontend
+    bash /code/install.sh "$TEST_PROJECT" --update
+    run bash /code/install.sh "$TEST_PROJECT" --update
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'ai-dev-flow-server:AGENTS-START' "$TEST_PROJECT/AGENTS.md")" -eq 1 ]
+}
+
+@test "--update does not overwrite custom AGENTS.md (no marker)" {
+    bash /code/install.sh "$TEST_PROJECT" --mode frontend
+    echo "# my custom agents file" > "$TEST_PROJECT/AGENTS.md"
+    run bash /code/install.sh "$TEST_PROJECT" --update
+    [ "$status" -eq 0 ]
+    grep -q "my custom agents file" "$TEST_PROJECT/AGENTS.md"
+    ! grep -q "ai-dev-flow-server:AGENTS-START" "$TEST_PROJECT/AGENTS.md"
+}

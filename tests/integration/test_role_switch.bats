@@ -11,7 +11,10 @@ load /code/tests/helpers/common.bash
     grep -q "role: developer" "$TEST_PROJECT/.devflow/config.yaml"
     grep -q "developer" "$TEST_PROJECT/.claude/CLAUDE.md"
     [ ! -d "$TEST_PROJECT/_handoff" ]
-    [ ! -f "$TEST_PROJECT/AGENTS.md" ]
+    # 通用版保留、角色段删除
+    [ -f "$TEST_PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENTS-START" "$TEST_PROJECT/AGENTS.md"
+    ! grep -q "ai-dev-flow-server:AGENT-B-START" "$TEST_PROJECT/AGENTS.md"
 }
 
 @test "switch: developer → owner" {

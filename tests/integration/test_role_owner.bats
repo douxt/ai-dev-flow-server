@@ -7,7 +7,7 @@ load /code/tests/helpers/common.bash
     run bash /code/install.sh "$TEST_PROJECT" --role owner
     [ "$status" -eq 0 ]
     [ -f "$TEST_PROJECT/.claude/CLAUDE.md" ]
-    grep -q "__PROJECT__\|Gate 流程\|Issue 状态机\|计划文件管理" "$TEST_PROJECT/.claude/CLAUDE.md" || grep -q "全权" "$TEST_PROJECT/.claude/CLAUDE.md"
+    grep -q "AI Dev Flow\|阶段状态机\|计划文件管理" "$TEST_PROJECT/.claude/CLAUDE.md" || grep -q "全权" "$TEST_PROJECT/.claude/CLAUDE.md"
 }
 
 @test "owner install: no _handoff/ directory" {
@@ -15,9 +15,11 @@ load /code/tests/helpers/common.bash
     [ ! -d "$TEST_PROJECT/_handoff" ]
 }
 
-@test "owner install: no AGENTS.md" {
+@test "owner install: generic AGENTS.md without role segment" {
     bash /code/install.sh "$TEST_PROJECT" --role owner
-    [ ! -f "$TEST_PROJECT/AGENTS.md" ]
+    [ -f "$TEST_PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENTS-START" "$TEST_PROJECT/AGENTS.md"
+    ! grep -q "ai-dev-flow-server:AGENT-B-START" "$TEST_PROJECT/AGENTS.md"
 }
 
 @test "owner install: config.yaml role field set" {

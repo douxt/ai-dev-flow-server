@@ -86,18 +86,40 @@ switch_role() {
     # 3. 管理 _handoff/ 和 AGENTS.md
     local handoff="$PROJECT_DIR/_handoff"
     local agents="$PROJECT_DIR/AGENTS.md"
+    local b_start='<!-- ai-dev-flow-server:AGENT-B-START -->'
+    local b_end='<!-- ai-dev-flow-server:AGENT-B-END -->'
 
     if [ "$new_role" = "agent-b" ]; then
         mkdir -p "$handoff/outbox/agent-b" "$handoff/inbox/agent-b" "$handoff/archive"
         echo "  ✅ _handoff/ 已创建"
-        if [ ! -f "$agents" ]; then
-            local tmpl="$devflow_dir/templates/roles/agent-b/AGENTS.md"
-            if [ -f "$tmpl" ]; then
-                cp "$tmpl" "$agents"
-                sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$agents"
-                echo "  ✅ AGENTS.md 已生成"
+        if [ -f "$agents" ] && grep -q "ai-dev-flow-server:AGENTS-START" "$agents" 2>/dev/null; then
+            # 通用版已存在 → 只追加角色段（已存在则不重复）
+            if ! grep -q "ai-dev-flow-server:AGENT-B-START" "$agents" 2>/dev/null; then
+                local b_tmpl="$devflow_dir/templates/roles/agent-b/AGENTS.md"
+                if [ -f "$b_tmpl" ]; then
+                    cat "$b_tmpl" >> "$agents"
+                    echo "  ✅ AGENTS.md 角色段已追加"
+                else
+                    echo "  ⚠️  AGENTS.md 角色段模板不存在: $b_tmpl"
+                fi
             else
-                echo "  ⚠️  AGENTS.md 模板不存在: $tmpl"
+                echo "  ✅ AGENTS.md 角色段已存在"
+            fi
+        elif [ -f "$agents" ]; then
+            echo "  ⚠️  AGENTS.md 已存在但无 ai-dev-flow-server 标记（用户自定义），跳过不覆盖"
+        else
+            # 不存在 → 生成通用版 + 角色段
+            local g_tmpl="$devflow_dir/templates/AGENTS.md"
+            local b_tmpl="$devflow_dir/templates/roles/agent-b/AGENTS.md"
+            if [ -f "$g_tmpl" ]; then
+                cp "$g_tmpl" "$agents"
+                sed -i "s/__PROJECT__/$(basename "$PROJECT_DIR")/g" "$agents"
+                if [ -f "$b_tmpl" ]; then
+                    cat "$b_tmpl" >> "$agents"
+                fi
+                echo "  ✅ AGENTS.md 已生成（通用版 + 角色段）"
+            else
+                echo "  ⚠️  AGENTS.md 模板不存在: $g_tmpl"
             fi
         fi
     else
@@ -110,9 +132,14 @@ switch_role() {
             rm -rf "$handoff"
             echo "  ✅ _handoff/ 已删除"
         fi
-        if [ -f "$agents" ]; then
-            rm -f "$agents"
-            echo "  ✅ AGENTS.md 已删除"
+        # 切离 agent-b：只删角色段区间，保留通用版（不再 rm -f 整个 AGENTS.md）
+        if [ -f "$agents" ] && grep -q "ai-dev-flow-server:AGENTS-START" "$agents" 2>/dev/null; then
+            if grep -q "ai-dev-flow-server:AGENT-B-START" "$agents" 2>/dev/null; then
+                sed -i "/${b_start}/,/${b_end}/d" "$agents"
+                echo "  ✅ AGENTS.md 角色段已删除（通用版保留）"
+            fi
+        elif [ -f "$agents" ]; then
+            echo "  ⚠️  AGENTS.md 无 ai-dev-flow-server 标记（用户自定义），保留不动"
         fi
     fi
 

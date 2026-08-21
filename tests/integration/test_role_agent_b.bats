@@ -7,7 +7,7 @@ load /code/tests/helpers/common.bash
     run bash /code/install.sh "$TEST_PROJECT" --role agent-b
     [ "$status" -eq 0 ]
     [ -f "$TEST_PROJECT/.claude/CLAUDE.md" ]
-    grep -q "Gate 流程\|Issue 状态机" "$TEST_PROJECT/.claude/CLAUDE.md"
+    grep -q "AI Dev Flow\|阶段状态机" "$TEST_PROJECT/.claude/CLAUDE.md"
     grep -q "Agent B 行为边界" "$TEST_PROJECT/.claude/CLAUDE.md"
     grep -q "协作通道" "$TEST_PROJECT/.claude/CLAUDE.md"
 }
@@ -19,10 +19,12 @@ load /code/tests/helpers/common.bash
     [ -d "$TEST_PROJECT/_handoff/archive" ]
 }
 
-@test "agent-b install: AGENTS.md created" {
+@test "agent-b install: AGENTS.md created (generic + role segment)" {
     bash /code/install.sh "$TEST_PROJECT" --role agent-b
     [ -f "$TEST_PROJECT/AGENTS.md" ]
+    grep -q "ai-dev-flow-server:AGENTS-START" "$TEST_PROJECT/AGENTS.md"
     grep -q "Agent B" "$TEST_PROJECT/AGENTS.md"
+    grep -q "ai-dev-flow-server:AGENT-B-START" "$TEST_PROJECT/AGENTS.md"
 }
 
 @test "agent-b install: no hardcoded OpenLobby" {
