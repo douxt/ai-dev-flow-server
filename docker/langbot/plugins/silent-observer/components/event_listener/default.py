@@ -31,7 +31,7 @@ from service.quote import QuoteService
 from service.retrieval import RetrievalService
 from store.reflection_store import ReflectionStore
 from service.correction import CorrectionDetector
-from service.reflection import ReflectionGenerator, ReflectionInjector
+from service.reflection import ReflectionGenerator, ReflectionInjector, SelfReflectionScanner
 from store.summary_store import SummaryStore, SummaryDocument, CompressionLogStore
 from service.context_compressor import (
     split_messages, build_compression_prompt, parse_summary_response, should_compress,
@@ -125,6 +125,7 @@ class DefaultEventListener(EventListener):
         self._lock_skips = 0
         self._inject_random = 0
         self._inject_at = 0
+        self._reflection_round_count = 0  # is_trigger 轮次计数（不持久化，重启归零可接受）
         self._stats_start = time.time()
 
         # 持久化：恢复上次运行时状态
@@ -159,12 +160,14 @@ class DefaultEventListener(EventListener):
             self.correction_detector = CorrectionDetector(self.plugin, self.bot_qq, ref_model_uuid)
             self.reflection_generator = ReflectionGenerator(self.plugin, ref_model_uuid)
             self.reflection_injector = ReflectionInjector()
+            self.reflection_scanner = SelfReflectionScanner(self.plugin, ref_model_uuid)
             self._last_reply_text = {}
         else:
             self.reflection_store = None
             self.correction_detector = None
             self.reflection_generator = None
             self.reflection_injector = None
+            self.reflection_scanner = None
             self._last_reply_text = {}  # always available for save_reply cache
 
         # 运行时状态（不持久化）
@@ -267,6 +270,7 @@ class DefaultEventListener(EventListener):
                     self._log_gate_msg(f'[silent] gate: allowed ({trigger}) doc_id={doc_id}')
                 else:
                     self._log_gate_msg(f'[silent] gate: allowed ({trigger}) [no kb]')
+                self._bump_reflection_counter(session_name)  # 仅 is_trigger 计数（防 prevent_default 消息污染）
             else:
                 if self.kb_enabled:
                     doc_id = await self._save_text_only(ctx.event)
@@ -412,8 +416,11 @@ class DefaultEventListener(EventListener):
                         if trigger_mc:
                             ref_query = await self.timeline_service.extract_text(trigger_mc, max_length=200)
                         if ref_query:
-                            refs = await self.reflection_store.search_similar(ref_query, top_k=5)
+                            refs = await self.reflection_store.search_similar(ref_query, top_k=10)
                             if refs:
+                                # 护栏①：≤5 条直接注入，砍掉大部分 rerank 调用（10s 超时护栏②在 rerank 内）
+                                if len(refs) > 5:
+                                    refs = await self.reflection_generator.rerank(ref_query, refs)
                                 ref_prompt = self.reflection_injector.build_reflection_prompt(refs)
                                 if ref_prompt:
                                     ctx.event.prompt.append(
@@ -871,33 +878,68 @@ class DefaultEventListener(EventListener):
             reflection = await self.reflection_generator.generate(signal)
             if not reflection:
                 return
-            existing_id, existing, level = await self.reflection_store.find_duplicate(
-                reflection.get('scenario', ''),
-                reflection.get('mistake', ''),
-                reflection.get('entities', []),
-            )
-            if level == 'direct' and existing_id:
-                existing['confirm_count'] = existing.get('confirm_count', 0) + 1
-                existing['last_hit'] = datetime.now(BJT).isoformat()
-                existing['source_msg_ids'] = list(set(
-                    existing.get('source_msg_ids', []) + reflection.get('source_msg_ids', [])
-                ))
-                if existing['confirm_count'] >= 3 and existing.get('importance') == 'low':
-                    existing['importance'] = 'medium'
-                await self.reflection_store.update_reflection(existing_id, existing)
-                safe_log('reflection', f'merged: {existing_id} confirm={existing["confirm_count"]}')
-            elif level == 'candidate' and existing_id:
-                existing['confirm_count'] = existing.get('confirm_count', 0) + 1
-                existing['last_hit'] = datetime.now(BJT).isoformat()
-                await self.reflection_store.update_reflection(existing_id, existing)
-                safe_log('reflection', f'candidate merge: {existing_id}')
-            elif level == 'entity_link':
-                safe_log('reflection', f'entity_link: {existing.get("linked_entities", [])}')
-                await self.reflection_store.store_reflection(reflection)
-            else:
-                await self.reflection_store.store_reflection(reflection)
+            await self._persist_reflection(reflection)
         except Exception as e:
             safe_log('reflection', f'generate error: {type(e).__name__}: {str(e)[:120]}')
+
+    def _bump_reflection_counter(self, session_name: str):
+        """每 is_trigger 消息 +1，每 10 轮触发自我反思。gate 只留一行调用。"""
+        self._reflection_round_count += 1
+        if self.reflection_enabled and self._reflection_round_count % 10 == 0:
+            self._run_background(self._maybe_self_reflect(session_name))
+
+    async def _maybe_self_reflect(self, session_name: str):
+        """主动反思：扫描最近 10 条消息，发现 bot 自身错误并沉淀."""
+        try:
+            if not self.reflection_enabled or not self.reflection_store or not self.reflection_scanner:
+                return
+            # 限流必须在 scan 的 LLM 调用之前（sender 固定 'self-reflect'，10min 冷却全局生效）
+            if not await self.reflection_store.check_rate_limit(session_name, 'self-reflect'):
+                return
+            recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
+            texts = [i.get('metadata', {}).get('text', '') for i in recent if i.get('metadata', {}).get('text')]
+            if not texts:
+                return
+            reflection = await self.reflection_scanner.scan(texts)
+            if not reflection:
+                return
+            await self._persist_reflection(reflection)
+            safe_log('reflection', f'self-reflect: stored {reflection.get("scenario", "")[:40]}')
+        except Exception as e:
+            safe_log('reflection', f'self-reflect error: {type(e).__name__}: {str(e)[:120]}')
+
+    async def _persist_reflection(self, reflection: dict):
+        """去重/合并/存储共享路径（纠正 + self-reflect 两条管线复用）."""
+        existing_id, existing, level = await self.reflection_store.find_duplicate(
+            reflection.get('scenario', ''),
+            reflection.get('mistake', ''),
+            reflection.get('entities', []),
+        )
+        if level == 'direct' and existing_id:
+            existing['confirm_count'] = existing.get('confirm_count', 0) + 1
+            existing['last_hit'] = datetime.now(BJT).isoformat()
+            existing['source_msg_ids'] = list(set(
+                existing.get('source_msg_ids', []) + reflection.get('source_msg_ids', [])
+            ))
+            if existing['confirm_count'] >= 3 and existing.get('importance') == 'low':
+                existing['importance'] = 'medium'
+            # when/then backfill：新字段随合并扩散到旧记录
+            existing.setdefault('when', reflection.get('when'))
+            existing.setdefault('then', reflection.get('then'))
+            await self.reflection_store.update_reflection(existing_id, existing)
+            safe_log('reflection', f'merged: {existing_id} confirm={existing["confirm_count"]}')
+        elif level == 'candidate' and existing_id:
+            existing['confirm_count'] = existing.get('confirm_count', 0) + 1
+            existing['last_hit'] = datetime.now(BJT).isoformat()
+            existing.setdefault('when', reflection.get('when'))
+            existing.setdefault('then', reflection.get('then'))
+            await self.reflection_store.update_reflection(existing_id, existing)
+            safe_log('reflection', f'candidate merge: {existing_id}')
+        elif level == 'entity_link':
+            safe_log('reflection', f'entity_link: {existing.get("linked_entities", [])}')
+            await self.reflection_store.store_reflection(reflection)
+        else:
+            await self.reflection_store.store_reflection(reflection)
 
     async def _reflection_decay_loop(self):
         """每日衰减扫描（30天降权/90天归档）."""

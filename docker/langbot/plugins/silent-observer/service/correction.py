@@ -15,6 +15,7 @@ class CorrectionSignal:
     session_name: str
     user_text: str
     bot_last_reply: str
+    raw_user_text: str = ""  # 重写前原文（日志审计，防 LLM 幻觉扩写）
     error_type: str = ""
     confidence: float = 0.0
     source_msg_id: str = ""
@@ -46,6 +47,16 @@ Bot 上次回复: {bot_reply}
 
 用户是否在指出 bot 的回答有误？（YES/NO）"""
 
+    # 话语重写 prompt：补全省略/指代（省略句"不对，你搞错了"无指代，直接判断漏检 ~95%）
+    REWRITE_PROMPT = """以下是 bot 的回复和用户对它的反应。
+若用户消息省略了内容或用代词指代，请补全为完整的纠正句。
+若无省略（本身就是完整句），原样返回。
+
+Bot 回复: {bot_reply}
+用户消息: {user_msg}
+
+只输出补全后的用户消息本身，不要解释。"""
+
     def __init__(self, plugin, bot_qq: str = "", llm_model_uuid: str = ""):
         self._plugin = plugin
         self.bot_qq = bot_qq
@@ -72,7 +83,7 @@ Bot 上次回复: {bot_reply}
             return True, 0.7
         return False, 0.0
 
-    async def _stage2_confirm(self, user_text: str, bot_reply: str) -> bool:
+    async def _stage2_confirm(self, user_text: str, bot_reply: str, confidence: float = 0.0) -> bool:
         """LLM 确认——过滤日常否定（如"不对，你说的那个是旧版本"这类对第三方说的话）."""
         prompt = self.CONFIRM_PROMPT.format(
             bot_reply=bot_reply[:500],
@@ -91,8 +102,33 @@ Bot 上次回复: {bot_reply}
             return text.strip().upper().startswith('YES')
         except Exception as e:
             safe_log('reflection', f'stage2 confirm error: {e}')
-            # 降级：LLM 不可用时信任关键词（高置信度才过）
-            return False
+            # 降级：LLM 不可用时信任高置信度关键词（0.9 直击词），否则丢弃
+            return confidence >= 0.9
+
+    async def _rewrite_utterance(self, user_text: str, bot_reply: str) -> str:
+        """LLM 补全省略/指代。失败/空串/变短 → 原样返回（防幻觉截断）."""
+        prompt = self.REWRITE_PROMPT.format(
+            bot_reply=bot_reply[:500],
+            user_msg=user_text[:300],
+        )
+        try:
+            from langbot_plugin.api.entities.builtin.provider.message import Message
+            resp = await asyncio.wait_for(
+                self._plugin.invoke_llm(
+                    llm_model_uuid=self._llm_model_uuid,
+                    messages=[Message(role='user', content=prompt)],
+                ),
+                timeout=_LLM_CONFIRM_TIMEOUT,
+            )
+            text = self._extract_llm_text(resp).strip()
+            if text and len(text) >= len(user_text):
+                safe_log('reflection', f'rewrite: "{user_text[:30]}" → "{text[:60]}"')
+                return text
+            safe_log('reflection', f'rewrite: invalid result, keep original: "{user_text[:30]}"')
+            return user_text
+        except Exception as e:
+            safe_log('reflection', f'rewrite error: {e}')
+            return user_text
 
     @staticmethod
     def _extract_llm_text(resp) -> str:
@@ -123,15 +159,21 @@ Bot 上次回复: {bot_reply}
         if not matched:
             return None
 
-        # 阶段2：LLM 确认
-        is_correction = await self._stage2_confirm(user_text, bot_last_reply)
+        # 阶段2：先重写补全省略/指代，再 LLM 确认（stage1 命中即重写）
+        rewritten = await self._rewrite_utterance(user_text, bot_last_reply)
+        is_correction = await self._stage2_confirm(rewritten, bot_last_reply, confidence)
+        # 降级链：重写句被拒 → 原文再试一次（仅重写有变化时，一次额外调用）
+        if not is_correction and rewritten != user_text:
+            is_correction = await self._stage2_confirm(user_text, bot_last_reply, confidence)
         if not is_correction:
             safe_log('reflection', f'stage2 filtered: "{user_text[:60]}"')
             return None
 
+        signal_text = rewritten or user_text
         return CorrectionSignal(
             session_name=session_name,
-            user_text=user_text,
+            user_text=signal_text,
+            raw_user_text=user_text,
             bot_last_reply=bot_last_reply,
             confidence=confidence,
             context_messages=recent_messages[-5:] if recent_messages else [],

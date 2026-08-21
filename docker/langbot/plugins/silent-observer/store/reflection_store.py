@@ -96,9 +96,10 @@ class ReflectionStore:
                     'distance': entry.get('distance', 99),
                 })
             # 按 importance 排序：high > medium > low
+            # ⚠️ 不再硬截断 top-3——P1.3 返回完整 top_k 交 LLM rerank 精选
             imp_order = {'high': 0, 'medium': 1, 'low': 2}
             results.sort(key=lambda x: imp_order.get(x.get('metadata', {}).get('importance', 'low'), 2))
-            return results[:3]
+            return results
         except Exception as e:
             safe_log('reflection', f'search error: {e}')
             return []
