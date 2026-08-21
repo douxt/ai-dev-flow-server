@@ -4,6 +4,7 @@
 # 部署：ai-dev-flow-server --update 自动部署到 .devflow/scripts/
 #
 # 与 test-gate.sh（RED 侧）互补——test-gate 查"测试写对了吗"，green-gate 查"实现写对了吗"
+# G2.4 消费 .devflow/config.yaml 的 lint_command（RED 阶段实现未完成，lint 只放 GREEN 侧）
 
 set -euo pipefail
 
@@ -62,6 +63,30 @@ if [ -n "$SKIP_ONLY" ]; then
     WARN=1
 else
     echo "✅ 零命中"
+fi
+
+# ── G2.4: lint 检查（消费 config.yaml lint_command）──
+echo ""
+echo "--- G2.4: lint 检查 ---"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+CONFIG_YAML="$SCRIPT_DIR/../config.yaml"
+LINT_CMD=""
+if [ -f "$CONFIG_YAML" ]; then
+    LINT_CMD=$(grep -E '^[[:space:]]*lint_command:' "$CONFIG_YAML" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*//;s/[[:space:]]*$//' || true)
+fi
+if [ -z "$LINT_CMD" ]; then
+    echo "⚠️  config.yaml 未配置 lint_command，跳过（可配置为如 'go vet ./...' / 'npm run lint'）"
+elif command -v "${LINT_CMD%% *}" >/dev/null 2>&1; then
+    echo "  执行: $LINT_CMD"
+    if ! $LINT_CMD; then
+        echo "❌ lint 失败——实现未通过静态检查"
+        WARN=1
+    else
+        echo "✅ lint 通过"
+    fi
+else
+    echo "❌ lint 命令 '${LINT_CMD%% *}' 不存在（当前目录 $(pwd)）——检查 config.yaml lint_command 或执行目录"
+    WARN=1
 fi
 
 # ── 结果 ──
