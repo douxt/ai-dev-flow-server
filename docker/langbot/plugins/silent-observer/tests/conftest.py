@@ -48,9 +48,18 @@ class FakeForwardNode(SimpleNamespace):
 
 def _build_sdk_mock():
     """构建 langbot_plugin.api 的 mock 模块树。只覆盖 default.py 实际导入的路径。"""
+    _registered = []
+
+    def _handler_deco(evt):
+        def _wrap(f):
+            _registered.append((evt, f))
+            return f
+        return _wrap
+
     MockEventListener = type('EventListener', (), {
         'initialize': AsyncMock(),
-        'handler': MagicMock(return_value=lambda f: f),
+        'handler': MagicMock(side_effect=_handler_deco),
+        '_registered': _registered,
     })
 
     MockMessageChain = MagicMock()
@@ -92,7 +101,8 @@ def _build_sdk_mock():
     entities = _pkg('langbot_plugin.api.entities',
         events=SimpleNamespace(GroupMessageReceived='group_message',
                                NormalMessageResponded='normal_message_responded',
-                               PersonNormalMessageReceived='person_normal'),
+                               PersonNormalMessageReceived='person_normal',
+                               PromptPreProcessing='prompt_preprocessing'),
         context=SimpleNamespace(EventContext=SimpleNamespace),
         builtin=builtin)
 
@@ -206,7 +216,16 @@ def listener(monkeypatch):
     obj._lock_skips = 0
     obj._inject_random = 0
     obj._inject_at = 0
+    obj._reflection_round_count = 0
     obj._stats_start = 0
+    # 反思层（默认关闭，防 AttributeError）
+    obj.reflection_enabled = False
+    obj.reflection_store = None
+    obj.correction_detector = None
+    obj.reflection_generator = None
+    obj.reflection_injector = None
+    obj.reflection_scanner = None
+    obj._last_reply_text = {}
     # 服务层
     obj.vision_model_uuid = ''
     _mock_plugin = MagicMock()
@@ -232,3 +251,166 @@ def listener(monkeypatch):
     from store import StateStore
     obj._state_store = StateStore(_mock_plugin)
     return obj
+
+
+# ============================================================
+# P1 对话成熟度 fixtures
+# ============================================================
+
+@pytest.fixture
+def log_dir(monkeypatch, tmp_path):
+    """重定向 safe_log 到 tmp（断言日志内容用）"""
+    import util.logs
+    monkeypatch.setattr(util.logs, '_log_dir', str(tmp_path))
+    return tmp_path
+
+
+@pytest.fixture
+def scripted_llm():
+    """invoke_llm side_effect 序列助手：scripted_llm(listener, [resp, ...])"""
+    def _apply(listener, responses):
+        listener.plugin.invoke_llm = AsyncMock(side_effect=responses)
+        return listener.plugin.invoke_llm
+    return _apply
+
+
+@pytest.fixture
+def reflection_store():
+    """真实 ReflectionStore + mock plugin（4 个 vector API 全 AsyncMock）"""
+    plugin = MagicMock()
+    plugin.invoke_embedding = AsyncMock(return_value=[[0.1] * 384])
+    plugin.vector_search = AsyncMock(return_value=[])
+    plugin.vector_upsert = AsyncMock()
+    plugin.vector_list = AsyncMock(return_value={'items': []})
+    from store.reflection_store import ReflectionStore
+    return ReflectionStore(plugin, 'emb1'), plugin
+
+
+@pytest.fixture
+def reflection_listener(monkeypatch):
+    """开启反思层、不跑 initialize 的 listener（__new__ 构造，服务全 mock）"""
+    import asyncio
+    from components.event_listener.default import DefaultEventListener
+    obj = DefaultEventListener.__new__(DefaultEventListener)
+
+    obj.bot_qq = '3228649756'
+    obj.prob = 0.01
+    obj.kb_enabled = True
+    obj.kb_id = 'kb1'
+    obj.vision_enabled = False
+    obj.reflection_enabled = True
+    obj.history_count = 20
+    obj.timeline_max_chars = 2000
+    obj.vision_max_images = 5
+    obj.debug_dump = False
+    obj.vision_all_messages = False
+    obj.compressor_enabled = False
+    obj.summary_store = None
+    obj._gate_hits = 0
+    obj._gate_misses = 0
+    obj._lock_skips = 0
+    obj._inject_random = 0
+    obj._inject_at = 0
+    obj._reflection_round_count = 0
+    obj._stats_start = 0
+
+    obj._bg_queue = asyncio.Queue()
+    obj._bg_workers = []
+    obj._last_trigger = {}
+    obj._lock_set_ts = {}
+    obj._reply_ts = {}
+    obj._reply_pending = {}
+    obj._reply_tasks = {}
+    obj._face_cache = {}
+    obj._image_cache = {}
+    obj._last_msg_ts = {}
+    obj._last_reply_text = {'group_t': '之前的回复内容'}
+
+    plugin = MagicMock()
+    plugin.invoke_llm = AsyncMock(return_value='')
+    plugin.invoke_embedding = AsyncMock(return_value=[[0.1] * 384])
+    plugin.vector_search = AsyncMock(return_value=[])
+    plugin.vector_upsert = AsyncMock()
+    plugin.vector_list = AsyncMock(return_value={'items': []})
+    plugin.set_plugin_storage = AsyncMock()
+    plugin.get_plugin_storage = AsyncMock(return_value=None)
+    plugin.plugin_runtime_handler = MagicMock()
+    obj.plugin = plugin
+
+    obj.store = MagicMock()
+    obj.store.get_recent_messages = AsyncMock(return_value=[])
+    obj.retrieval_service = None
+    from service.timeline import TimelineService
+    obj.timeline_service = TimelineService(obj.timeline_max_chars, obj.history_count)
+    from service.quote import QuoteService
+    obj.quote_service = QuoteService(obj.timeline_service.extract_text)
+    from store import StateStore
+    obj._state_store = StateStore(plugin)
+
+    from store.reflection_store import ReflectionStore
+    obj.reflection_store = ReflectionStore(plugin, 'emb1')
+    from service.correction import CorrectionDetector
+    obj.correction_detector = CorrectionDetector(plugin, obj.bot_qq, 'ref1')
+    from service.reflection import ReflectionGenerator, ReflectionInjector, SelfReflectionScanner
+    obj.reflection_generator = ReflectionGenerator(plugin, 'ref1')
+    obj.reflection_injector = ReflectionInjector()
+    obj.reflection_scanner = SelfReflectionScanner(plugin, 'ref1')
+
+    # QueryBasedAPIProxy mock（inject 路径）
+    mock_api_cls = MagicMock()
+    api_instance = mock_api_cls.return_value
+    api_instance.get_query_vars = AsyncMock(return_value={'user_message_text': '问题', 'sender_id': 'u1'})
+    monkeypatch.setattr('components.event_listener.default.QueryBasedAPIProxy', mock_api_cls)
+
+    return obj
+
+
+@pytest.fixture
+async def init_listener(monkeypatch, tmp_path):
+    """完整 initialize 的 listener（inject 路径真实 handler 测试用）。返回 (listener, plugin)."""
+    import sys as _sys
+    import asyncio
+    if 'components.event_listener.default' in _sys.modules:
+        del _sys.modules['components.event_listener.default']
+    monkeypatch.setattr('components.event_listener.default._DB_PATH', str(tmp_path / 'chat.db'))
+
+    from components.event_listener.default import DefaultEventListener
+    plugin = MagicMock()
+    plugin.get_config = MagicMock(return_value={
+        'bot_qq': '3228649756', 'reply_probability': 0.01,
+        'kb_id': 'kb1', 'embedding_model_uuid': 'emb1',
+        'reflection_enabled': True, 'reflection_model_uuid': 'ref1',
+        'vision_enabled': False, 'compression_enabled': False,
+        'debug_dump': False, 'history_count': 20, 'timeline_max_chars': 2000,
+    })
+    plugin.invoke_llm = AsyncMock(return_value='')
+    plugin.invoke_embedding = AsyncMock(return_value=[[0.1] * 384])
+    plugin.vector_search = AsyncMock(return_value=[])
+    plugin.vector_upsert = AsyncMock()
+    plugin.vector_list = AsyncMock(return_value={'items': []})
+    plugin.set_plugin_storage = AsyncMock()
+    plugin.get_plugin_storage = AsyncMock(return_value=None)
+    plugin.plugin_runtime_handler = MagicMock()
+
+    # QueryBasedAPIProxy mock（inject 路径创建实例并调 get_query_vars）
+    mock_api_cls = MagicMock()
+    api_instance = mock_api_cls.return_value
+    api_instance.get_query_vars = AsyncMock(return_value={'user_message_text': '问题', 'sender_id': 'u1'})
+    monkeypatch.setattr('components.event_listener.default.QueryBasedAPIProxy', mock_api_cls)
+
+    listener = DefaultEventListener()
+    listener.plugin = plugin
+    await listener.initialize()
+
+    def _get_handler(evt_type):
+        from langbot_plugin.api.definition.components.common.event_listener import EventListener
+        return next(f for t, f in EventListener._registered if t == evt_type)
+
+    yield listener, plugin, _get_handler
+
+    # 清理所有后台任务，避免泄漏
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
