@@ -5,7 +5,7 @@
 
 ## 1. 项目身份
 
-- 技术栈：<按项目实际填写>
+- 技术栈：__STACK_TAGS__（install.sh 从 .devflow/config.yaml tech_stack.tags 注入；未配置时留占位）
 - 关键路径：
   - `.devflow/` — DevFlow 管线（scripts/ gate 命令、knowledge/ 质量宪法、templates/ 角色模板）
   - `issues/` — ticket 与 spec（开发任务入口）

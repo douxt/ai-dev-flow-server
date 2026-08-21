@@ -113,6 +113,15 @@ ensure_gitignore() {
     fi
 }
 
+agents_stack_tags() {
+    # 从 config.yaml 提取 tech_stack.tags（用于 AGENTS.md 技术栈行），无则空
+    local tags=""
+    if [ -f "$TARGET/.devflow/config.yaml" ]; then
+        tags=$(grep -A3 '^tech_stack:' "$TARGET/.devflow/config.yaml" 2>/dev/null | grep '^[[:space:]]*tags:' | head -1 | sed 's/.*tags:[[:space:]]*//' | tr -d '"' || echo "")
+    fi
+    echo "$tags"
+}
+
 install_wt() {
     [ -x "$HOME/.local/bin/wt" ] && return 0
     local repo="https://raw.githubusercontent.com/douxt/wt/v1.1.1"
@@ -482,9 +491,11 @@ if [ "$UPDATE_MODE" = true ]; then
             echo "  [update] skip AGENTS.md — symlink，跳过（不覆盖用户链接）"
         elif [ -f "$AGENTS_MD" ]; then
             if grep -q 'ai-dev-flow-server:AGENTS-START' "$AGENTS_MD" 2>/dev/null; then
-                # 模板含 __PROJECT__，先替换再追加（临时文件避免直接改源模板）
+                # 模板含 __PROJECT__/__STACK_TAGS__，先替换再追加（临时文件避免直接改源模板）
                 AGENTS_TMP_COMBINED="${AGENTS_MD}.devflow-agents"
                 sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_TMPL" > "$AGENTS_TMP_COMBINED"
+                STACK_TAGS=$(agents_stack_tags)
+                [ -n "$STACK_TAGS" ] && sed -i "s/__STACK_TAGS__/${STACK_TAGS}/g" "$AGENTS_TMP_COMBINED"
                 # agent-b 角色追加角色段
                 if [ "$ROLE" = "agent-b" ]; then
                     AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
@@ -504,6 +515,8 @@ if [ "$UPDATE_MODE" = true ]; then
                 echo "  [DRY-RUN] 生成 AGENTS.md"
             else
                 sed "s/__PROJECT__/${PROJECT}/g" "$AGENTS_TMPL" > "$AGENTS_MD"
+                STACK_TAGS=$(agents_stack_tags)
+                [ -n "$STACK_TAGS" ] && sed -i "s/__STACK_TAGS__/${STACK_TAGS}/g" "$AGENTS_MD"
                 if [ "$ROLE" = "agent-b" ]; then
                     AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
                     if [ -f "$AGENTS_B_TMPL" ]; then
@@ -1086,6 +1099,9 @@ else
         if [ -f "$AGENTS_TMPL" ]; then
             cp "$AGENTS_TMPL" "$AGENTS_MD"
             sed -i "s/__PROJECT__/${PROJECT}/g" "$AGENTS_MD"
+            # 技术栈 tags 注入（config.yaml tech_stack.tags；无则保留占位）
+            STACK_TAGS=$(agents_stack_tags)
+            [ -n "$STACK_TAGS" ] && sed -i "s/__STACK_TAGS__/${STACK_TAGS}/g" "$AGENTS_MD"
             # agent-b 角色追加角色段（带标记区间，模板源含 __PROJECT__）
             if [ "$ROLE" = "agent-b" ]; then
                 AGENTS_B_TMPL="$SOURCE/templates/roles/agent-b/AGENTS.md"
