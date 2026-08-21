@@ -161,15 +161,18 @@ Bot 回复: {bot_reply}
 
         # 阶段2：先重写补全省略/指代，再 LLM 确认（stage1 命中即重写）
         rewritten = await self._rewrite_utterance(user_text, bot_last_reply)
+        passed_text = rewritten or user_text
         is_correction = await self._stage2_confirm(rewritten, bot_last_reply, confidence)
         # 降级链：重写句被拒 → 原文再试一次（仅重写有变化时，一次额外调用）
         if not is_correction and rewritten != user_text:
             is_correction = await self._stage2_confirm(user_text, bot_last_reply, confidence)
+            if is_correction:
+                passed_text = user_text  # 原文通过 → 用原文
         if not is_correction:
             safe_log('reflection', f'stage2 filtered: "{user_text[:60]}"')
             return None
 
-        signal_text = rewritten or user_text
+        signal_text = passed_text
         return CorrectionSignal(
             session_name=session_name,
             user_text=signal_text,
