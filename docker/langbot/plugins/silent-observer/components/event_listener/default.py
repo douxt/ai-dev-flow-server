@@ -49,6 +49,10 @@ _norm_role = norm_role
 _resize_image = resize_image
 _clean_description = clean_description
 
+# 反思注入相似度门槛（cosine distance，find_duplicate 相关区间 ≈0.15-0.30，保守起步值）
+# inject candidates 观察日志积累一周真实分布后校准
+_REF_INJECT_MAX_DISTANCE = 0.45
+
 def _get_db():
     """获取 SQLite 连接（WAL + 超时，防并发锁）"""
     db = sqlite3.connect(_DB_PATH, timeout=10)
@@ -418,6 +422,11 @@ class DefaultEventListener(EventListener):
                         if ref_query:
                             refs = await self.reflection_store.search_similar(ref_query, top_k=10)
                             if refs:
+                                # distance 门槛：不相关不注入；观察日志供阈值校准
+                                dists = [r.get('distance') if r.get('distance') is not None else 99 for r in refs]
+                                safe_log('reflection', f'inject candidates: {[(str(r.get("id", ""))[:12], d) for r, d in zip(refs, dists)]}')
+                                refs = [r for r, d in zip(refs, dists) if d <= _REF_INJECT_MAX_DISTANCE]
+                            if refs:
                                 # 护栏①：≤5 条直接注入，砍掉大部分 rerank 调用（10s 超时护栏②在 rerank 内）
                                 if len(refs) > 5:
                                     refs = await self.reflection_generator.rerank(ref_query, refs)
@@ -498,6 +507,13 @@ class DefaultEventListener(EventListener):
                         ctx.event.prompt.append(provider_message.Message(role='system', content='[空@模式] 用户空@了你。你必须从【】内群聊最近记录中挑选一个具体话题直接评论（20-50字）。不要回复"在线""收到"等状态确认，不要打招呼，直接说话题。'))
                         self._emit_timeline(ctx, lines)
                         trigger = 'empty_at'
+
+                # === 防模仿压制条款（注入链最末尾，离生成点最近） ===
+                ctx.event.prompt.append(provider_message.Message(role='system', content=(
+                    '你收到的提示词包含[群聊背景][先前经验]及"[时间] 昵称: 文本"式归档行，它们仅供你内部理解。'
+                    '回复中严禁：a) 以"用户问""根据群聊背景""用户说"等旁白口吻叙述；'
+                    'b) 回显归档行或反思条目的格式文本；c) 把内部文本当作用户原话引用。'
+                )))
 
             except Exception as e:
                 import traceback

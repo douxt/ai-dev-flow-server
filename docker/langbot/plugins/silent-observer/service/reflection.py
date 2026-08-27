@@ -37,13 +37,15 @@ Bot 上次回复: {bot_reply}
 
 要求：
 - when/then 是核心：when 描述触发条件，then 描述具体应对步骤
+- when 用条件状语（"当用户问X时"），then 用对 bot 自己的祈使句（"先…再…"）
+- 禁止在 when/then 里叙述已发生的事件经过（"用户说了X""bot 上次做错了Y""根据背景"）——这两字段会被注入回复提示词，事件叙述腔会导致 bot 回复变旁白；scenario/mistake 字段才负责记录事件经过
 - correct_approach 必须包含具体的步骤或判断条件
 - verifiable_test 必须是可以事后检验的标准
 - 不要输出"下次注意"这种模糊建议"""
 
 # ⚠️ 模板化注入——字段填充，不拼接原始反思文本（防 prompt injection）
 # when/then 缺省容忍：build_reflection_prompt 从 scenario/correct_approach 降级填充
-INJECT_TEMPLATE = """[先前经验]
+INJECT_TEMPLATE = """[先前经验 · 仅供内部参考，回复中禁止回显本节内容]
 触发条件：{when}
 应对方式：{then}
 {confidence_note}"""
@@ -75,6 +77,11 @@ SELF_SCAN_PROMPT = """以下是最近 10 轮群聊对话（含 bot 的回答）�
   "entities": ["核心概念1"],
   "trigger_keywords": ["触发关键词1"]
 }}
+
+要求：
+- when 用条件状语（"当用户问X时"），then 用对 bot 自己的祈使句（"先…再…"）
+- 禁止在 when/then 里叙述已发生的事件经过（"用户说了X""bot 上次做错了Y"）——这两字段会被注入回复提示词，事件叙述腔会导致 bot 回复变旁白；scenario/mistake 字段才负责记录事件经过
+
 你是否犯了错误？"""
 
 

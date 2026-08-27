@@ -144,15 +144,24 @@ class ReflectionStore:
             safe_log('reflection', f'store error: {e}')
             return ""
 
+    async def _embed(self, text: str) -> list[list[float]]:
+        """重算单条文本 embedding（upsert 必填 vectors，list_by_filter 不回传向量）."""
+        return await asyncio.wait_for(
+            self._plugin.invoke_embedding(self.embedding_model_uuid, [text]),
+            timeout=_API_TIMEOUT,
+        )
+
     async def update_reflection(self, doc_id: str, reflection: dict):
         """更新已有反思（confirm_count 递增等）."""
         text = json.dumps(reflection, ensure_ascii=False)
         metadata = self._sanitize_metadata({**reflection, "type": "reflection"})
         try:
             async with self._api_sem:
+                vectors = await self._embed(text)
                 await asyncio.wait_for(
                     self._plugin.vector_upsert(
                         collection_id=REFLECTION_COLLECTION,
+                        vectors=vectors,
                         ids=[doc_id],
                         metadata=[metadata],
                         documents=[text],
@@ -269,12 +278,14 @@ class ReflectionStore:
             meta = items[0].get('metadata', {})
             meta['archived'] = True
             meta['archived_at'] = datetime.now(BJT).isoformat()
-            text = json.dumps(meta, ensure_ascii=False)
+            text = items[0].get('document') or json.dumps(meta, ensure_ascii=False)
+            vectors = await self._embed(text)
             await asyncio.wait_for(
                 self._plugin.vector_upsert(
                     collection_id=REFLECTION_COLLECTION,
+                    vectors=vectors,
                     ids=[doc_id],
-                    metadata=[meta],
+                    metadata=[self._sanitize_metadata({**meta, "type": "reflection"})],
                     documents=[text],
                 ),
                 timeout=_API_TIMEOUT,
