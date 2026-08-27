@@ -53,6 +53,9 @@ _clean_description = clean_description
 # inject candidates 观察日志积累一周真实分布后校准
 _REF_INJECT_MAX_DISTANCE = 0.45
 
+# 事件日志路径（测试 monkeypatch 用，生产默认 /tmp）
+_EVENT_LOG = os.environ.get('SILENT_EVENT_LOG', '/tmp/silent_event.log')
+
 def _get_db():
     """获取 SQLite 连接（WAL + 超时，防并发锁）"""
     db = sqlite3.connect(_DB_PATH, timeout=10)
@@ -670,7 +673,7 @@ class DefaultEventListener(EventListener):
         self._last_msg_ts[session] = now
         extras = ' '.join(f'{k}={v}' for k, v in kwargs.items())
         try:
-            with open('/tmp/silent_event.log', 'a') as f:
+            with open(_EVENT_LOG, 'a') as f:
                 f.write(f'{now:.3f} {session} {kind}{gap} {extras}\n')
         except:
             pass

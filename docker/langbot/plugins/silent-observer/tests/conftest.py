@@ -287,9 +287,13 @@ def reflection_store():
 
 
 @pytest.fixture
-def reflection_listener(monkeypatch):
+def reflection_listener(monkeypatch, tmp_path):
     """开启反思层、不跑 initialize 的 listener（__new__ 构造，服务全 mock）"""
     import asyncio
+    import util.logs
+    import components.event_listener.default as _defmod
+    monkeypatch.setattr(util.logs, '_log_dir', str(tmp_path))
+    monkeypatch.setattr(_defmod, '_EVENT_LOG', str(tmp_path / 'event.log'))
     from components.event_listener.default import DefaultEventListener
     obj = DefaultEventListener.__new__(DefaultEventListener)
 
@@ -373,6 +377,10 @@ async def init_listener(monkeypatch, tmp_path):
     if 'components.event_listener.default' in _sys.modules:
         del _sys.modules['components.event_listener.default']
     monkeypatch.setattr('components.event_listener.default._DB_PATH', str(tmp_path / 'chat.db'))
+    # 日志隔离：防止测试 hit/inject/safe_log 写生产 /tmp 日志污染冒烟统计
+    import util.logs
+    monkeypatch.setattr(util.logs, '_log_dir', str(tmp_path))
+    monkeypatch.setattr('components.event_listener.default._EVENT_LOG', str(tmp_path / 'event.log'))
 
     from components.event_listener.default import DefaultEventListener
     plugin = MagicMock()

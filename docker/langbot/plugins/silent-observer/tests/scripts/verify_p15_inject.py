@@ -69,8 +69,9 @@ def last_raw_prompt():
 
 
 def wait_inject(t0_inject, timeout=90):
+    needle = f'group_{SESSION} inject '
     for _ in range(timeout // 3):
-        if count(EVENT_LOG, " inject ") > t0_inject:
+        if count(EVENT_LOG, needle) > t0_inject:
             return True
         time.sleep(3)
     return False
@@ -78,12 +79,13 @@ def wait_inject(t0_inject, timeout=90):
 
 def main():
     fails = []
-    # ── 预检：积压 ──
-    hit, inj = count(EVENT_LOG, " hit "), count(EVENT_LOG, " inject ")
+    # ── 预检：积压（口径限定目标群，group_t 等测试行不入账）──
+    scope = f"group_{SESSION}"
+    hit, inj = count(EVENT_LOG, f'{scope} hit '), count(EVENT_LOG, f'{scope} inject ')
     if hit - inj >= 10:
-        print(f'PREFLIGHT FAIL: /sync 积压 {hit - inj} 条（hit={hit} inject={inj}），改期再跑')
+        print(f'PREFLIGHT FAIL: {scope} 积压 {hit - inj} 条（hit={hit} inject={inj}），改期再跑')
         sys.exit(2)
-    print(f'preflight ok: backlog={hit - inj}')
+    print(f'preflight ok: {scope} backlog={hit - inj} (hit={hit} inject={inj})')
 
     t0_inject = inj
     t0_cand = count(REFLECTION_LOG, "inject candidates:")
@@ -126,7 +128,7 @@ def main():
         print("    (反思未召回或 inject 未走到检索段——清理后属正常，持续观察)")
 
     # ── (d) 相近问题注入头注（库空则 SKIP）──
-    t0_inject2 = count(EVENT_LOG, " inject ")
+    t0_inject2 = count(EVENT_LOG, f'group_{SESSION} inject ')
     resp = send_sync("之前聊过的电机选型，断路器多大合适来着？")
     print(f"sync#2: {'ok' if not resp.get('error') else resp['error']}")
     wait_inject(t0_inject2)
