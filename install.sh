@@ -25,6 +25,50 @@ ROLE_SET=false
 # ── 函数定义 ──
 dry_run() { if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] $*"; else eval "$@"; fi; }
 
+# 备份统计（.bak 轮换，2026-08-27 缺陷报告：时间戳备份永不清理累积近 1000 个）
+BAK_CREATED=0
+BAK_ROTATED=0
+
+# 文件级 .bak 轮换：同 target 只留最新 1 份
+rotate_file_bak() {
+    local dst="$1" stale n
+    stale=$(find "$(dirname "$dst")" -maxdepth 1 -name "$(basename "$dst").bak-*" 2>/dev/null || true)
+    if [ -n "$stale" ]; then
+        n=$(printf '%s\n' "$stale" | wc -l)
+        [ "$DRY_RUN" = true ] || rm -rf $stale
+        BAK_ROTATED=$((BAK_ROTATED + n))
+    fi
+}
+
+# 目录级 skill 备份：备份放 skills/ 外（CC 会把 skills/ 下含 SKILL.md 的子目录当真实 skill 加载，
+# .skill-backups 也必须在扫描根外——放 ~/.claude/ 层）；旧式遗留在 skills/ 内的 .bak-* 一并迁出
+rotate_skill_bak() {
+    local skills_dir="$1" name="$2" dst="$3"
+    local bk_dir="$(dirname "$skills_dir")/.skill-backups"
+    dry_run "mkdir -p $bk_dir"
+    # 迁移 skills/ 内旧式 ${name}.bak-*（含更早版本残留）→ .skill-backups/
+    local old
+    for old in $(find "$skills_dir" -maxdepth 1 -name "${name}.bak-*" 2>/dev/null || true); do
+        [ -e "$old" ] || continue
+        if [ "$DRY_RUN" = false ]; then
+            mv "$old" "$bk_dir/" 2>/dev/null || rm -rf "$old"
+        fi
+        BAK_ROTATED=$((BAK_ROTATED + 1))
+    done
+    # .skill-backups 内同前缀只留最新 1
+    local stale n
+    stale=$(find "$bk_dir" -maxdepth 1 -name "${name}.bak-*" 2>/dev/null || true)
+    if [ -n "$stale" ]; then
+        n=$(printf '%s\n' "$stale" | wc -l)
+        [ "$DRY_RUN" = true ] || rm -rf $stale
+        BAK_ROTATED=$((BAK_ROTATED + n))
+    fi
+    local bak="$bk_dir/${name}.bak-$(date +%Y%m%d-%H%M%S)"
+    dry_run "mv $dst $bak"
+    BAK_CREATED=$((BAK_CREATED + 1))
+    echo "  [update] backup: $name → .skill-backups/$(basename "$bak")"
+}
+
 maybe_cp() {
     local src="$1" dst="$2"
     if [ "$DRY_RUN" = true ]; then echo "  [DRY-RUN] cp $(basename "$src") → $dst"; return 0; fi
@@ -121,6 +165,7 @@ selftest_hooks() {
     command -v jq >/dev/null 2>&1 || { echo "  ⚠️  hook 自检跳过（jq 缺失）"; return 0; }
     local st_dir sid st_pass=0 st_fail=0 st_skip=0
     st_dir=$(mktemp -d); sid="selftest-$$"
+    mkdir -p "$st_dir/.devflow"   # workflow-gate 前置：仅在有 .devflow/ 的工作区生效
     _st() {  # _st <script> <期望exit> <json>
         local script="$1" want="$2" json="$3" rc=0
         [ -f "$hooks_dir/$script" ] || { echo "  ⚠️  自检 SKIP: $script 未部署"; st_skip=$((st_skip+1)); return; }
@@ -347,10 +392,12 @@ if [ "$UPDATE_MODE" = true ]; then
             return 0
         fi
         dry_run "mkdir -p $(dirname "$dst")"
-        # 目标已存在且内容不同 → 备份
+        # 目标已存在且内容不同 → 备份（先轮换：同 target 只留最新 1 份，防 .bak-<ts> 无限累积）
         if [ -f "$dst" ] && ! cmp -s "$src" "$dst" 2>/dev/null; then
+            rotate_file_bak "$dst"
             local bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
             dry_run "cp $dst $bak"
+            BAK_CREATED=$((BAK_CREATED + 1))
             echo "  [backup] $(basename "$dst") → $(basename "$bak")"
         fi
         dry_run "cp -f $src $dst"
@@ -452,9 +499,7 @@ if [ "$UPDATE_MODE" = true ]; then
             [[ "$skill_name" == .* ]] && continue
             dst="$CLAUDE_HOME/.claude/skills/$skill_name"
             if [ -d "$dst" ]; then
-                bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
-                dry_run "mv $dst $bak"
-                echo "  [update] backup: $skill_name → $(basename $bak)"
+                rotate_skill_bak "$CLAUDE_HOME/.claude/skills" "$skill_name" "$dst"
             fi
             dry_run "cp -rL $skill_dir $dst"
         done
@@ -466,9 +511,7 @@ if [ "$UPDATE_MODE" = true ]; then
             [[ "$gs_name" == .* ]] && continue
             dst="$CLAUDE_HOME/.claude/skills/$gs_name"
             if [ -d "$dst" ]; then
-                bak="${dst}.bak-$(date +%Y%m%d-%H%M%S)"
-                dry_run "mv $dst $bak"
-                echo "  [update] backup: $gs_name → $(basename $bak)"
+                rotate_skill_bak "$CLAUDE_HOME/.claude/skills" "$gs_name" "$dst"
             fi
             dry_run "cp -rL $gs $dst"
         done
@@ -621,6 +664,9 @@ if [ "$UPDATE_MODE" = true ]; then
         fi
     fi
 
+    if [ $((BAK_CREATED + BAK_ROTATED)) -gt 0 ]; then
+        echo "  🗂  备份统计：本次新增 $BAK_CREATED 个 / 轮换清理 $BAK_ROTATED 个（同目标只留最新 1 份）"
+    fi
     echo "✅ 更新完成（config.yaml 和 .gate-state 不受影响）"
     exit 0
 fi
@@ -1356,6 +1402,9 @@ fi
 
 echo "══════════════════════════════════════"
 echo "安装完成。"
+if [ $((BAK_CREATED + BAK_ROTATED)) -gt 0 ]; then
+    echo "  🗂  备份统计：本次新增 $BAK_CREATED 个 / 轮换清理 $BAK_ROTATED 个（同目标只留最新 1 份）"
+fi
 if [ "$FRONTEND" = true ]; then
     echo "  Gate 流程：/grill-with-docs → /to-spec → /to-tickets → /implement → AFK 自动消化"
 fi
