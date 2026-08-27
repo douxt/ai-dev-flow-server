@@ -417,3 +417,24 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 
 ### 影响
 - `--update` 传播至所有已安装项目（check_constitution.py + 宪法 + issue-template + AGENTS.md）
+
+---
+
+## v3.4 门禁生效性修复（2026-08-27）
+
+> UMES3 配置体检缺陷报告：三门禁 hook 自部署起 100% 未生效（P0）+ file-guard 自保护死代码（P0）+ skills .bak 洪水（P1）。
+
+### 修复
+- **三门禁 hook 吸收 UMES3 修复版**：stdin JSON 取参（旧 $1/$2 与 CC 协议不符）、exit 2 阻断语义、session_id 提取、函数定义序、heredoc 展开、gate 输出转 stderr
+- **file-guard 模板重写**：stdin 取参 + 安全配置自保护 case 前置于豁免（原死代码）+ exit 1→2，无个人路径依赖
+- **执行位**：模板 hooks 全部 755；install.sh 部署后显式 chmod（裸路径注册的 hook 必须可执行）
+- **.bak 洪水**：skill 目录级备份移出 `skills/` 扫描根至 `~/.claude/.skill-backups/`（CC 不再误加载为真实 skill）；文件级/目录级同目标只留最新 1 份；旧式残留自动迁出；安装输出备份统计
+- **文档措辞**：模型路由表注明第三方网关档位语义；Git 约束对齐 wt worktree 实践（PR 为 AFK 管线可选通道）
+
+### 新增
+- **安装后 hook 自检**（selftest_hooks，5 用例）：stdin JSON 模拟真实调用断言退出码，jq 缺失 SKIP，.emergency-bypass 存在时 workflow-gate SKIP
+- **stdin 协议 bats**（tests/hooks/gate-hooks-stdin.bats，19 用例，GNU 镜像运行）；对照实验证明有效性（旧模板 19 挂）
+- run_tests.sh 纳入 tests/hooks/*.bats（ubuntu 镜像）
+
+### 已知约束
+- 修复版 workflow-gate/test-gate-block 依赖 `grep -oP`（GNU）——busybox 环境静默失效，跨平台兼容待评估（roadmap DEFECT-001）
