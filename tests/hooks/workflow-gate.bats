@@ -17,7 +17,7 @@ teardown() {
 
 @test "route 缺失 → 拦截（首次 Edit/Write）" {
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ] # 修复：PreToolUse 阻断语义 exit 2（旧断言 1 = 无效拦截）
     [[ "$output" =~ workflow-gate ]]
     # 确认 route 文件已被写入（用于下次放行）
     [ -f "$TEST_DIR/.workflow-route" ]
@@ -37,7 +37,7 @@ teardown() {
 @test "session 不匹配 → 拦截并清理过期 route" {
     echo "old-session-999|assessed|1700000000" > "$TEST_DIR/.workflow-route"
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]
     # 过期 route 已被清理，新 route 已写入当前 session
     [ -f "$TEST_DIR/.workflow-route" ]
     ! grep -q "old-session-999" "$TEST_DIR/.workflow-route"
@@ -64,7 +64,7 @@ teardown() {
 
 @test "Bash 有写入重定向 → 拦截" {
     run bash "$HOOK" "Bash" '{"command":"echo hello > /tmp/out.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]
 }
 
 @test "无 .devflow/ 目录 → 跳过" {

@@ -12,9 +12,19 @@
 
 set -euo pipefail
 
-TOOL_NAME="$1"
-TOOL_INPUT="$2"
-WORKSPACE="${WORKSPACE:-$(pwd)}"
+# Claude Code hook 协议：JSON 走 stdin。位置参数 $1/$2 仅保留给手动测试。
+WS_CWD=""
+if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+    TOOL_NAME="$1"
+    TOOL_INPUT="${2:-}"
+else
+    _STDIN=$(cat)
+    command -v jq >/dev/null 2>&1 || exit 0   # jq 缺失 → 降级放行，不锁死会话
+    TOOL_NAME=$(printf '%s' "$_STDIN" | jq -r '.tool_name // empty')
+    TOOL_INPUT=$(printf '%s' "$_STDIN" | jq -r '(.tool_input // {}) | tostring')
+    WS_CWD=$(printf '%s' "$_STDIN" | jq -r '.cwd // empty')
+fi
+WORKSPACE="${WORKSPACE:-${WS_CWD:-$(pwd)}}"
 
 # ── 仅拦截 Bash 工具 ──
 [ "$TOOL_NAME" = "Bash" ] || exit 0
@@ -38,8 +48,8 @@ fi
 TEST_GATE="$WORKSPACE/.devflow/scripts/test-gate.sh"
 [ -f "$TEST_GATE" ] || exit 0
 
-# ── 运行 test-gate.sh ──
-if bash "$TEST_GATE" 2>&1; then
+# ── 运行 test-gate.sh（输出转 stderr：exit 2 时 stderr 才会注入给模型）──
+if bash "$TEST_GATE" >&2; then
     exit 0
 fi
 

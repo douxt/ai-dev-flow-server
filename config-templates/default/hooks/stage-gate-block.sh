@@ -15,9 +15,19 @@
 
 set -euo pipefail
 
-TOOL_NAME="$1"
-TOOL_INPUT="$2"
-WORKSPACE="${WORKSPACE:-$(pwd)}"
+# Claude Code hook 协议：JSON 走 stdin。位置参数 $1/$2 仅保留给手动测试。
+WS_CWD=""
+if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+    TOOL_NAME="$1"
+    TOOL_INPUT="${2:-}"
+else
+    _STDIN=$(cat)
+    command -v jq >/dev/null 2>&1 || exit 0   # jq 缺失 → 降级放行，不锁死会话
+    TOOL_NAME=$(printf '%s' "$_STDIN" | jq -r '.tool_name // empty')
+    TOOL_INPUT=$(printf '%s' "$_STDIN" | jq -r '(.tool_input // {}) | tostring')
+    WS_CWD=$(printf '%s' "$_STDIN" | jq -r '.cwd // empty')
+fi
+WORKSPACE="${WORKSPACE:-${WS_CWD:-$(pwd)}}"
 
 # ── 仅拦截 Edit/Write ──
 [[ "$TOOL_NAME" =~ ^(Edit|Write)$ ]] || exit 0
@@ -25,6 +35,48 @@ WORKSPACE="${WORKSPACE:-$(pwd)}"
 # ── 项目无 .devflow/ → 放行 ──
 STAGE_FILE="$WORKSPACE/.devflow/stage"
 [ -f "$STAGE_FILE" ] || exit 0
+
+# ── 文件类型检测函数（必须先于调用定义，bash 无函数提升）──
+
+# 测试文件检测
+is_test_file() {
+    local f="$1"
+    # 测试目录
+    [[ "$f" =~ (^|/)(tests?|__tests__|e2e|spec|cypress)(/|$) ]] && return 0
+    # 测试文件名模式：*.test.* / *.spec.*
+    [[ "$f" =~ \.(test|spec)\.(ts|js|tsx|jsx|mjs|cjs)$ ]] && return 0
+    # Python: test_*.py / *_test.py
+    [[ "$f" =~ (^|/)test_[^/]+\.py$ ]] && return 0
+    [[ "$f" =~ (^|/)[^/]+_test\.py$ ]] && return 0
+    # PHP: *Test.php
+    [[ "$f" =~ (^|/)[^/]+Test\.php$ ]] && return 0
+    # Go: *_test.go
+    [[ "$f" =~ (^|/)[^/]+_test\.go$ ]] && return 0
+    # 测试辅助文件（__snapshots__ / fixtures / mocks / helpers）
+    [[ "$f" =~ (^|/)(__snapshots__|fixtures?|mocks?|__mocks__|helpers?|test[-_]?(utils|helpers|data|fixtures?))(/) ]] && return 0
+    return 1
+}
+
+# 文档/配置文件 → 始终放行
+is_config_file() {
+    local f="$1"
+    [[ "$f" =~ \.(md|json|yaml|yml|toml|cfg|ini|env|txt|csv|xml|html|css|scss|less|svg|png|jpg|gif|ico|woff2?|ttf|eot)$ ]] && return 0
+    local bn
+    bn=$(basename "$f")
+    [[ "$bn" =~ ^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env\.|README|LICENSE|CHANGELOG|\.editorconfig|\.prettierrc|\.eslintrc|\.stylelintrc) ]] && return 0
+    # .devflow 内部文件
+    [[ "$f" =~ (^|/)\.devflow/ ]] && return 0
+    return 1
+}
+
+# 已知实现源文件扩展名（非测试/配置的其他代码文件）
+is_source_file() {
+    local f="$1"
+    [[ "$f" =~ \.(js|ts|jsx|tsx|mjs|cjs|py|php|go|java|rb|rs|vue|svelte|swift|kt|scala|cs|fsx|r|sql|sh|bash|zsh|fish|ps1|pl|pm|lua|dart|ex|exs|erl|hrl|clj|cljs|edn|elm|hs|lhs|nim|zig|cr|jl|rkt|scm|ss|dpr|pas|pp|bas|cls|frm|vba|vbs|bat|cmd)$ ]] && return 0
+    # C/C++
+    [[ "$f" =~ \.(c|cc|cpp|cxx|c\+|h|hpp|hh|hxx|h\+)$ ]] && return 0
+    return 1
+}
 
 # ── 读取当前阶段 ──
 current_stage=$(cat "$STAGE_FILE" 2>/dev/null || echo "")
@@ -67,7 +119,7 @@ fi
 # ── 5.8: GREEN 窗口 → 禁写测试文件（G1 反作弊规则 #1 硬阻断）──
 if [ "$in_green_window" -eq 1 ]; then
     if is_test_file "$FILE_PATH"; then
-        cat >&2 <<'GREEN_BLOCK'
+        cat >&2 <<GREEN_BLOCK
 
 ⛔ stage-gate-block: GREEN 阶段，禁止修改测试文件（exit 2 — 不可绕过）
 
@@ -93,46 +145,6 @@ GREEN_BLOCK
     # GREEN 阶段写非测试文件（实现/配置/文档）→ 放行
     exit 0
 fi
-
-# ── 测试文件检测 ──
-is_test_file() {
-    local f="$1"
-    # 测试目录
-    [[ "$f" =~ (^|/)(tests?|__tests__|e2e|spec|cypress)(/|$) ]] && return 0
-    # 测试文件名模式：*.test.* / *.spec.*
-    [[ "$f" =~ \.(test|spec)\.(ts|js|tsx|jsx|mjs|cjs)$ ]] && return 0
-    # Python: test_*.py / *_test.py
-    [[ "$f" =~ (^|/)test_[^/]+\.py$ ]] && return 0
-    [[ "$f" =~ (^|/)[^/]+_test\.py$ ]] && return 0
-    # PHP: *Test.php
-    [[ "$f" =~ (^|/)[^/]+Test\.php$ ]] && return 0
-    # Go: *_test.go
-    [[ "$f" =~ (^|/)[^/]+_test\.go$ ]] && return 0
-    # 测试辅助文件（__snapshots__ / fixtures / mocks / helpers）
-    [[ "$f" =~ (^|/)(__snapshots__|fixtures?|mocks?|__mocks__|helpers?|test[-_]?(utils|helpers|data|fixtures?))(/) ]] && return 0
-    return 1
-}
-
-# ── 文档/配置文件 → 始终放行 ──
-is_config_file() {
-    local f="$1"
-    [[ "$f" =~ \.(md|json|yaml|yml|toml|cfg|ini|env|txt|csv|xml|html|css|scss|less|svg|png|jpg|gif|ico|woff2?|ttf|eot)$ ]] && return 0
-    local bn
-    bn=$(basename "$f")
-    [[ "$bn" =~ ^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env\.|README|LICENSE|CHANGELOG|\.editorconfig|\.prettierrc|\.eslintrc|\.stylelintrc) ]] && return 0
-    # .devflow 内部文件
-    [[ "$f" =~ (^|/)\.devflow/ ]] && return 0
-    return 1
-}
-
-# ── 已知实现源文件扩展名（非测试/配置的其他代码文件）──
-is_source_file() {
-    local f="$1"
-    [[ "$f" =~ \.(js|ts|jsx|tsx|mjs|cjs|py|php|go|java|rb|rs|vue|svelte|swift|kt|scala|cs|fsx|r|sql|sh|bash|zsh|fish|ps1|pl|pm|lua|dart|ex|exs|erl|hrl|clj|cljs|edn|elm|hs|lhs|nim|zig|cr|jl|rkt|scm|ss|dpr|pas|pp|bas|cls|frm|vba|vbs|bat|cmd)$ ]] && return 0
-    # C/C++
-    [[ "$f" =~ \.(c|cc|cpp|cxx|c\+|h|hpp|hh|hxx|h\+)$ ]] && return 0
-    return 1
-}
 
 # ── 放行测试文件 ──
 is_test_file "$FILE_PATH" && exit 0

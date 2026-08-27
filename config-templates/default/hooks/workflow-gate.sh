@@ -11,9 +11,21 @@
 
 set -euo pipefail
 
-TOOL_NAME="$1"
-TOOL_INPUT="$2"
-WORKSPACE="${WORKSPACE:-$(pwd)}"
+# Claude Code hook 协议：JSON 走 stdin。位置参数 $1/$2 仅保留给手动测试。
+WS_CWD=""
+if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+    TOOL_NAME="$1"
+    TOOL_INPUT="${2:-}"
+    SESSION_ID="${CC_SESSION_ID:-unknown}"
+else
+    _STDIN=$(cat)
+    command -v jq >/dev/null 2>&1 || exit 0   # jq 缺失 → 降级放行，不锁死会话
+    TOOL_NAME=$(printf '%s' "$_STDIN" | jq -r '.tool_name // empty')
+    TOOL_INPUT=$(printf '%s' "$_STDIN" | jq -r '(.tool_input // {}) | tostring')
+    SESSION_ID=$(printf '%s' "$_STDIN" | jq -r '.session_id // "unknown"')
+    WS_CWD=$(printf '%s' "$_STDIN" | jq -r '.cwd // empty')
+fi
+WORKSPACE="${WORKSPACE:-${WS_CWD:-$(pwd)}}"
 ROUTE_FILE="$WORKSPACE/.workflow-route"
 BYPASS_FILE="$HOME/.claude/.emergency-bypass"
 TRACE_SCRIPT="$WORKSPACE/.devflow/scripts/trace.sh"
@@ -57,8 +69,8 @@ fi
 # ── 仅在工作区有 .devflow/ 的项目中生效 ──
 [ -d "$WORKSPACE/.devflow" ] || exit 0
 
-# ── 获取当前 session_id ──
-session_id="${CC_SESSION_ID:-unknown}"
+# ── 当前 session_id（stdin JSON 提取，见文件头） ──
+session_id="${SESSION_ID:-unknown}"
 
 # ── .workflow-route 存在且 session_id 匹配 → 放行 ──
 if [ -f "$ROUTE_FILE" ]; then
@@ -118,4 +130,4 @@ AFK 自动重试（/implement 阶段）:
 
 EOF
 
-exit 1
+exit 2

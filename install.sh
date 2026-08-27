@@ -113,6 +113,48 @@ ensure_gitignore() {
     fi
 }
 
+# 安装后 hook 生效性自检（B5.8）：stdin JSON 模拟真实 PreToolUse 调用，断言退出码。
+# 失败不中断安装，但醒目标红——历史上三门禁 hook 因取参/退出码错误静默失效数月无感知。
+selftest_hooks() {
+    local hooks_dir="$1"
+    [ "$DRY_RUN" = true ] && return 0
+    command -v jq >/dev/null 2>&1 || { echo "  ⚠️  hook 自检跳过（jq 缺失）"; return 0; }
+    local st_dir sid st_pass=0 st_fail=0 st_skip=0
+    st_dir=$(mktemp -d); sid="selftest-$$"
+    _st() {  # _st <script> <期望exit> <json>
+        local script="$1" want="$2" json="$3" rc=0
+        [ -f "$hooks_dir/$script" ] || { echo "  ⚠️  自检 SKIP: $script 未部署"; st_skip=$((st_skip+1)); return; }
+        printf '%s' "$json" | (cd "$st_dir" && WORKSPACE="$st_dir" bash "$hooks_dir/$script" >/dev/null 2>&1) || rc=$?
+        if [ "$rc" = "$want" ]; then
+            st_pass=$((st_pass+1))
+        else
+            st_fail=$((st_fail+1)); echo "  ❌ hook 自检失败: $script 期望 exit $want 实得 $rc"
+        fi
+    }
+    # workflow-gate：首次编辑无 route 文件 → 应拦（exit 2）。全局逃生门存在则必然放行，SKIP 防误报
+    if [ -f "$HOME/.claude/.emergency-bypass" ]; then
+        echo "  ⚠️  .emergency-bypass 存在，workflow-gate 自检跳过"
+        st_skip=$((st_skip+1))
+    else
+        _st workflow-gate.sh 2 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    fi
+    # stage-gate-block：自检目录无 .devflow/stage → 放行（exit 0）
+    _st stage-gate-block.sh 0 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # test-gate-block：非 RED commit 命令 → 放行（exit 0）
+    _st test-gate-block.sh 0 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m plain\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # file-guard：安全配置自保护路径 → 拦截（exit 2，死代码复活的核心验证）
+    _st file-guard.sh 2 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/settings.json\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # file-guard：worktree 路径 → 放行（exit 0）
+    _st file-guard.sh 0 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$st_dir/.claude/worktrees/a/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    rm -rf "$st_dir"
+    if [ $st_fail -eq 0 ]; then
+        echo "  ✅ hook 自检通过（$st_pass 项${st_skip:+，跳过 $st_skip}）"
+    else
+        echo "  ❌ hook 自检 $st_fail 项失败——门禁可能静默失效，安装后请人工核查 $hooks_dir"
+    fi
+    return 0
+}
+
 agents_stack_tags() {
     # 从 config.yaml 提取 tech_stack.tags（用于 AGENTS.md 技术栈行），无则空
     local tags=""
@@ -453,6 +495,9 @@ if [ "$UPDATE_MODE" = true ]; then
     for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
         [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
     done
+    # deploy_file 的 cp 覆盖保留目标旧 mode，裸路径注册的 hook 必须有执行位
+    chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh 2>/dev/null || true
+    selftest_hooks "$CLAUDE_HOME/.claude/hooks"
 
     # 同步更新项目级 hooks（如果项目有独立拷贝而非 symlink 到用户级）
     project_hooks_dir="$TARGET/.claude/hooks"
@@ -460,6 +505,7 @@ if [ "$UPDATE_MODE" = true ]; then
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
             [ -f "$hook" ] && deploy_file "$hook" "$project_hooks_dir/$(basename "$hook")"
         done
+        chmod +x "$project_hooks_dir"/*.sh 2>/dev/null || true
     fi
 
     echo "  更新 issue 模板 ..."
@@ -802,6 +848,7 @@ if [ "$NO_CONFIG" = false ]; then
                 echo "  ✅ hook/$hook_name"
             fi
         done
+        selftest_hooks "$CLAUDE_HOME/.claude/hooks"
     fi
     echo ""
 fi
