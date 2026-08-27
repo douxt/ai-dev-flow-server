@@ -77,17 +77,29 @@ def wait_inject(t0_inject, timeout=90):
     return False
 
 
+def last_hit_age(scope):
+    """最后一条 hit 距今秒数。hit-inject 累计差含 lock_skip/prevent_default 历史噪声，
+    真实积压只能看新鲜度。"""
+    try:
+        out = subprocess.run(["grep", "-a", f'{scope} hit ', EVENT_LOG],
+                             capture_output=True, text=True)
+        lines = [l for l in out.stdout.splitlines() if l]
+        return time.time() - float(lines[-1].split()[0]) if lines else 1e9
+    except Exception:
+        return 0.0
+
+
 def main():
     fails = []
-    # ── 预检：积压（口径限定目标群，group_t 等测试行不入账）──
+    # ── 预检：目标群近 2 分钟无正在处理的消息 ──
     scope = f"group_{SESSION}"
-    hit, inj = count(EVENT_LOG, f'{scope} hit '), count(EVENT_LOG, f'{scope} inject ')
-    if hit - inj >= 10:
-        print(f'PREFLIGHT FAIL: {scope} 积压 {hit - inj} 条（hit={hit} inject={inj}），改期再跑')
+    age = last_hit_age(scope)
+    if age < 120:
+        print(f'PREFLIGHT FAIL: {scope} {age:.0f}s 前刚有 hit（可能有在途消息），稍后再跑')
         sys.exit(2)
-    print(f'preflight ok: {scope} backlog={hit - inj} (hit={hit} inject={inj})')
+    print(f'preflight ok: {scope} last hit {age:.0f}s ago')
 
-    t0_inject = inj
+    t0_inject = count(EVENT_LOG, f'{scope} inject ')
     t0_cand = count(REFLECTION_LOG, "inject candidates:")
 
     # ── (a)(b) VR 无关问题 ──
