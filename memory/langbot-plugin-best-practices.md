@@ -233,3 +233,18 @@ execution:
 - **表现**：plugin 容器识别 Face 正确，core 容器 pipeline 仍输出 `[Unknown]`。
 - **解决**：`find / -path "*/langbot_plugin/api/entities/builtin/platform/message.py"` 列全副本，逐一修复。再加 `rm -rf __pycache__` 清除字节码缓存。
 - **教训**：双容器 + uv 架构下，SDK 级修复先 `find` 列全副本再逐一修，缺一不可。
+
+### 19. 容器内跑 pytest 四坑（2026-08-27）
+
+- **rootdir 抢占**：容器 `/app/pytest.ini` 使 rootdir=/app，cd 插件目录跑 pytest 收集 0 项 + INTERNALERROR。修：`--rootdir=.`。
+- **tests/scripts/ 收集崩套件**：脚本顶层 `sys.exit()` 被导入即执行。修：显式 `pytest tests/test_*.py`。
+- **tests/__init__.py 缺失**：`from tests.conftest import` ImportError。修：部署时带上包标记。
+- **容器 tests/ 子集漂移**：历次 scp 只传部分文件，容器回归通过≠全量通过。修：回归前对比 `ls tests/*.py` 与 worktree 清单。
+- 标准命令：`cd <插件目录> && /app/.venv/bin/python -m pytest --rootdir=. tests/test_*.py -q`
+
+### 20. 生产日志做冒烟断言四坑（2026-08-27）
+
+- **测试污染基线**：容器 pytest 直调 store 方法会写真实 /tmp/silent_*.log，grep 计数断言失真。修：测试 fixture monkeypatch `util.logs._log_dir`；冒烟 T0 基线在测试后重取。
+- **限流挡死重试**：反思 sender 10min 冷却让同 sender 重试全拒。修：每次冒烟用唯一 sender_id（`smoke-{ts}`）。
+- **/sync 积压毁时序**：LLM 回复 30s+/条，群积压上百条时新消息延迟数分钟，固定 sleep 断言失效。跑冒烟前查 event.log `hit` vs `inject` 计数差。
+- **断言文件选错**：`_dump_prompt_debug` 不写 prompt 全文；注入内容断言查 `/tmp/silent_gate.log` 的 `LLM RAW PROMPT` 段。
