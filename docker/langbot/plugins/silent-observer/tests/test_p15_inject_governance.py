@@ -1,0 +1,105 @@
+"""P1.5 反思注入治理测试——压制条款/头注/祈使句化/distance 门槛/软归档 vectors 修复"""
+import os
+import sys
+from unittest.mock import AsyncMock
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from test_p1_maturity_integration import TestInjectRerank  # noqa: E402 复用 _ref/_inject_once
+from service.reflection import GENERATE_PROMPT, SELF_SCAN_PROMPT  # noqa: E402
+
+_HELPER = TestInjectRerank()
+
+
+class TestPromptGovernance:
+    """用例 1-3：生成端条款与注入头注（unit）"""
+
+    def test_generate_prompt_imperative_rules(self):
+        text = GENERATE_PROMPT.format(correction_text='a', bot_reply='b', error_types='c')
+        assert '条件状语' in text and '祈使句' in text
+        assert '叙述已发生的事件经过' in text
+
+    def test_self_scan_prompt_imperative_rules(self):
+        text = SELF_SCAN_PROMPT.format(recent_messages='m', error_types='c')
+        assert '条件状语' in text and '祈使句' in text
+        assert '叙述已发生的事件经过' in text
+
+    def test_inject_template_header_note(self):
+        from service.reflection import ReflectionInjector
+        ref = {'metadata': {'when': '当用户问X时', 'then': '先确认再答', 'confirm_count': 5}}
+        out = ReflectionInjector.build_reflection_prompt([ref])
+        assert out.startswith('[先前经验 · 仅供内部参考')
+
+
+class TestDistanceGate:
+    """用例 4-6：distance 门槛（integration，真实 inject handler）"""
+
+    async def test_mixed_distance_only_relevant_injected(self, init_listener):
+        refs = [_HELPER._ref(0, distance=0.2), _HELPER._ref(1, distance=0.9)]
+        ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
+        joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
+        assert '触发条件：触发0' in joined
+        assert '触发条件：触发1' not in joined
+
+    async def test_all_far_no_injection(self, init_listener):
+        refs = [_HELPER._ref(i, distance=0.9) for i in range(3)]
+        ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
+        joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
+        assert '触发条件：' not in joined
+
+    async def test_missing_or_none_distance_dropped(self, init_listener):
+        r_none = _HELPER._ref(0)
+        r_none['distance'] = None
+        r_missing = _HELPER._ref(1)
+        del r_missing['distance']
+        ctx, _ = await _HELPER._inject_once(init_listener, [r_none, r_missing], llm_resp='')
+        joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
+        assert '触发条件：' not in joined
+
+
+class TestSuppressionClause:
+    """用例 7：压制条款无条件注入且位于归档之后"""
+
+    async def test_clause_present_after_timeline(self, init_listener):
+        listener, plugin, get_handler = init_listener
+        listener.store.get_recent_messages = AsyncMock(return_value=[
+            {'id': 'd1', 'metadata': {'text': '[2026-08-27 01:00] 张三: 归档内容甲',
+                                      'timestamp_unix': 1787000000}},
+        ])
+        ctx, _ = await _HELPER._inject_once(init_listener, [], llm_resp='')
+        joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
+        assert '仅供你内部理解' in joined
+        assert joined.index('仅供你内部理解') > joined.index('张三: 归档内容甲')
+        # 无反思命中时条款依然注入（不依赖 reflection 结果）
+        assert '旁白口吻' in joined
+
+
+class TestUpsertVectorsFix:
+    """用例 9：1e 修复——update/archive 的 vector_upsert 必须带 vectors"""
+
+    async def test_update_reflection_passes_vectors(self, reflection_store):
+        store, plugin = reflection_store
+        await store.update_reflection('ref:x1', {'scenario': 's', 'confirm_count': 2})
+        kwargs = plugin.vector_upsert.call_args.kwargs
+        assert 'vectors' in kwargs and len(kwargs['vectors']) == len(kwargs['ids']) == 1
+        assert kwargs['vectors'][0] and kwargs['vectors'][0][0] == 0.1
+
+    async def test_archive_reflection_passes_vectors(self, reflection_store):
+        store, plugin = reflection_store
+        plugin.vector_list = AsyncMock(return_value={'items': [
+            {'id': 'ref:x2', 'document': '{"scenario":"s"}',
+             'metadata': {'type': 'reflection', 'archived': False, 'scenario': 's'}},
+        ]})
+        await store.archive_reflection('ref:x2')
+        kwargs = plugin.vector_upsert.call_args.kwargs
+        assert 'vectors' in kwargs and len(kwargs['vectors']) == 1
+        assert kwargs['metadata'][0]['archived'] is True
+
+    async def test_archive_reflection_upsert_called(self, reflection_store):
+        """回归防呆：vector_list 返回空时不 upsert"""
+        store, plugin = reflection_store
+        await store.archive_reflection('ref:missing')
+        plugin.vector_upsert.assert_not_called()

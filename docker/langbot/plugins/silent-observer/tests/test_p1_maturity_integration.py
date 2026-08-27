@@ -128,12 +128,12 @@ class TestSelfReflect:
 class TestInjectRerank:
     """场景 9-12：inject 路径真实 handler 闭包（完整 initialize）"""
 
-    def _ref(self, i, with_when_then=True):
+    def _ref(self, i, with_when_then=True, distance=0.1):
         meta = {'confirm_count': 5, 'scenario': f'场景{i}', 'mistake': f'错误{i}',
                 'correct_approach': f'做法{i}', 'importance': 'low'}
         if with_when_then:
             meta.update({'when': f'触发{i}', 'then': f'应对{i}'})
-        return {'id': f'r{i}', 'document': f'doc{i}', 'metadata': meta}
+        return {'id': f'r{i}', 'document': f'doc{i}', 'metadata': meta, 'distance': distance}
 
     async def _inject_once(self, init_listener, refs, llm_resp=None, llm_exc=None):
         """设置 last_trigger + search_similar mock，跑一次 inject handler"""
@@ -162,7 +162,8 @@ class TestInjectRerank:
     async def test_rerank_none_no_inject(self, init_listener):
         ctx, _ = await self._inject_once(init_listener, [self._ref(i) for i in range(8)], llm_resp='NONE')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
-        assert '先前经验' not in joined
+        # P1.5 后"先前经验"字样也出现在压制条款中，断言锚定注入模板特有文本
+        assert '触发条件：' not in joined
 
     async def test_rerank_exception_degrades_to_first5(self, init_listener):
         ctx, _ = await self._inject_once(init_listener, [self._ref(i) for i in range(8)], llm_exc=[RuntimeError('boom')])
