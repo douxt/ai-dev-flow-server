@@ -10,7 +10,10 @@
 import urllib.request, json, time, hmac, hashlib, os, sys, subprocess
 
 BOT_UUID = os.environ.get("BOT_UUID", "dcbe70d9-af11-4624-908a-9928e4a08bdb")
-SECRET = os.environ.get("SECRET", "udimc123").encode()
+SECRET_RAW = os.environ.get("SECRET", "")
+if not SECRET_RAW:
+    print("FATAL: 需显式 SECRET 环境变量"); sys.exit(2)
+SECRET = SECRET_RAW.encode()
 LANGBOT = os.environ.get("LANGBOT", "http://langbot:5300")
 SESSION = os.environ.get("SESSION", "1104330614")
 BOT_QQ = "3228649756"

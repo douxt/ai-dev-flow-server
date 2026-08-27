@@ -1,6 +1,8 @@
 """P1.5 反思库清理——chroma 直连软归档冒烟测试污染条目.
 
-在 langbot 容器内运行（需 langbot 已停止以释放 chroma 锁）：
+在 langbot 容器内运行。⚠️ apply 前必须 docker stop langbot：PersistentClient 双开属
+chroma 未定义行为，且 langbot 进程内存 metadata 缓存可能在后续 flush 时把 archived=True
+回写覆盖（本库首跑时 langbot 在跑，归档后须重启 langbot 并复查 archived 未被冲掉）：
     docker exec langbot python3 /tmp/cleanup_reflections.py --apply
 默认 dry-run 只打印清单。id 白名单为主，正则命中但未列白名单者仅提示。
 """
@@ -21,12 +23,16 @@ PATTERN = re.compile(r'380V|断路器|DS920|冒烟|电气|男女冲突')
 
 
 def find_collection(client):
-    for col in client.list_collections():
-        name = col.name if hasattr(col, 'name') else str(col)
-        if COLLECTION_HINT in name:
-            return col
-    names = [c.name if hasattr(c, 'name') else str(c) for c in client.list_collections()]
-    print(f'FATAL: no collection matching {COLLECTION_HINT!r}; available: {names}', file=sys.stderr)
+    cols = list(client.list_collections())
+    exact = [c for c in cols if getattr(c, 'name', str(c)) == COLLECTION_HINT]
+    if len(exact) == 1:
+        return exact[0]
+    subs = [c for c in cols if COLLECTION_HINT in getattr(c, 'name', str(c))]
+    if len(subs) == 1:
+        print(f'NOTE: 子串匹配 collection {subs[0].name}（非精确名）')
+        return subs[0]
+    names = [getattr(c, 'name', str(c)) for c in cols]
+    print(f'FATAL: {COLLECTION_HINT} 精确命中 {len(exact)}、子串命中 {len(subs)}（多义拒绝）; 全部: {names}', file=sys.stderr)
     sys.exit(2)
 
 
@@ -57,8 +63,10 @@ def main():
     print(f'total reflections: {len(ids)}')
 
     targets, flag_only = [], []
+    skipped_archived = 0
     for vid, meta, doc in zip(ids, metas, docs):
         if meta.get('archived'):
+            skipped_archived += 1
             continue
         text = doc or json.dumps(meta, ensure_ascii=False)
         in_white = vid in ID_WHITELIST
@@ -75,7 +83,8 @@ def main():
     for vid, meta, why in flag_only:
         print(f'  {vid}  [{why}]  {str(meta.get("scenario", ""))[:60]}')
     print(f'\nsummary: {len(targets)} to-archive, {len(flag_only)} flag-only, '
-          f'{len(ids) - len(targets) - len(flag_only)} untouched')
+          f'{skipped_archived} already-archived, '
+          f'{len(ids) - len(targets) - len(flag_only) - skipped_archived} untouched')
 
     if not args.apply:
         print('DRY-RUN（未修改）。确认清单后加 --apply（正则条目需 --include-pattern）')
@@ -86,16 +95,23 @@ def main():
         flag_only = []
         print(f'--include-pattern: 合并后待归档 {len(targets)} 条')
 
+    if not targets:
+        print('nothing to archive')
+        return
+
     from datetime import datetime, timezone, timedelta
     now_iso = datetime.now(timezone(timedelta(hours=8))).isoformat()
+    before = col.get(where={'$and': [{'type': 'reflection'}, {'archived': True}]})
+    n_before = len(before.get('ids', []))
     new_ids = [t[0] for t in targets]
     new_metas = [{**t[1], 'archived': True, 'archived_at': now_iso} for t in targets]
     col.update(ids=new_ids, metadatas=new_metas)
     print(f'ARCHIVED {len(new_ids)} reflections')
 
-    # 复核
+    # 复核（delta 口径）
     check = col.get(where={'$and': [{'type': 'reflection'}, {'archived': True}]})
-    print(f'verify: archived now = {len(check.get("ids", []))}')
+    print(f'verify: archived delta = {len(check.get("ids", [])) - n_before} (本次应 = {len(new_ids)})')
+    print('NOTE: 若 langbot 未停跑，apply 后必须重启 langbot 防止内存缓存回写冲掉 archived 标记')
 
 
 if __name__ == '__main__':

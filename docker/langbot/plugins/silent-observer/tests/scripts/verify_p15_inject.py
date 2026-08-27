@@ -3,7 +3,8 @@
 
 用法（容器内）: /app/.venv/bin/python tests/scripts/verify_p15_inject.py
 断言:
-  预检  hit-inject 积压 <10，否则 exit 2（改期再跑）
+  预检  目标群最后 hit 距今 <120s 或日志缺失 → exit 2（改期再跑）
+  需显式 SECRET 环境变量
   (a)   本轮 RAW PROMPT 含"仅供你内部理解"（压制条款，FAIL 门禁）
   (b)   本轮 RAW PROMPT 的"触发条件："行不含 电气/380V/断路器/DS920（门槛+清理双保险，FAIL 门禁）
   (c)   T0 后 silent_reflection.log 出现 inject candidates: → 打印 dists（信息性，供阈值校准）
@@ -12,7 +13,11 @@
 import urllib.request, json, time, hmac, hashlib, os, sys, subprocess
 
 BOT_UUID = os.environ.get("BOT_UUID", "dcbe70d9-af11-4624-908a-9928e4a08bdb")
-SECRET = os.environ.get("SECRET", "udimc123").encode()
+SECRET_RAW = os.environ.get("SECRET", "")
+if not SECRET_RAW:
+    print("FATAL: 需显式 SECRET 环境变量（不落盘密钥）")
+    sys.exit(2)
+SECRET = SECRET_RAW.encode()
 LANGBOT = os.environ.get("LANGBOT", "http://langbot:5300")
 SESSION = os.environ.get("SESSION", "1104330614")
 BOT_QQ = "3228649756"
@@ -56,7 +61,7 @@ def last_raw_prompt():
     try:
         with open(GATE_LOG, 'r', errors='replace') as f:
             f.seek(0, 2)
-            f.seek(max(0, f.tell() - 400_000))
+            f.seek(max(0, f.tell() - 2_000_000))
             data = f.read()
     except Exception:
         return ''
@@ -84,7 +89,9 @@ def last_hit_age(scope):
         out = subprocess.run(["grep", "-a", f'{scope} hit ', EVENT_LOG],
                              capture_output=True, text=True)
         lines = [l for l in out.stdout.splitlines() if l]
-        return time.time() - float(lines[-1].split()[0]) if lines else 1e9
+        if not lines:
+            return -1.0  # 日志缺失，状态未知
+        return time.time() - float(lines[-1].split()[0])
     except Exception:
         return 0.0
 
@@ -94,6 +101,9 @@ def main():
     # ── 预检：目标群近 2 分钟无正在处理的消息 ──
     scope = f"group_{SESSION}"
     age = last_hit_age(scope)
+    if age < 0:
+        print(f'PREFLIGHT FAIL: {scope} 无 hit 记录或日志缺失，无法确认在途状态')
+        sys.exit(2)
     if age < 120:
         print(f'PREFLIGHT FAIL: {scope} {age:.0f}s 前刚有 hit（可能有在途消息），稍后再跑')
         sys.exit(2)
@@ -112,13 +122,15 @@ def main():
     seg = last_raw_prompt()
     if not seg:
         fails.append("(a) gate.log 无 RAW PROMPT 段可读")
+    elif '节奏光剑' not in seg:
+        fails.append("(a) 末段不含本轮提问文本——段归属不明（并发或本轮未处理），拒判")
     else:
         if '仅供你内部理解' in seg:
             print("(a) PASS: 压制条款已进 prompt")
         else:
             fails.append("(a) 压制条款缺失")
         bad = [ln for ln in seg.splitlines()
-               if '触发条件：' in ln and any(k in ln for k in ELEC)]
+               if '触发条件：' in ln and any(k.lower() in ln.lower() for k in ELEC)]
         if bad:
             fails.append(f"(b) 电气反思仍被注入: {bad[0][:60]}")
         else:
@@ -145,7 +157,9 @@ def main():
     print(f"sync#2: {'ok' if not resp.get('error') else resp['error']}")
     wait_inject(t0_inject2)
     seg2 = last_raw_prompt()
-    if '触发条件：' in seg2:
+    if '断路器' not in seg2:
+        print("(d) SKIP: 末段不含本轮提问（段归属不明），不判定")
+    elif '触发条件：' in seg2:
         if '[先前经验 · 仅供内部参考' in seg2:
             print("(d) PASS: 注入含头注前缀")
         else:

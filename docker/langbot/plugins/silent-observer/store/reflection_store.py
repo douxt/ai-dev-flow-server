@@ -275,7 +275,7 @@ class ReflectionStore:
             items = raw.get('items', []) if isinstance(raw, dict) else []
             if not items:
                 return
-            meta = items[0].get('metadata', {})
+            meta = dict(items[0].get('metadata', {}))  # 副本，避免污染调用方数据
             meta['archived'] = True
             meta['archived_at'] = datetime.now(BJT).isoformat()
             text = items[0].get('document') or json.dumps(meta, ensure_ascii=False)

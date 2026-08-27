@@ -9,7 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_p1_maturity_integration import TestInjectRerank  # noqa: E402 复用 _ref/_inject_once
-from service.reflection import GENERATE_PROMPT, SELF_SCAN_PROMPT  # noqa: E402
+from service.reflection import (GENERATE_PROMPT, SELF_SCAN_PROMPT, INJECT_TEMPLATE,  # noqa: E402
+                                ReflectionInjector)
 
 _HELPER = TestInjectRerank()
 
@@ -28,7 +29,7 @@ class TestPromptGovernance:
         assert '叙述已发生的事件经过' in text
 
     def test_inject_template_header_note(self):
-        from service.reflection import ReflectionInjector
+        assert INJECT_TEMPLATE.startswith('[先前经验 · 仅供内部参考')
         ref = {'metadata': {'when': '当用户问X时', 'then': '先确认再答', 'confirm_count': 5}}
         out = ReflectionInjector.build_reflection_prompt([ref])
         assert out.startswith('[先前经验 · 仅供内部参考')
@@ -39,6 +40,16 @@ class TestDistanceGate:
 
     async def test_mixed_distance_only_relevant_injected(self, init_listener):
         refs = [_HELPER._ref(0, distance=0.2), _HELPER._ref(1, distance=0.9)]
+        ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
+        joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
+        assert '触发条件：触发0' in joined
+        assert '触发条件：触发1' not in joined
+
+    async def test_boundary_distance_injected(self, init_listener):
+        """边界锁定：threshold=0.45，d=0.45 注入 / d=0.4501 丢弃"""
+        from components.event_listener.default import _REF_INJECT_MAX_DISTANCE
+        assert _REF_INJECT_MAX_DISTANCE == 0.45
+        refs = [_HELPER._ref(0, distance=0.45), _HELPER._ref(1, distance=0.4501)]
         ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
         assert '触发条件：触发0' in joined
@@ -58,6 +69,13 @@ class TestDistanceGate:
         ctx, _ = await _HELPER._inject_once(init_listener, [r_none, r_missing], llm_resp='')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
         assert '触发条件：' not in joined
+
+    async def test_gate_blocks_rerank_for_far_candidates(self, init_listener):
+        """门槛先于 rerank：全远候选不得触发 rerank LLM 调用"""
+        _, plugin, _ = init_listener
+        refs = [_HELPER._ref(i, distance=0.9) for i in range(8)]
+        ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='1,2,3')
+        assert plugin.invoke_llm.await_count == 0
 
 
 class TestSuppressionClause:
@@ -97,9 +115,31 @@ class TestUpsertVectorsFix:
         kwargs = plugin.vector_upsert.call_args.kwargs
         assert 'vectors' in kwargs and len(kwargs['vectors']) == 1
         assert kwargs['metadata'][0]['archived'] is True
+        # 钉住修复点：embedding 取自原 document 文本（非重新 json.dumps）
+        assert plugin.invoke_embedding.await_args.args[1] == ['{"scenario":"s"}']
+
+    async def test_archive_uses_sanitize_before_upsert(self, reflection_store):
+        """钉住 list→upsert 往返：list 回传的 JSON-string 字段不得被二次序列化"""
+        store, plugin = reflection_store
+        plugin.vector_list = AsyncMock(return_value={'items': [
+            {'id': 'ref:x3', 'document': '{"scenario":"带列表的"}',
+             'metadata': {'type': 'reflection', 'archived': False,
+                          'entities': '["e1"]', 'source_msg_ids': '[]'}},
+        ]})
+        await store.archive_reflection('ref:x3')
+        meta = plugin.vector_upsert.call_args.kwargs['metadata'][0]
+        assert meta['entities'] == '["e1"]'  # 单重编码，防 json.loads 缺失掩盖的往返破坏
+        assert meta['source_msg_ids'] == '[]'
 
     async def test_archive_reflection_upsert_called(self, reflection_store):
         """回归防呆：vector_list 返回空时不 upsert"""
         store, plugin = reflection_store
         await store.archive_reflection('ref:missing')
+        plugin.vector_upsert.assert_not_called()
+
+    async def test_update_failure_degrades(self, reflection_store):
+        """embedding 失败时 update 吞异常记日志，不抛穿"""
+        store, plugin = reflection_store
+        plugin.invoke_embedding = AsyncMock(side_effect=RuntimeError('boom'))
+        await store.update_reflection('ref:x4', {'scenario': 's'})
         plugin.vector_upsert.assert_not_called()

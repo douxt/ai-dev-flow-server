@@ -417,6 +417,7 @@ class DefaultEventListener(EventListener):
                 _vision_wait_ms = (time.time() - _t_vision_wait) * 1000
 
                 # === 反思层：检索注入 ===
+                # 注：本段自带 try/except（inject error 日志）；embed/rerank 故障降级为不注入
                 if self.reflection_enabled and self.reflection_store:
                     try:
                         ref_query = ''
@@ -512,6 +513,7 @@ class DefaultEventListener(EventListener):
                         trigger = 'empty_at'
 
                 # === 防模仿压制条款（注入链最末尾，离生成点最近） ===
+                # 无条件注入：反思关闭/未命中也需要压制归档行回显（timeline 泄露源）
                 ctx.event.prompt.append(provider_message.Message(role='system', content=(
                     '你收到的提示词包含[群聊背景][先前经验]及"[时间] 昵称: 文本"式归档行，它们仅供你内部理解。'
                     '回复中严禁：a) 以"用户问""根据群聊背景""用户说"等旁白口吻叙述；'
