@@ -247,4 +247,11 @@ execution:
 - **测试污染基线**：容器 pytest 直调 store 方法会写真实 /tmp/silent_*.log，grep 计数断言失真。修：测试 fixture monkeypatch `util.logs._log_dir`；冒烟 T0 基线在测试后重取。
 - **限流挡死重试**：反思 sender 10min 冷却让同 sender 重试全拒。修：每次冒烟用唯一 sender_id（`smoke-{ts}`）。
 - **/sync 积压毁时序**：LLM 回复 30s+/条，群积压上百条时新消息延迟数分钟，固定 sleep 断言失效。跑冒烟前查 event.log `hit` vs `inject` 计数差。
+   **⚠️ 二轮修正（同日）**：`hit − inject` 累计差含 lock_skip/历史噪声**不可当积压判据**（实测"182 条积压"真实为 0）——用目标群最后一条 hit 距今 <120s 判在途；且 init_listener 集成测试会写生产 event.log 的 group_t 假行，`_log_event` 路径已改为 `_EVENT_LOG` 模块变量，fixture 须同时 patch `util.logs._log_dir` 与它。
 - **断言文件选错**：`_dump_prompt_debug` 不写 prompt 全文；注入内容断言查 `/tmp/silent_gate.log` 的 `LLM RAW PROMPT` 段。
+
+### 21. 绕过服务直改 chroma + 插件 SDK 签名核对（2026-08-27）
+
+- **PersistentClient 双开**：langbot 运行时直连 `/app/data/chroma` 属未定义行为；`collection.update(ids, metadatas)`（不动向量）实测可行，但服务内存缓存可能 flush 回写覆盖——**改完必须重启 langbot 并 delta 口径复查**。规范做法：apply 前 `docker stop langbot`。
+- **SDK `vector_upsert(collection_id, vectors, ids, ...)` vectors 必填**：漏传 → TypeError 被 except 吞成一行日志，潜伏 6 天才在评审中发现。写 vector 操作前到容器内核对 `/app/.venv/.../langbot_plugin/api/proxies/langbot_api.py` 签名，别照抄仓库旧调用。
+- **监控 DB 真路径**：`/app/data/langbot.db`（`database.db` 是 0 字节占位，连它查表返回空会误判"数据丢失"）；列名先 `PRAGMA table_info`，容器 python 用 `/app/.venv/bin/python`。
