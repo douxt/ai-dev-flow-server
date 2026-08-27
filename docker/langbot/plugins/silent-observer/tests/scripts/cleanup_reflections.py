@@ -34,6 +34,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--path', default=None, help='chroma PersistentClient path')
     ap.add_argument('--apply', action='store_true', help='实际归档（默认 dry-run）')
+    ap.add_argument('--include-pattern', action='store_true',
+                    help='将正则命中但不在白名单的条目一并归档（需人工先行裁决）')
     args = ap.parse_args()
 
     import chromadb
@@ -76,8 +78,13 @@ def main():
           f'{len(ids) - len(targets) - len(flag_only)} untouched')
 
     if not args.apply:
-        print('DRY-RUN（未修改）。确认清单后加 --apply')
+        print('DRY-RUN（未修改）。确认清单后加 --apply（正则条目需 --include-pattern）')
         return
+
+    if args.include_pattern:
+        targets += flag_only
+        flag_only = []
+        print(f'--include-pattern: 合并后待归档 {len(targets)} 条')
 
     from datetime import datetime, timezone, timedelta
     now_iso = datetime.now(timezone(timedelta(hours=8))).isoformat()
