@@ -10,7 +10,7 @@
   (c)   T0 后 silent_reflection.log 出现 inject candidates: → 打印 dists（信息性，供阈值校准）
   (d)   相近问题有注入则断言头注前缀；无注入 SKIP（检索非确定性）
 """
-import urllib.request, json, time, hmac, hashlib, os, sys, subprocess
+import urllib.request, json, time, hmac, hashlib, os, re, sys, subprocess
 
 BOT_UUID = os.environ.get("BOT_UUID", "dcbe70d9-af11-4624-908a-9928e4a08bdb")
 SECRET_RAW = os.environ.get("SECRET", "")
@@ -56,8 +56,10 @@ def count(path, needle):
         return 0
 
 
-def last_raw_prompt():
-    """gate.log 最后一个 LLM RAW PROMPT 段（本轮注入的唯一完整落盘）"""
+def last_raw_prompt(after_epoch=None):
+    """gate.log 最后一个 LLM RAW PROMPT 段（本轮注入的唯一完整落盘）。
+    段头带墙钟 '=== LLM RAW PROMPT [HH:MM:SS] ==='，after_epoch 时按时间戳过滤
+    （容差 75s 吸收容器时区差），取段尾 END 标记向前定位。"""
     try:
         with open(GATE_LOG, 'r', errors='replace') as f:
             f.seek(0, 2)
@@ -65,7 +67,18 @@ def last_raw_prompt():
             data = f.read()
     except Exception:
         return ''
-    i = data.rfind('LLM RAW PROMPT')
+    if after_epoch is None:
+        i = data.rfind('LLM RAW PROMPT')
+    else:
+        i = -1
+        local = time.localtime(after_epoch)
+        for m in re.finditer(r'LLM RAW PROMPT \[(\d{2}):(\d{2}):(\d{2})\]', data):
+            h, mi, s = (int(g) for g in m.groups())
+            diff = abs((h * 3600 + mi * 60 + s)
+                       - (local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec))
+            diff = min(diff, 86400 - diff)
+            if diff <= 75:
+                i = m.start()
     if i < 0:
         return ''
     seg = data[i:]
@@ -113,17 +126,17 @@ def main():
     t0_cand = count(REFLECTION_LOG, "inject candidates:")
 
     # ── (a)(b) VR 无关问题 ──
+    # 归属锚定=段头墙钟时间戳（触发消息被 timeline 排除，不能拿本轮文本当锚）
+    t_send1 = time.time()
     resp = send_sync("Quest3 玩节奏光剑卡顿怎么解决？")
     print(f"sync#1: {'ok' if not resp.get('error') else resp['error']}")
     if not wait_inject(t0_inject):
         print('FAIL: 90s 内无 inject（gate 未处理本轮）')
         sys.exit(1)
     time.sleep(3)  # RAW PROMPT 落盘在 inject 前一步，留缓冲
-    seg = last_raw_prompt()
+    seg = last_raw_prompt(after_epoch=t_send1)
     if not seg:
-        fails.append("(a) gate.log 无 RAW PROMPT 段可读")
-    elif '节奏光剑' not in seg:
-        fails.append("(a) 末段不含本轮提问文本——段归属不明（并发或本轮未处理），拒判")
+        fails.append("(a) 发送时间窗内无 RAW PROMPT 段——段归属不明，拒判")
     else:
         if '仅供你内部理解' in seg:
             print("(a) PASS: 压制条款已进 prompt")
@@ -153,12 +166,13 @@ def main():
 
     # ── (d) 相近问题注入头注（库空则 SKIP）──
     t0_inject2 = count(EVENT_LOG, f'group_{SESSION} inject ')
+    t_send2 = time.time()
     resp = send_sync("之前聊过的电机选型，断路器多大合适来着？")
     print(f"sync#2: {'ok' if not resp.get('error') else resp['error']}")
     wait_inject(t0_inject2)
-    seg2 = last_raw_prompt()
-    if '断路器' not in seg2:
-        print("(d) SKIP: 末段不含本轮提问（段归属不明），不判定")
+    seg2 = last_raw_prompt(after_epoch=t_send2)
+    if not seg2:
+        print("(d) SKIP: 时间窗内无段（归属不明），不判定")
     elif '触发条件：' in seg2:
         if '[先前经验 · 仅供内部参考' in seg2:
             print("(d) PASS: 注入含头注前缀")
