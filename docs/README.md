@@ -8,6 +8,7 @@
 | [design/](design/) | 设计文档（Gate 设计 + AFK 迭代史） |
 | [references/](references/) | 参考文档（Archon + CLI 参考 + bash-firewall + Gate 排查 + NAS 运维 + **v2→v3 迁移** + **测试策略**） |
 | [plans/](plans/) | 早期设计计划（迁移自 ~/.claude/plans/，历史参考） |
+| [research/](research/) | 专题调研报告（Claude Code PPT 生成与改造、AI 假绿根因分析） |
 
 ## 当前版本
 
