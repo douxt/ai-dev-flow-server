@@ -87,6 +87,8 @@ NEW_B = """            elif msg.type == 'forward':
                             message_chain=platform_message.MessageChain(_chain)))
                     yiri_msg_list.append(platform_message.Forward(node_list=_fwd_nodes))
                 except Exception:
+                    print('[FWD-SPEAKER-DEGRADE] forward:')
+                    traceback.print_exc()
                     yiri_msg_list.append(platform_message.Plain(text='[转发消息解析失败]'))"""
 
 # ── 1c: reply 分支裸 get_msg 包超时（收消息路径上的外部调用必须有 timeout，曾致单群静默）──
@@ -112,6 +114,8 @@ NEW_C = """            elif msg.type == 'reply':  # 此处处理引用消息传�
                         message_id=msg.data['id'], sender_id=msg_datas['user_id'], origin=reply_list
                     ))
                 except Exception:
+                    print('[FWD-SPEAKER-DEGRADE] reply:')
+                    traceback.print_exc()
                     yiri_msg_list.append(platform_message.Plain(text='[引用消息获取失败]'))"""
 
 missing = [name for name, old in (('1a-flatten', OLD_A), ('1b-forward', OLD_B), ('1c-reply', OLD_C))

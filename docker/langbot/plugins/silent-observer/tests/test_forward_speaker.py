@@ -2,14 +2,13 @@
 import os
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from conftest import FakePlain, FakeImage, FakeQuote, FakeForward, FakeForwardNode  # noqa: E402
+from conftest import FakePlain, FakeQuote, FakeForward, FakeForwardNode  # noqa: E402
 
 
 # SDK mock 由 autouse fixture 运行时注入，业务模块禁止 collection 期顶层 import
@@ -70,6 +69,25 @@ class TestExtractForward:
         origin = [FakePlain(text='[喵酱 08-24 02:55]'), FakePlain(text='我车不烧')]
         out = await tl.extract_text([FakeQuote(origin=origin)])
         assert out.startswith('[引用: ') and '我车不烧' in out
+
+
+class TestQuoteHeadGuard:
+    """P2-2：quote 展平只剩归属头（正文提取失败）时回退占位，不拿空头当引用内容"""
+
+    def _svc(self, tl):
+        from service.quote import QuoteService
+        return QuoteService(tl.extract_text)
+
+    async def test_pure_heads_fall_back(self, tl):
+        origin = [SimpleNamespace(type='Source', id=1, time=None),
+                  FakePlain(text='[甲 08-28 13:00]'), FakePlain(text='[乙 08-28 13:01]')]
+        out = await self._svc(tl).extract([FakeQuote(origin=origin)])
+        assert out == '[转发消息（内容未展开）]'
+
+    async def test_head_plus_content_kept(self, tl):
+        origin = [FakePlain(text='[甲 08-28 13:00]'), FakePlain(text='真实正文')]
+        out = await self._svc(tl).extract([FakeQuote(origin=origin)])
+        assert '真实正文' in out and '[甲' in out
 
 
 class TestSaveTextOnlyWithForward:
