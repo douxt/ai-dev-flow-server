@@ -27,4 +27,4 @@ silent-observer 插件所在 LangBot 栈需要修改宿主框架源码（上游�
 
 - 正面：消灭"重建即丢"类静默失配（本次抓获两起：事件循环补丁丢失、image_url 语法坏）；升级兼容检测自动化（锚缺失即报警）；回滚路径标准化（.orig + entrypoint 注释）。
 - 负面：patch 脚本随上游漂移需人工迁移 hunk（test_patches 把发现成本降到一次命令）；entrypoint 启动耗时增加 ~1s。
-- 遗留：patch_image_url 处于"已重写但停用"状态——启用会把 vision 取图切到 url 优先路径（历史上从未生效过的行为），需单独验证窗口。
+- 遗留已闭环（2026-08-28 同日）：patch_image_url 经真实发图验证（url_ok lat=1.1s，模型可拉 QQ 图床外链，url 失败自动回退 base64）后正式启用——"语法坏≠功能坏，但启用前必须实证"补完为接通 7/25 断线 feature。

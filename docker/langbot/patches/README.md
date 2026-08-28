@@ -9,7 +9,7 @@ NAS 部署位置：`/volume1/docker/langbot/patches/` + `/volume1/docker/langbot
 | 补丁 | 目标文件 | 原因 | 状态 |
 |------|---------|------|------|
 | [patch_mcp_timeout.py](patch_mcp_timeout.py) | `pkg/provider/tools/loaders/mcp.py` | MCP call_tool 无超时 → session 死锁 | 生效 |
-| [patch_image_url.py](patch_image_url.py) | `pkg/platform/sources/aiocqhttp.py` | Image 构造保留平台 CDN url | **停用**：NAS 在版长期语法坏（每次启动喷 traceback，2026-08-28 发现）已重写；但启用会把 vision 取图切到 url 优先路径（从未实际生效过的行为变更），验证前勿解注释 |
+| [patch_image_url.py](patch_image_url.py) | `pkg/platform/sources/aiocqhttp.py` | Image 构造保留平台 CDN url，插件 vision URL-first 直传模型免 base64 上传 | **生效**（2026-08-28 启用）：NAS 在版曾长期语法坏从未生效（url_ok=0/b64_ok=105 实证）；重写后启用实测 `url_ok lat=1.1s`，模型可拉 QQ 图床外链，url 失败自动回退 base64（vision.py 已内建）。注意：省的是传输体积非模型 token（图像 token 按像素计两制相同） |
 | [patch_event_loop_blocks.py](patch_event_loop_blocks.py) | `pkg/pipeline/process/process.py` + `pkg/pipeline/monitoring_helper.py` | 大 message_chain 的 str()/model_dump() 同步阻塞事件循环 → WS ping timeout | **转制自 process.py / monitoring_helper.py 整文件补丁**——旧整文件版未进 entrypoint，容器重建后已丢失（2026-08-28 md5 核实），本脚本为唯一现役形态 |
 | [patch_forward_speaker.py](patch_forward_speaker.py) | `pkg/platform/sources/aiocqhttp.py` | 合并转发丢说话人归属（8/24 事故）+ 直发 forward 被 `pass` 整体丢弃；napcat `parseMultMsg:false` 需 get_msg 回取。**同时把 reply 分支裸 `get_msg` 包上 wait_for(30)**——adapter 收消息路径上无超时的外部调用曾致单群静默 | 2026-08-28 新增 |
 
