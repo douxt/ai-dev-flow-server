@@ -23,6 +23,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-001 | UMES3 配置体检 | 修复版三门禁依赖 `grep -oP`（GNU），busybox 环境静默失效 | ⏳ 跨平台兼容改造待评估（stdin 测试已限 ubuntu 镜像） |
 | 遗留 | go-vue FEEDBACK-001 | 漏洞扫描检查类别（govulncheck / npm audit 按 tags 路由） | ⏳ 待排 |
 | DEFECT-003 | v3.5 回归对照 | **基线既有测试失败**：base 1c150a6 上 ubuntu 39 挂 / alpine 34 挂（migrate 系 13、rollback 系 6、hook 链 4、install mode/--home/--no-config 系 7、stage-tickets 系 8、escape/CLAUDE.md 路由表 2、verify 1）——非 v3.4/v3.5 引入，疑与同期 stage-tracker/install 改动或环境依赖有关 | ⏳ 待排（修前以 detached worktree 基线对照为准，参照记忆 bats-baseline-detached-worktree） |
+| DEFECT-004 | T3 传播暴露 | install.sh update 段 `chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh` 对 symlink **穿透改目标文件 mode**——claude-config 纳管环境下 4 个 644 hook 源文件被 +x（git mode 污染，已宿主手动还原）。修法：`[ -L ] || chmod +x` 或 find `! -type l`；同段 skills 轮换对同名 skill 的 mv 覆盖同理需 symlink 检查 | ⏳ 待排 |
 
 ## 已处理反馈
 
