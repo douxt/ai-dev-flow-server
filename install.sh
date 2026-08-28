@@ -166,10 +166,10 @@ selftest_hooks() {
     local st_dir sid st_pass=0 st_fail=0 st_skip=0
     st_dir=$(mktemp -d); sid="selftest-$$"
     mkdir -p "$st_dir/.devflow"   # workflow-gate 前置：仅在有 .devflow/ 的工作区生效
-    _st() {  # _st <script> <期望exit> <json>
+    _st() {  # _st <script> <期望exit> <json>；_ST_HOME 可覆盖钩子可见的 HOME（防保护分支副作用打到真实 ~/.claude）
         local script="$1" want="$2" json="$3" rc=0
         [ -f "$hooks_dir/$script" ] || { echo "  ⚠️  自检 SKIP: $script 未部署"; st_skip=$((st_skip+1)); return; }
-        printf '%s' "$json" | (cd "$st_dir" && WORKSPACE="$st_dir" bash "$hooks_dir/$script" >/dev/null 2>&1) || rc=$?
+        printf '%s' "$json" | (cd "$st_dir" && WORKSPACE="$st_dir" env ${_ST_HOME:+HOME=$_ST_HOME} bash "$hooks_dir/$script" >/dev/null 2>&1) || rc=$?
         if [ "$rc" = "$want" ]; then
             st_pass=$((st_pass+1))
         else
@@ -188,7 +188,11 @@ selftest_hooks() {
     # test-gate-block：非 RED commit 命令 → 放行（exit 0）
     _st test-gate-block.sh 0 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m plain\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
     # file-guard：安全配置自保护路径 → 拦截（exit 2，死代码复活的核心验证）
-    _st file-guard.sh 2 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/settings.json\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # 断言路径在沙箱 HOME 构造——修复版 file-guard 拦截时会 chmod a-w + 写审计日志，不得打到真实 settings.json
+    local fg_home
+    fg_home=$(mktemp -d); mkdir -p "$fg_home/.claude"; touch "$fg_home/.claude/settings.json"
+    _ST_HOME="$fg_home" _st file-guard.sh 2 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$fg_home/.claude/settings.json\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    rm -rf "$fg_home"
     # file-guard：worktree 路径 → 放行（exit 0）
     _st file-guard.sh 0 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$st_dir/.claude/worktrees/a/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
     rm -rf "$st_dir"
