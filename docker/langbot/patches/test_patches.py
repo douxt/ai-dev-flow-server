@@ -25,7 +25,7 @@ CONTAINER_PATHS = {
 CASES = {
     'aiocqhttp.py': ('patch_forward_speaker.py', 'FWD-SPEAKER-PATCH',
                      ['ForwardMessageNode(', "bot.get_msg(message_id=msg.data['id'])",
-                      '_fhead = ', 'asyncio.wait_for']),
+                      '_fhead = ', 'asyncio.wait_for', '[引用消息获取失败]']),
     'process.py': ('patch_event_loop_blocks.py', 'EVL-BLOCK-PATCH',
                    ['run_in_executor', 'message_text[:500]']),
     'monitoring_helper.py': ('patch_event_loop_blocks.py', 'EVL-BLOCK-PATCH',

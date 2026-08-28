@@ -89,13 +89,39 @@ NEW_B = """            elif msg.type == 'forward':
                 except Exception:
                     yiri_msg_list.append(platform_message.Plain(text='[转发消息解析失败]'))"""
 
-missing = [name for name, old in (('1a-flatten', OLD_A), ('1b-forward', OLD_B)) if old not in content]
+# ── 1c: reply 分支裸 get_msg 包超时（收消息路径上的外部调用必须有 timeout，曾致单群静默）──
+OLD_C = """            elif msg.type == 'reply':  # 此处处理引用消息传入Quote
+                msg_datas = await bot.get_msg(message_id=msg.data['id'])
+
+                for msg_data in msg_datas['message']:
+                    await process_message_data(msg_data, reply_list)
+
+                reply_msg = platform_message.Quote(
+                    message_id=msg.data['id'], sender_id=msg_datas['user_id'], origin=reply_list
+                )
+                yiri_msg_list.append(reply_msg)"""
+
+NEW_C = """            elif msg.type == 'reply':  # 此处处理引用消息传入Quote
+                # [FWD-SPEAKER-PATCH] get_msg 加 30s 超时：无超时的收路径外部调用挂 → 单群静默
+                try:
+                    msg_datas = await asyncio.wait_for(
+                        bot.get_msg(message_id=msg.data['id']), timeout=30)
+                    for msg_data in msg_datas['message']:
+                        await process_message_data(msg_data, reply_list)
+                    yiri_msg_list.append(platform_message.Quote(
+                        message_id=msg.data['id'], sender_id=msg_datas['user_id'], origin=reply_list
+                    ))
+                except Exception:
+                    yiri_msg_list.append(platform_message.Plain(text='[引用消息获取失败]'))"""
+
+missing = [name for name, old in (('1a-flatten', OLD_A), ('1b-forward', OLD_B), ('1c-reply', OLD_C))
+           if old not in content]
 if missing:
     print(f'{MARKER} ERROR: anchor not found: {",".join(missing)} (上游改版？人工核对 {TARGET})')
     sys.exit(1)
 
 shutil.copyfile(TARGET, BACKUP)  # 仅首次（marker 在前已 skip，不会覆盖备份）
-content = content.replace(OLD_A, NEW_A, 1).replace(OLD_B, NEW_B, 1)
+content = content.replace(OLD_A, NEW_A, 1).replace(OLD_B, NEW_B, 1).replace(OLD_C, NEW_C, 1)
 with open(TARGET, 'w') as f:
     f.write(content)
 print(f'{MARKER} applied successfully (backup: {BACKUP})')
