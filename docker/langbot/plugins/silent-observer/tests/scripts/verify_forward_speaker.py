@@ -42,15 +42,19 @@ def check():
         f.seek(0, 2)
         f.seek(max(0, f.tell() - 2_000_000))
         data = f.read()
-    i = data.rfind('LLM RAW PROMPT')
-    seg = data[i:] if i >= 0 else ''
-    j = seg.find('=== END RAW PROMPT ===')
-    seg = seg[:j] if j > 0 else seg
-    m = HEAD_STAMP.search(seg)
-    if m:
-        print(f'(1a) PASS: RAW PROMPT 含带时间戳归属头 {m.group(0)[:40]!r}')
+    # 1a 真实断言位：gate.log 的 quote_text= 行（引用展平产出点；trigger 消息不进 RAW PROMPT dump）
+    hit = None
+    for line in reversed([l for l in data.splitlines() if 'quote_text=' in l]):
+        if 'quote_text=(empty)' in line:
+            continue
+        s = HEAD_STAMP.search(line)
+        if s:
+            hit = s.group(0)[:40]
+        break
+    if hit:
+        print(f'(1a) PASS: 最近引用轮 quote_text 含带时间戳归属头 {hit!r}')
     else:
-        fails.append("(1a) 最后 RAW PROMPT 段无 '[nick MM-DD HH:MM]'——引用展平未通或未做引用轮")
+        fails.append("(1a) 最近引用轮无 '[nick MM-DD HH:MM]'——引用展平未通或无引用轮")
     return fails
 
 
