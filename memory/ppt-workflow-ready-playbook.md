@@ -1,11 +1,18 @@
 ---
 name: ppt-workflow-ready-playbook
 description: 2026-08-28 Claude Code PPT 生成/改造能力已全链路配好并有实战手册——新会话接到 .pptx 需求直接读 playbook 上手，禁止重新调研
+created: 2026-08-28
+source: stop-hook
+origin_session: 8b643298-95db-4533-b9ce-f587acca8fb8
 metadata: 
   node_type: memory
   type: project
   originSessionId: 8b643298-95db-4533-b9ce-f587acca8fb8
 ---
+
+**根因**：一次 PPT 改造 = 两波调研 + 七轮迭代 + 13 处工程试错，不复用则每次从零。
+**解决**：下述就绪环境 + 手册 + 脚手架资产，需求开场直接照手册执行。
+**预防**：新会话召回本记忆 → 先读手册再动手；同类新经验继续追加进手册（改规则不改产出物）。
 
 **任何 .pptx 生成/改造需求（说课/汇报/deck 提档/改造现有 PPT），先读两份文档再动手，不要重新调研：**
 
