@@ -270,3 +270,9 @@ execution:
 - **基线只认 langbot 容器**：langbot-plugin 容器里的同名框架源码是死代码副本（两份 aiocqhttp.py 内容分叉 610 vs 682 行，锚点行号完全不同）——从错容器导出基线会让整份计划的锚点作废。
 - **NAS 与仓库 patches/ 双向漂移要定期核对**：NAS 有仓库没有的在跑脚本（mcp_timeout 曾失踪）、仓库镜像与线上 entrypoint 内容矛盾过；scp 整目录覆盖前必须三向核对，先回灌再谈同步。
 - **改宿主收路径的外部调用（get_msg 等）必须包 asyncio.wait_for**——本部署曾有无超时调用致单群静默的前科；补丁降级分支要 stderr 打 traceback，静默占位=掩盖配置错误。
+
+### 25. "脚本在跑"≠"补丁生效"（2026-08-28）
+
+- patch_image_url 在 entrypoint 注册运行一个多月，实则每次启动 SyntaxError 被 shell 吞掉继续 exec——url 透传**从未生效**，铁证是业务日志分支计数：gate.log `url_ok=0 / b64_ok=105`。
+- 纪律：**任何补丁/自动化改动的完成验证必须拿功能侧证据**（applied 日志只是一半，另一半是业务日志里该功能该出现的分支真的出现了），"进程活着、脚本在跑、日志没红"三者加起来也不等于生效。
+- 同日接通实证：重写后启用，`url_ok lat=1.1s`，模型可直拉 QQ 图床外链，失败自动回退 base64（vision.py 内建）。附带修正认知：识图 url 制省的是**传输体积**非模型 token——多模态图像 token 按像素切块计，url/base64 两制同价。
