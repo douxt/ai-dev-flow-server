@@ -159,7 +159,7 @@ teardown() {
     mkdir -p "$TEST_PROJECT/.devflow"
 
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]  # PreToolUse 阻断语义 exit 2
     [[ "$output" =~ workflow-gate ]]
     [ -f "$TEST_PROJECT/.workflow-route" ]
 }

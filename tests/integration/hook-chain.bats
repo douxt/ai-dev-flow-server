@@ -38,7 +38,7 @@ ensure_trace_script() {
 
     # Step 1: 首次 Edit → workflow-gate 拦截
     run bash "$HOOK_DIR/workflow-gate.sh" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]
     [[ "$output" =~ workflow-gate ]]
     [ -f "$ROUTE" ]
 

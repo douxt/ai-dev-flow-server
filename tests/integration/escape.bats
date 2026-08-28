@@ -46,14 +46,14 @@ teardown() {
     rm -f "$BYPASS"
 
     run bash "$HOOK_DIR/workflow-gate.sh" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ] # PreToolUse 阻断语义 exit 2
     [[ "$output" =~ workflow-gate ]]
 }
 
 @test "escape: 逃生文件创建后立即生效" {
     rm -f "$BYPASS"
     run bash "$HOOK_DIR/workflow-gate.sh" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]
 
     mkdir -p "$HOME/.claude"
     touch "$BYPASS"
@@ -71,7 +71,7 @@ teardown() {
     rm -f "$BYPASS"
     rm -f "$TEST_PROJECT/.workflow-route"
     run bash "$HOOK_DIR/workflow-gate.sh" "Write" '{"file_path":"/tmp/test.txt"}'
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 2 ]
 }
 
 @test "escape: 所有修改类工具均放行（Edit + Write + Bash 写入）" {
