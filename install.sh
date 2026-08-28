@@ -200,6 +200,18 @@ selftest_hooks() {
     return 0
 }
 
+inject_stacks_reviewed_at() {
+    # M0 保鲜（FEEDBACK-002）：部署后将 reviewed_at 占位符刷为当天=“最新部署即待重审”
+    # grep 守卫：仅处理含占位符的模板文件，租户已审文件（真实日期）不动 → 幂等；dry_run 包裹防预演泄漏
+    local md
+    for md in "$1"/*.md; do
+        if [ -f "$md" ] && grep -q '__REVIEWED_AT__' "$md"; then
+            dry_run "sed -i 's|__REVIEWED_AT__|$(date +%F)|' \"$md\""
+        fi
+    done
+    return 0
+}
+
 agents_stack_tags() {
     # 从 config.yaml 提取 tech_stack.tags（用于 AGENTS.md 技术栈行），无则空
     local tags=""
@@ -449,6 +461,7 @@ if [ "$UPDATE_MODE" = true ]; then
                 for md in "$stack_src"/*.md; do
                     [ -f "$md" ] && deploy_file "$md" "$stack_dst/$(basename "$md")"
                 done
+                inject_stacks_reviewed_at "$stack_dst"
                 echo "  ✅ stacks/$tag"
             fi
         done
@@ -1056,6 +1069,7 @@ if [ -n "$TAGS" ]; then
         if [ -d "$stack_src" ]; then
             mkdir -p "$stack_dst"
             cp "$stack_src"/*.md "$stack_dst/" 2>/dev/null || true
+            inject_stacks_reviewed_at "$stack_dst"
             echo "  ✅ stacks/$tag"
         fi
     done

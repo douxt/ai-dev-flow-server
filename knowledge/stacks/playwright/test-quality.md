@@ -2,6 +2,8 @@
 
 > 技术栈模块 — 仅对 `config.yaml` 中 `tech_stack.tags` 含 `playwright` 的项目部署。
 > 通用测试规则见 `09-测试质量宪法.md`。
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 检查项
 

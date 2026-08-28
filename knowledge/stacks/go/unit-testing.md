@@ -3,6 +3,8 @@
 > 技术栈模块 — 按 `tags: go` 部署。
 > 来源：go-vue-scaffold 最佳实践调研（2026-08），通用部分萃取。
 > 门禁联动：.devflow/scripts/test-gate.sh（C0.5 发现 `*_test.go`）、g0-inject.sh（策略 6/7 Go 注入）
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 硬性要求
 

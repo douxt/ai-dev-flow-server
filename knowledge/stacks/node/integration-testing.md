@@ -1,6 +1,8 @@
 # Node 集成测试
 
 > 技术栈模块 — `tags: node, vitest`。通用分层策略见 `knowledge/10-测试分层策略.md`
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 工具矩阵
 

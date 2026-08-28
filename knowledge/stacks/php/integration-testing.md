@@ -2,6 +2,8 @@
 
 > 技术栈模块 — `tags: php`。通用分层策略见 `knowledge/10-测试分层策略.md`
 > 适用：PHP 5.4+ 遗留项目，无 Composer/无测试框架
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 工具矩阵
 

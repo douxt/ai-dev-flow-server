@@ -2,6 +2,8 @@
 
 > 技术栈模块 — 按 `tags: go` 部署。
 > 来源：go-vue-scaffold 最佳实践调研（2026-08），通用部分萃取。
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 分层结构
 

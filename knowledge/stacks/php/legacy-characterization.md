@@ -2,6 +2,8 @@
 
 > 技术栈模块 — 按 `tags: php` 部署。
 > 通用流程见 `knowledge/11-遗留代码特征测试.md`
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 模式 A：HTTP 探针 + JSON 快照（推荐）
 

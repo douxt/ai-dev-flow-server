@@ -2,6 +2,8 @@
 
 > 技术栈模块 — 按 `tags: node` 部署（Vue 项目）。
 > 门禁联动：test-gate.sh C0.5 Vitest 分支、g0-inject.sh vitest runner
+> reviewed_at: __REVIEWED_AT__
+> status: current
 
 ## 基础模式
 

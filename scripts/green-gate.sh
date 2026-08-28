@@ -5,6 +5,7 @@
 #
 # 与 test-gate.sh（RED 侧）互补——test-gate 查"测试写对了吗"，green-gate 查"实现写对了吗"
 # G2.4 消费 .devflow/config.yaml 的 lint_command（RED 阶段实现未完成，lint 只放 GREEN 侧）
+# G2.5 stacks 知识保鲜扫描（reviewed_at 超 90 天 warning，FEEDBACK-002 M0；GREEN_GATE_REVIEW_THRESHOLD 可覆盖阈值）
 
 set -euo pipefail
 
@@ -89,11 +90,39 @@ else
     WARN=1
 fi
 
+# ── G2.5: stacks 知识保鲜（M0/FEEDBACK-002，warning 档）──
+echo ""
+echo "--- G2.5: stacks 知识保鲜 ---"
+STACKS_DIR="$SCRIPT_DIR/../knowledge/stacks"
+REVIEW_THRESHOLD="${GREEN_GATE_REVIEW_THRESHOLD:-$(date -d '90 days ago' +%F 2>/dev/null || true)}"
+if [ ! -d "$STACKS_DIR" ]; then
+    echo "✅ 无 stacks 目录，跳过"
+elif [ -z "$REVIEW_THRESHOLD" ]; then
+    echo "✅ date -d 不支持相对时间（busybox 精简环境），跳过（不误报）"
+else
+    STALE_HITS=0
+    for md in "$STACKS_DIR"/*/*.md; do
+        [ -f "$md" ] || continue
+        RA=$(grep -m1 'reviewed_at:' "$md" 2>/dev/null | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
+        if [ -z "$RA" ]; then continue; fi   # 缺元数据（旧版模板）不判，防误报
+        if [[ "$RA" < "$REVIEW_THRESHOLD" ]]; then
+            echo "⚠️  栈知识超 90 天待重审: $(basename "$(dirname "$md")")/$(basename "$md") (reviewed_at: $RA)"
+            STALE_HITS=$((STALE_HITS + 1))
+        fi
+    done
+    if [ "$STALE_HITS" -eq 0 ]; then
+        echo "✅ 栈知识均在保鲜期（≤90 天）"
+    else
+        echo "  提示: 重审后更新文件头 reviewed_at；平台 --update 部署也会刷新"
+        WARN=1
+    fi
+fi
+
 # ── 结果 ──
 echo ""
 echo "============================================"
 if [ $WARN -eq 0 ]; then
-    echo "✅ green-gate G2.1-G2.3 全部通过"
+    echo "✅ green-gate G2.1-G2.5 全部通过"
     exit 0
 else
     echo "⚠️  green-gate 有标记项——需人工确认后方可提交 GREEN commit"
