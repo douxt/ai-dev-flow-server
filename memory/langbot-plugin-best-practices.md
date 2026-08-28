@@ -276,3 +276,8 @@ execution:
 - patch_image_url 在 entrypoint 注册运行一个多月，实则每次启动 SyntaxError 被 shell 吞掉继续 exec——url 透传**从未生效**，铁证是业务日志分支计数：gate.log `url_ok=0 / b64_ok=105`。
 - 纪律：**任何补丁/自动化改动的完成验证必须拿功能侧证据**（applied 日志只是一半，另一半是业务日志里该功能该出现的分支真的出现了），"进程活着、脚本在跑、日志没红"三者加起来也不等于生效。
 - 同日接通实证：重写后启用，`url_ok lat=1.1s`，模型可直拉 QQ 图床外链，失败自动回退 base64（vision.py 内建）。附带修正认知：识图 url 制省的是**传输体积**非模型 token——多模态图像 token 按像素切块计，url/base64 两制同价。
+
+### 26. 幂等 patch 脚本自身的版本升级陷阱（2026-08-28）
+
+- **marker 判重是文件粒度，不是 hunk 粒度**：给已上线的 patch 脚本新增一段（如 forward 补丁后补 1c 超时）后，生产文件因旧 marker 存在直接 skip——**新 hunk 永远不会被施加**。正确流程：容器内 `cp .orig-<name> 目标文件`（恢复基线）→ 跑新版脚本 → py_compile → 重启。本次 1c 就靠这个重打流程救回。
+- **计划锚定协议层行为时读配置/源码，别从现象反推**：forward 计划第一版假设"事件 data 带 content"，是从 8/24 引用有内容反推的——实际 napcat `parseMultMsg:false`（配置文件一 grep 便知），事件永远不带，必须 get_msg 回取。评审 agent 抓出后才修正。凡锚点建在"外部组件会给什么"上，先查它的配置开关和源码分支，反推≠实证。
