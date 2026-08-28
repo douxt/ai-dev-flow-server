@@ -3,3 +3,4 @@
 - [hook-reminder-staleness-causes-gate-skip.md](hook-reminder-staleness-causes-gate-skip.md) — stage-tracker hook 提醒内容过期导致新增门禁不被执行
 - [session-lessons-flow-gate-wiring-20260731.md](session-lessons-flow-gate-wiring-20260731.md) — 本会话 10 commit 全记录 — hook 提醒修复 + C0.5 + test-gate.sh + 项目级同步盲区 + 5 条经验教训
 - [ai-false-green-root-cause-green-side-gate-discovery-20260801.md](ai-false-green-root-cause-green-side-gate-discovery-20260801.md) — AI 假 GREEN 根因——GREEN 侧零门禁导致 reward hacking，7 种手段仅 1 种被拦，不要在 RED 侧无限追加
+- [ppt-workflow-ready-playbook.md](ppt-workflow-ready-playbook.md) — PPT 生成/改造能力已配好——新会话接 .pptx 需求先读 docs/research/claude-code-ppt-playbook.md，禁止重新调研
