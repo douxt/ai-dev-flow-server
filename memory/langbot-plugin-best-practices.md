@@ -263,3 +263,10 @@ execution:
 ### 23. prompt 注入文本新增须 grep 测试断言锚（2026-08-27）
 
 向 system prompt 新增的固定文本（如压制条款含"[先前经验]"字样）会撞进旧测试断言的匹配串——`assert '先前经验' not in joined` 因新条款上屏必假失败。修：新增注入文本前 `grep -n` 全部测试文件的中文断言锚，断言改锚定注入模板特有文本（如 '触发条件：'）。同理，冒烟 grep 断言先确认目标文本在哪个日志落盘（gate.log RAW PROMPT 唯一含全文）。
+
+### 24. LangBot 宿主补丁纪律（2026-08-28，详见 ADR-010）
+
+- **只用幂等原地 patch 脚本**（marker 判重+锚缺失报错+自动 .orig），注册进 langbot 容器 entrypoint 自动重放；整文件替换=重建即丢（process/monitoring 补丁曾丢失数周无告警，md5 才发现）。
+- **基线只认 langbot 容器**：langbot-plugin 容器里的同名框架源码是死代码副本（两份 aiocqhttp.py 内容分叉 610 vs 682 行，锚点行号完全不同）——从错容器导出基线会让整份计划的锚点作废。
+- **NAS 与仓库 patches/ 双向漂移要定期核对**：NAS 有仓库没有的在跑脚本（mcp_timeout 曾失踪）、仓库镜像与线上 entrypoint 内容矛盾过；scp 整目录覆盖前必须三向核对，先回灌再谈同步。
+- **改宿主收路径的外部调用（get_msg 等）必须包 asyncio.wait_for**——本部署曾有无超时调用致单群静默的前科；补丁降级分支要 stderr 打 traceback，静默占位=掩盖配置错误。
