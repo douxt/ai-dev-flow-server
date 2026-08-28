@@ -438,3 +438,16 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 
 ### 已知约束
 - 修复版 workflow-gate/test-gate-block 依赖 `grep -oP`（GNU）——busybox 环境静默失效，跨平台兼容待评估（roadmap DEFECT-001）
+
+## v3.5 stacks 知识保鲜 M0（2026-08-28）
+
+> FEEDBACK-002 M0 落地（调研见 roadmap 阶段二）：元数据 + 过期可见，stale 只标不删。
+
+### 新增
+- **stacks 元数据**：12 个 `knowledge/stacks/*/*.md` 头部 `>` 块注入 `reviewed_at: __REVIEWED_AT__` + `status: current`；install.sh 部署时（update/fresh 两处）将占位符刷为当天日期——**语义 = 每次部署即"最新知识待重审"，租户手工改的 reviewed_at 与 status 会被下次 --update 重置**（重审流程归 M2）
+- **green-gate G2.5**（warning 档）：扫 `.devflow/knowledge/stacks/*/*.md`（SCRIPT_DIR 锚定），`reviewed_at` 早于 90 天 → 逐文件提示待重审；缺元数据不判；busybox `date -d` 不支持时静默跳过不误报；`GREEN_GATE_REVIEW_THRESHOLD=YYYY-MM-DD` 可覆盖阈值；成功文案同步 G2.1-G2.5
+- 注意：--update 时 stacks 文件（含占位符模板 vs 已部署真实日期）cmp 必不等，每文件产生 1 个轮换 `.bak-*`（同目标只留最新 1 份，属预期）
+
+### 修复（测试基建，DEFECT-002 扩展）
+- workflow-gate.bats / test_plan_backup.bats **HOME 沙箱化**：前者 teardown/touch 原会删改真实 `~/.claude/.emergency-bypass`，后者 setup 的 `rm -rf "$HOME/.claude/plans/.git-backup"` 在宿主直跑 bats 调试时属破坏性删除——现全部落 mktemp 沙箱
+- stacks-freshness.bats（6 用例双镜像）；其 inject 用例逮修 `inject_stacks_reviewed_at` 在 set -e 下末文件 grep 不中返回 1 崩溃 install 的缺陷
