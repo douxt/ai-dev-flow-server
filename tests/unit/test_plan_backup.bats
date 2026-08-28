@@ -2,12 +2,15 @@
 # 测试 plan-backup.sh hook 行为
 
 setup() {
+    # 宿主直接 bats 调试时 rm -rf 真实 $HOME/.claude/plans/.git-backup 属破坏性操作——HOME 沙箱化
+    SANDBOX=$(mktemp -d)
+    export HOME="$SANDBOX/home"
+    mkdir -p "$HOME/.claude/plans"
     BACKUP_DIR="$HOME/.claude/plans/.git-backup"
-    rm -rf "$BACKUP_DIR"
 }
 
 teardown() {
-    rm -rf "$BACKUP_DIR"
+    [ -n "${SANDBOX:-}" ] && [ -d "$SANDBOX" ] && rm -rf "$SANDBOX"
 }
 
 @test "plan-backup: creates git repo and commits on plan file Edit" {

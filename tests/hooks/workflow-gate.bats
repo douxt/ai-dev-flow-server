@@ -8,6 +8,9 @@ setup() {
     REPO_ROOT="${REPO_ROOT:-$(git -C "$BATS_TEST_DIRNAME/../.." rev-parse --show-toplevel 2>/dev/null || pwd)}"
     HOOK="$REPO_ROOT/config-templates/default/hooks/workflow-gate.sh"
     export CC_SESSION_ID="test-session-001"
+    # DEFECT-002：HOME 沙箱（置于 REPO_ROOT/HOOK 解析后）——逃生文件 touch/rm 全落沙箱，不触碰真实 ~/.claude
+    export HOME="$TEST_DIR/home"
+    mkdir -p "$HOME/.claude"
 }
 
 teardown() {
