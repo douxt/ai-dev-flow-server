@@ -255,3 +255,11 @@ execution:
 - **PersistentClient 双开**：langbot 运行时直连 `/app/data/chroma` 属未定义行为；`collection.update(ids, metadatas)`（不动向量）实测可行，但服务内存缓存可能 flush 回写覆盖——**改完必须重启 langbot 并 delta 口径复查**。规范做法：apply 前 `docker stop langbot`。
 - **SDK `vector_upsert(collection_id, vectors, ids, ...)` vectors 必填**：漏传 → TypeError 被 except 吞成一行日志，潜伏 6 天才在评审中发现。写 vector 操作前到容器内核对 `/app/.venv/.../langbot_plugin/api/proxies/langbot_api.py` 签名，别照抄仓库旧调用。
 - **监控 DB 真路径**：`/app/data/langbot.db`（`database.db` 是 0 字节占位，连它查表返回空会误判"数据丢失"）；列名先 `PRAGMA table_info`，容器 python 用 `/app/.venv/bin/python`。
+
+### 22. 判断 bot 行为先按通道归属分流（2026-08-28）
+
+同一 session_id 的消息可能走不同 bot/pipeline：monitoring_messages 的 `bot_name` 字段区分——真实 QQ=`AI对话`，/sync 合成消息=`HTTP测试`。**用 /sync 冒烟通道的回复风格给真实通道下结论会误判**（实测：P1.5 治理后 /sync 轮仍现"用户问…"旁白开头，一度误报"压制条款无效"；真实 QQ 轮全部人设正常）。旁白腔对合成连环轰炸消息敏感，对正常真人 @ 不敏感。规则：凡对 bot 行为做根因判断/效果评估，先查 bot_name + sender 归属，合成流量与真实流量分开评估；用户指认"看某群"时先核实是哪个群号，别拿相近活跃群代入。
+
+### 23. prompt 注入文本新增须 grep 测试断言锚（2026-08-27）
+
+向 system prompt 新增的固定文本（如压制条款含"[先前经验]"字样）会撞进旧测试断言的匹配串——`assert '先前经验' not in joined` 因新条款上屏必假失败。修：新增注入文本前 `grep -n` 全部测试文件的中文断言锚，断言改锚定注入模板特有文本（如 '触发条件：'）。同理，冒烟 grep 断言先确认目标文本在哪个日志落盘（gate.log RAW PROMPT 唯一含全文）。
