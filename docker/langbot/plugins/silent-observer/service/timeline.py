@@ -52,7 +52,8 @@ class TimelineService:
                     if mc is not None:
                         forward_text = await self.extract_text(mc, max_length, image_descriptions, depth + 1)
                         if forward_text:
-                            parts.append(forward_text)
+                            nick = getattr(node, 'sender_name', '') or str(getattr(node, 'sender_id', '') or '?')
+                            parts.append(f'\n[{nick}] {forward_text}')
             elif ctype == 'File':
                 parts.append('[文件]')
             else:

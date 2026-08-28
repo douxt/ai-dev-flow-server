@@ -1,5 +1,9 @@
 """引用解析服务 — 递归提取引用文本 + 引用图片检测."""
 import asyncio
+import re
+
+# 宿主 1a 展平产生的归属头 [nick MM-DD HH:MM]，可能成串出现
+_FWD_HEAD = re.compile(r'(?:^|\s)\[[^\]\n]+ \d\d-\d\d \d\d:\d\d\]')
 
 
 class QuoteService:
@@ -37,6 +41,8 @@ class QuoteService:
                     if origin_types == ['Source']:
                         return '[转发消息（内容未展开）]'
                     inner = await self._extract_text(origin, 300, depth=1)
+                    if inner and not _FWD_HEAD.sub('', inner).strip():
+                        inner = ''  # 只剩归属头（正文组件提取失败），回退占位判定
                     if has_fwd:
                         return f'[转发消息] {inner}' if inner else '[转发消息（内容未展开）]'
                     if not inner and origin_types:
