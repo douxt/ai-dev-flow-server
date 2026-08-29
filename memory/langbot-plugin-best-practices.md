@@ -281,3 +281,8 @@ execution:
 
 - **marker 判重是文件粒度，不是 hunk 粒度**：给已上线的 patch 脚本新增一段（如 forward 补丁后补 1c 超时）后，生产文件因旧 marker 存在直接 skip——**新 hunk 永远不会被施加**。正确流程：容器内 `cp .orig-<name> 目标文件`（恢复基线）→ 跑新版脚本 → py_compile → 重启。本次 1c 就靠这个重打流程救回。
 - **计划锚定协议层行为时读配置/源码，别从现象反推**：forward 计划第一版假设"事件 data 带 content"，是从 8/24 引用有内容反推的——实际 napcat `parseMultMsg:false`（配置文件一 grep 便知），事件永远不带，必须 get_msg 回取。评审 agent 抓出后才修正。凡锚点建在"外部组件会给什么"上，先查它的配置开关和源码分支，反推≠实证。
+
+### 27. bot 行为异常的取证顺序：monitoring DB 优先于代码推演（2026-08-28）
+
+- 本会话三次根因诊断（旁白泄露、反思污染、转发人物混淆）的决定性证据**全部来自 langbot.db 解剖**，代码只是解释证据：`monitoring_messages` 按 session/role/时间拉消息流 → `message_content` JSON 逐组件解剖（Quote.origin 里 66 个裸 Plain 直接证明"无说话人"）→ `bot_name` 字段区分真实 QQ（AI对话）与 /sync 合成（HTTP测试）通道。列名先 `PRAGMA table_info`（猜 sender_name 翻车过）。
+- **事故素材=黄金回归用例**：人物归属修复的验收，就是请当事用户把 8/24 那场原事故吵架重新引用 @bot——同一题从"骂傻逼"到"三说话人全对"，这是任何合成测试给不了的判决性证据。行为类修复完成后，优先找回触发事故的原始数据让用户重放，其次才是自动化脚本。
