@@ -111,13 +111,16 @@ class ReflectionStore:
 
     @staticmethod
     def _sanitize_metadata(meta: dict) -> dict:
-        """ChromaDB metadata 不支持 list/dict 嵌套，序列化为 JSON string."""
+        """ChromaDB metadata 不支持 list/dict 嵌套，序列化为 JSON string.
+        统一盖 vnorm 戳：声明本条目的存储向量已归一化（norm=1），
+        启动迁移据此识别旧格式条目（list_by_filter 不回传向量，无法直接实测 norm）."""
         clean = {}
         for k, v in meta.items():
             if isinstance(v, (list, dict)):
                 clean[k] = json.dumps(v, ensure_ascii=False)
             else:
                 clean[k] = v
+        clean['vnorm'] = 'unit'
         return clean
 
     async def store_reflection(self, reflection: dict) -> str:
@@ -263,6 +266,43 @@ class ReflectionStore:
         except Exception as e:
             safe_log('reflection', f'list_all error: {e}')
             return []
+
+    async def migrate_unit_vectors(self) -> int:
+        """启动自愈：旧格式（norm≠1，无 vnorm 戳）条目重算归一化向量写回。
+        幂等：新写入均带 vnorm 戳，迁移过的下次启动跳过。返回迁移条数."""
+        try:
+            items = await self.list_all()
+        except Exception as e:
+            safe_log('reflection', f'vector-migrate list error: {e}')
+            return 0
+        migrated = 0
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            meta = it.get('metadata') or {}
+            if meta.get('vnorm') == 'unit':
+                continue
+            doc_id = it.get('id', '')
+            text = it.get('document') or json.dumps(meta, ensure_ascii=False)
+            try:
+                async with self._api_sem:
+                    vectors = await self._embed(text)
+                    await asyncio.wait_for(
+                        self._plugin.vector_upsert(
+                            collection_id=REFLECTION_COLLECTION,
+                            vectors=vectors,
+                            ids=[doc_id],
+                            metadata=[self._sanitize_metadata({**meta, 'type': 'reflection'})],
+                            documents=[text],
+                        ),
+                        timeout=_API_TIMEOUT,
+                    )
+                migrated += 1
+            except Exception as e:
+                safe_log('reflection', f'vector-migrate error {doc_id}: {e}')
+        if migrated:
+            safe_log('reflection', f'vector-migrate: normalized {migrated} legacy entries')
+        return migrated
 
     async def archive_reflection(self, doc_id: str):
         """归档反思（设置 archived=True，保留在 collection 但不参与检索）."""

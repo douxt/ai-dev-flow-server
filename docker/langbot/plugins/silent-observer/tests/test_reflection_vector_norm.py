@@ -94,6 +94,41 @@ class TestFindDuplicateL2Formula:
         assert level == 'direct'
 
 
+class TestStartupMigration:
+    """vnorm 戳 + 启动自愈：旧格式（无戳）重算归一写回，带戳跳过（幂等）"""
+
+    async def test_store_reflection_stamps_vnorm(self, reflection_store):
+        store, plugin = reflection_store
+        await store.store_reflection({'when': 'w', 'then': 't', 'scenario': 's'})
+        assert plugin.vector_upsert.call_args.kwargs['metadata'][0]['vnorm'] == 'unit'
+
+    async def test_migrate_only_legacy_and_normalizes(self, reflection_store):
+        store, plugin = reflection_store
+        plugin.vector_list = AsyncMock(return_value={'items': [
+            {'id': 'ref:legacy', 'document': '{"scenario":"s"}',
+             'metadata': {'type': 'reflection', 'archived': False, 'scenario': 's'}},
+            {'id': 'ref:tagged', 'document': '{"scenario":"t"}',
+             'metadata': {'type': 'reflection', 'archived': False, 'vnorm': 'unit'}},
+        ]})
+        n = await store.migrate_unit_vectors()
+        assert n == 1
+        kwargs = plugin.vector_upsert.call_args.kwargs
+        assert kwargs['ids'] == ['ref:legacy']
+        assert abs(sum(x * x for x in kwargs['vectors'][0]) - 1.0) < 1e-6
+        assert kwargs['metadata'][0]['vnorm'] == 'unit'
+        # document 原文不重造、list 回传的 JSON-string 字段不二次序列化
+        assert kwargs['documents'] == ['{"scenario":"s"}']
+
+    async def test_migrate_idempotent_second_run(self, reflection_store):
+        store, plugin = reflection_store
+        plugin.vector_list = AsyncMock(return_value={'items': [
+            {'id': 'ref:tagged', 'document': 'd',
+             'metadata': {'type': 'reflection', 'archived': False, 'vnorm': 'unit'}},
+        ]})
+        assert await store.migrate_unit_vectors() == 0
+        plugin.vector_upsert.assert_not_called()
+
+
 class TestInjectThresholdSemantics:
     def test_threshold_constant(self):
         from components.event_listener.default import _REF_INJECT_MAX_DISTANCE

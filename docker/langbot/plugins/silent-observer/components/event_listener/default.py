@@ -188,6 +188,10 @@ class DefaultEventListener(EventListener):
         self._bg_queue = asyncio.Queue(maxsize=10)
         self._bg_workers = [asyncio.create_task(self._bg_worker()) for _ in range(3)]
 
+        # 启动自愈：归一化旧格式存储向量（幂等，带 vnorm 戳即跳过）——须晚于 bg_queue 构造
+        if self.reflection_store:
+            self._run_background(self.reflection_store.migrate_unit_vectors())
+
         # === 上下文压缩初始化 ===
         self.compressor_enabled = bool(config.get('compression_enabled', False))
         if self.compressor_enabled:
