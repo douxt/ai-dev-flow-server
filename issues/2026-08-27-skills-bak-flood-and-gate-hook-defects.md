@@ -130,3 +130,48 @@ selftest_hook() {  # $1=脚本 $2=期望exit
 | 四 文档措辞 | ✅ 模型路由表加第三方网关档位说明注；Git 约束"功能分支→PR→合并"改为与 wt 实践一致（PR 为 AFK 管线可选通道） | config-templates/default/CLAUDE.md |
 
 已知残留：修复版 workflow-gate/test-gate-block 使用 `grep -oP`（GNU 依赖），busybox 环境会失效——已在 tests/run_tests.sh 注明 stdin 测试仅 ubuntu 镜像跑；跨平台兼容改造待评估。
+
+## 补记（2026-08-28 复测发现）
+
+8/28 重新部署后，UMES3 环境的 `file-guard.sh` / `bash-firewall.sh` 丢失执行位（644）。因 `~/.claude/settings.local.json` 中二者注册为**裸路径**，每次工具调用该实例都 exit 126 静默崩溃，仅靠全局层带 `bash` 前缀的实例兜底——功能未损但防线依赖巧合。已在 claude-config 侧 `chmod +x` 并把 100755 提交进 git。
+
+**对上游的两点提醒**：
+1. 部署 hook 后应保证 mode 可执行（`install` 用 `cp` 部署裸路径注册的脚本时最易丢位）；
+2. `selftest_hooks` 自检建议用与注册形态一致的调用姿势（裸路径直调而非 `bash` 前缀），否则测不出「缺执行位 → 126」这类静默失效，这正是本系列报告反复出现的主题：崩溃与放行长得一模一样。
+
+## 问题五：merge-settings.py 合并 hooks 不幂等 → settings.local.json 同组 hook 重复注册 3 份
+
+### 现象（UMES3 环境实测，2026-08-28）
+
+`~/.claude/settings.local.json`（ai-dev-flow-server 安装产物，`_generated_by: ai-dev-flow-server`）中：
+
+- PostToolUse `Edit|Write` 链的 `suggest-rules.sh + syntax-check.sh + mem-backup.sh` **同组原样出现 3 次**
+- 与 claude-config 手工注册的 `file-guard.sh` / `bash-firewall.sh` 形成跨文件双层重复（全局 `bash <路径>` 一份 + local 裸路径一份）
+- 每 Edit 一次，三胞胎 hook 各跑 3 遍、file-guard 跑 2 遍
+
+推断：install 每跑一次 merge-settings 就 append 一组 hook，未做「同 command 去重」，重复安装 N 次叠 N 份（环境历史与 .bak 计数一致：install 反复执行）。
+
+### 危害（非洁癖问题）
+
+1. **audit-log 重复落行**——每次写文件产生 2 条相同审计记录，篡改"唯一约束子代理的手段"的取证准确性（CLAUDE.md 明示 file-guard 不覆盖子代理、audit-log 是最后防线）
+2. mem-backup 每写 1 次跑 3 遍，同秒时间戳备份存在互相覆盖风险
+3. **掩盖静默失效**：双层 file-guard 实例中一份缺执行位（644→exit 126 崩溃）时，另一份兜底使拦截"看起来正常"——重复注册让"哪层在真保护"不可知，与本报告系列主题同构：崩溃与放行长得一模一样
+4. 每次工具调用多进程开销；改行为时不知改哪个注册，两处漂移
+
+### 复现命令（维护者自查）
+
+```bash
+jq -r '[.hooks.PostToolUse[].hooks[].command] | group_by(.) | map("\(length)x \(.[0])") | .[]' \
+  ~/.claude/settings.local.json
+# 期望全为 1x；UMES3 实测 3x suggest-rules / 3x syntax-check / 3x mem-backup
+```
+
+### 修复建议（install 侧，与 .bak 轮换同类：幂等）
+
+1. `merge-settings.py` 合并 hooks 时按 `(matcher, command)` **全等去重**（去重键建议含 timeout 外的全部字段一致才视为同项）；已存在的组不重复 append
+2. 增加一次性清理路径：install 检测到同键 >1 份时折叠为 1 份并在输出中报告（与 4a4f648 的「旧残留自动迁出」同一设计哲学）
+3. 文档措辞：UMES3 侧确认手工层（claude-config）与安装层（本工具）的 hook 所有权边界——建议模板统一注册为 `bash <路径>` 形态（不依赖执行位），避免与手工裸路径实例成双
+
+### 本侧处置计划
+
+UMES3 侧暂不手工去重——install 再跑会叠回来（同 .bak 教训：上游不幂等，下游清一次返工一次）。待本条修复后一次性清理 + 复测。
