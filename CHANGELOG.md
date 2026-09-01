@@ -448,6 +448,9 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 - **green-gate G2.5**（warning 档）：扫 `.devflow/knowledge/stacks/*/*.md`（SCRIPT_DIR 锚定），`reviewed_at` 早于 90 天 → 逐文件提示待重审；缺元数据不判；busybox `date -d` 不支持时静默跳过不误报；`GREEN_GATE_REVIEW_THRESHOLD=YYYY-MM-DD` 可覆盖阈值；成功文案同步 G2.1-G2.5
 - 注意：--update 时 stacks 文件（含占位符模板 vs 已部署真实日期）cmp 必不等，每文件产生 1 个轮换 `.bak-*`（同目标只留最新 1 份，属预期）
 
+### 修复（selftest 盲区，UMES3 8/28 补记提醒②）
+- `selftest_hooks._st` 改**裸路径直调**（原 `bash <script>`）——与模板注册形态一致，「部署丢执行位 → exit 126 静默崩溃」从盲区变可测；模板侧维持"裸路径 + 755 + 部署 chmod + selftest 裸调"四重防线，不改 bash 前缀注册（理由见 issues 回执）
+
 ### 修复（测试基建，DEFECT-002 扩展）
 - workflow-gate.bats / test_plan_backup.bats **HOME 沙箱化**：前者 teardown/touch 原会删改真实 `~/.claude/.emergency-bypass`，后者 setup 的 `rm -rf "$HOME/.claude/plans/.git-backup"` 在宿主直跑 bats 调试时属破坏性删除——现全部落 mktemp 沙箱
 - stacks-freshness.bats（6 用例双镜像）；其 inject 用例逮修 `inject_stacks_reviewed_at` 在 set -e 下末文件 grep 不中返回 1 崩溃 install 的缺陷

@@ -167,9 +167,11 @@ selftest_hooks() {
     st_dir=$(mktemp -d); sid="selftest-$$"
     mkdir -p "$st_dir/.devflow"   # workflow-gate 前置：仅在有 .devflow/ 的工作区生效
     _st() {  # _st <script> <期望exit> <json>；_ST_HOME 可覆盖钩子可见的 HOME（防保护分支副作用打到真实 ~/.claude）
+        # 裸路径直调——与 settings 注册形态（模板 hooks 均为 __CLAUDE_HOME__/hooks/x.sh 无 bash 前缀）一致：
+        # bash 前缀调用会掩盖「缺执行位 → exit 126 静默失效」（UMES3 8/28 补记提醒②，崩溃与放行长得一模一样）
         local script="$1" want="$2" json="$3" rc=0
         [ -f "$hooks_dir/$script" ] || { echo "  ⚠️  自检 SKIP: $script 未部署"; st_skip=$((st_skip+1)); return; }
-        printf '%s' "$json" | (cd "$st_dir" && WORKSPACE="$st_dir" env ${_ST_HOME:+HOME=$_ST_HOME} bash "$hooks_dir/$script" >/dev/null 2>&1) || rc=$?
+        printf '%s' "$json" | (cd "$st_dir" && WORKSPACE="$st_dir" env ${_ST_HOME:+HOME=$_ST_HOME} "$hooks_dir/$script" >/dev/null 2>&1) || rc=$?
         if [ "$rc" = "$want" ]; then
             st_pass=$((st_pass+1))
         else

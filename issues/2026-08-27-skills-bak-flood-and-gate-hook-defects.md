@@ -175,3 +175,18 @@ jq -r '[.hooks.PostToolUse[].hooks[].command] | group_by(.) | map("\(length)x \(
 ### 本侧处置计划
 
 UMES3 侧暂不手工去重——install 再跑会叠回来（同 .bak 教训：上游不幂等，下游清一次返工一次）。待本条修复后一次性清理 + 复测。
+
+---
+
+## 上游回执（2026-08-28，对 8/28 补记与问题五）
+
+| 报告项 | 上游现状 | 实证 |
+|--------|---------|------|
+| 补记提醒①（部署保执行位） | ✅ v3.4 已覆盖：模板 hooks git 对象全 100755（`git ls-files -s` 11/11），update/fresh 部署段均有 `chmod +x` 兜底 | 本会话核验 |
+| 补记提醒②（selftest 用裸路径直调） | ✅ **采纳**：`selftest_hooks._st` 从 `bash <script>` 改为裸路径直调——与模板注册形态一致，「缺执行位 → exit 126」从盲区变可测；活体 5/5 零跳过 | selftest-barepath-exec 分支 |
+| 问题五（merge 三胞胎） | ⚠️ **已过时**：去重修复早于报告——`1999ff6`（2026-08-14"三个注入幂等性 bug"）实现 basename 去重 + 同名 matcher 多组聚合；建议 2 的"折叠清理"同批落地（下次 merge 自动折叠，install 输出报告） | 沙箱复现：三胞胎×3 组 9 条 → merge 后 3 条唯一 |
+| 问题五·建议 3（模板统一 `bash <路径>` 注册） | ❌ **不采纳**：模板选择"裸路径注册 + 755 源 + 部署 chmod + selftest 裸路径直调"四重防线；改 bash 前缀虽不依赖执行位，但将使提醒②类失效（执行位丢失）永久不可测——与本报告系列"崩溃与放行长得一模一样"主题相反 | 设计决策记录于此 |
+
+**UMES3 侧行动建议**：三胞胎无需等待上游——直接重跑一次 `install.sh <项目> --update`，merge-settings.py 会折叠为每组 1 份。"install 再跑会叠回来"的推断基于 2026-08-14 前旧版，现版幂等（上表实证）。跨文件双层重复（全局 settings.json 手工 `bash` 实例 + 安装层 local 裸路径实例）超出 install 管辖——两实例所有权归 claude-config 侧，建议手工层或删除裸路径项、或保留双实例但明确手工层不再裸路径注册，避免 file-guard"哪层在真保护"不可知状态。
+
+另：本会话传播实测中 install.sh `chmod +x hooks/*.sh` 会沿 symlink 穿透改 claude-config 源 mode——上游已登记 DEFECT-004（roadmap 07）修复待排；UMES3 侧 8047eea 补的执行位在传播时可能被反向波及，传播后请 `git -C claude-config status hooks/` 复查。
