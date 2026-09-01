@@ -39,24 +39,24 @@ class TestDistanceGate:
     """用例 4-6：distance 门槛（integration，真实 inject handler）"""
 
     async def test_mixed_distance_only_relevant_injected(self, init_listener):
-        refs = [_HELPER._ref(0, distance=0.2), _HELPER._ref(1, distance=0.9)]
+        refs = [_HELPER._ref(0, distance=0.2), _HELPER._ref(1, distance=1.8)]
         ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
         assert '触发条件：触发0' in joined
         assert '触发条件：触发1' not in joined
 
     async def test_boundary_distance_injected(self, init_listener):
-        """边界锁定：threshold=0.45，d=0.45 注入 / d=0.4501 丢弃"""
+        """边界锁定：threshold=1.4，d=1.4 注入 / d=1.4001 丢弃（l2²=2-2cos 口径）"""
         from components.event_listener.default import _REF_INJECT_MAX_DISTANCE
-        assert _REF_INJECT_MAX_DISTANCE == 0.45
-        refs = [_HELPER._ref(0, distance=0.45), _HELPER._ref(1, distance=0.4501)]
+        assert _REF_INJECT_MAX_DISTANCE == 1.4
+        refs = [_HELPER._ref(0, distance=1.4), _HELPER._ref(1, distance=1.4001)]
         ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
         assert '触发条件：触发0' in joined
         assert '触发条件：触发1' not in joined
 
     async def test_all_far_no_injection(self, init_listener):
-        refs = [_HELPER._ref(i, distance=0.9) for i in range(3)]
+        refs = [_HELPER._ref(i, distance=1.8) for i in range(3)]
         ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='')
         joined = '\n'.join(str(m.content) for m in ctx.event.prompt)
         assert '触发条件：' not in joined
@@ -73,7 +73,7 @@ class TestDistanceGate:
     async def test_gate_blocks_rerank_for_far_candidates(self, init_listener):
         """门槛先于 rerank：全远候选不得触发 rerank LLM 调用"""
         _, plugin, _ = init_listener
-        refs = [_HELPER._ref(i, distance=0.9) for i in range(8)]
+        refs = [_HELPER._ref(i, distance=1.8) for i in range(8)]
         ctx, _ = await _HELPER._inject_once(init_listener, refs, llm_resp='1,2,3')
         assert plugin.invoke_llm.await_count == 0
 
@@ -103,7 +103,8 @@ class TestUpsertVectorsFix:
         await store.update_reflection('ref:x1', {'scenario': 's', 'confirm_count': 2})
         kwargs = plugin.vector_upsert.call_args.kwargs
         assert 'vectors' in kwargs and len(kwargs['vectors']) == len(kwargs['ids']) == 1
-        assert kwargs['vectors'][0] and kwargs['vectors'][0][0] == 0.1
+        v = kwargs['vectors'][0]
+        assert v and abs(sum(x * x for x in v) - 1.0) < 1e-6  # 存储侧归一化（norm 对称修复）
 
     async def test_archive_reflection_passes_vectors(self, reflection_store):
         store, plugin = reflection_store

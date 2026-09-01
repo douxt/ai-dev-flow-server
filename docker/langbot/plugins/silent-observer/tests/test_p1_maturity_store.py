@@ -85,11 +85,11 @@ class TestFindDuplicate:
 
     async def test_direct(self, reflection_store):
         doc_id, meta, level = await self._dup(reflection_store, [_entry('ref:x', 0.05)])
-        assert level == 'direct' and doc_id == 'ref:x'  # cosine 0.95
+        assert level == 'direct' and doc_id == 'ref:x'  # cosine 0.975（l2²: 1-d/2）
 
     async def test_candidate(self, reflection_store):
-        doc_id, _, level = await self._dup(reflection_store, [_entry('ref:x', 0.2)])
-        assert level == 'candidate'  # cosine 0.8
+        doc_id, _, level = await self._dup(reflection_store, [_entry('ref:x', 0.4)])
+        assert level == 'candidate'  # cosine 0.8（旧 0.2→cos 0.9 在新公式下已升 direct）
 
     async def test_entity_link(self, reflection_store):
         doc_id, meta, level = await self._dup(
