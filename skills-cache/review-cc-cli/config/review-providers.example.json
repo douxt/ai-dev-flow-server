@@ -1,0 +1,19 @@
+{
+  "default": null,
+  "providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/anthropic",
+      "token_file": "~/.claude/secrets/deepseek-anthropic.key",
+      "model": "deepseek-v4-pro",
+      "pack_model": "deepseek-v4-flash",
+      "aliases": ["deepseek", "ds", "深度求索"]
+    },
+    "ali": {
+      "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+      "token_file": "~/.claude/secrets/ali-token-plan.key",
+      "model": "qwen3.8-max[1m]",
+      "pack_model": "qwen3.8-flash[1m]",
+      "aliases": ["阿里", "阿里云", "qwen"]
+    }
+  }
+}

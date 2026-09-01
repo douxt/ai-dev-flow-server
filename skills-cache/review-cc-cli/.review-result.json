@@ -1,0 +1,83 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "summary": "Skill 架构设计合理（独立子进程评审、rubric 驱动、loop 收敛循环），但存在一个严重阻断性问题：settings-review.json 只允许读取 md/py/sh/json/txt/yml/yaml/toml/cfg/conf/ini 和 rubrics，缺失 js/ts/tsx/php/java/go/rs/c/cpp/html/css 等所有主流编程语言扩展名，子进程完全无法读取待审源代码。此外 README.md 与 SKILL.md 的命令名不一致（/review vs /review-cc-cli），会导致用户困惑。",
+  "criticalIssues": [
+    {
+      "file": "config/settings-review.json",
+      "line": 3,
+      "severity": "high",
+      "desc": "Read 权限白名单缺失所有主流编程语言扩展名。当前仅覆盖 md/py/sh/json/txt/yml/yaml/toml/cfg/conf/ini，缺少 js/ts/tsx/jsx/php/java/go/rs/c/cpp/h/css/scss/html/vue/rb/swift/kt 等。子进程 claude -p 运行时会因无 Read 权限而无法读取待审源码，skill 核心功能不可用。需扩展为 Read(**) 或至少 Read(**/*.{js,ts,tsx,jsx,php}) 等全覆盖。"
+    },
+    {
+      "file": "README.md",
+      "line": 33,
+      "severity": "high",
+      "desc": "README.md 所有用法示例使用 `/review` 作为命令名（第 33-37 行共 5 处），但 skill 目录名为 review-cc-cli，SKILL.md 全篇使用 `/review-cc-cli`（26 处）。Claude Code 按 skill 目录名注册斜杠命令， `/review` 不会触发此 skill。这会直接导致用户按 README 示例操作时命令不生效。"
+    },
+    {
+      "file": "scripts/install.sh",
+      "line": 17,
+      "severity": "high",
+      "desc": "安装完成提示 `Run /review in any Claude session.` 使用了错误的命令名 `/review`，应为 `/review-cc-cli`。"
+    },
+    {
+      "file": "config/settings-review.json",
+      "line": 1,
+      "severity": "medium",
+      "desc": "permissions 缺少 Bash 授权。子进程需要运行 git diff 等只读 git 命令来获取变更集，但 settings-review.json 未包含 `Bash(git diff*)` 或类似权限。SKILL.md 流程步骤②明确要求 `git diff --stat 确认变更集`，但此步骤若由子进程无法执行则评审范围无法确定。需确认 git diff 是由主进程还是子进程执行——若由子进程则必须加 Bash 权限。"
+    },
+    {
+      "file": "scripts/install.sh",
+      "line": 12,
+      "severity": "medium",
+      "desc": "`cp rubrics/*.md ~/.claude/review-rubrics/` 无条件覆盖已有 rubrics，无备份、无确认。若用户已自定义 rubrics（如 ~/.claude/review-rubrics/default.md 存在独立内容），安装会静默覆盖丢失。应加 `cp -n`（不覆盖）或先 diff 提示。"
+    },
+    {
+      "file": "scripts/install.sh",
+      "line": 8,
+      "severity": "medium",
+      "desc": "`cp settings-review.json ~/.claude/` 同样无条件覆盖 ~/.claude/settings-review.json，若用户已有同名配置会丢失。应加备份或检查。"
+    },
+    {
+      "file": "SKILL.md",
+      "line": 50,
+      "severity": "medium",
+      "desc": "模型选择逻辑 `先读 ~/.claude/settings.json 获取自定义模型 ID` 过于模糊。settings.json 中模型配置的 JSON 路径未明确指定（如 `model`、`env.ANTHROPIC_DEFAULT_OPUS_MODEL` 等），实际实现时会产生歧义。需指定具体的 JSON key 路径。"
+    },
+    {
+      "file": "SKILL.md",
+      "line": 37,
+      "severity": "medium",
+      "desc": "`--shallow` 和 `--explore` 参数定义了用法，但主流程中未说明主进程如何将这两个参数转化为子进程 prompt 指令。例如 `--shallow` 是限制子进程只读 diff 不读完整文件，还是由主进程先提取 diff 再传给子进程？实现逻辑缺失。"
+    },
+    {
+      "file": "SKILL.md",
+      "line": 122,
+      "severity": "low",
+      "desc": "`.review-session-<SESSION_ID>` 文件的 `maxRounds` 固定为 3，loop 模式 `maxRounds` 默认 10。两处默认值分属不同变量是正确的，但 SKILL.md 中未明确说明 non-loop 的 maxRounds=3 含义——是第 4 次调用强制不复用 session 的意思？"
+    },
+    {
+      "file": "SKILL.md",
+      "line": 228,
+      "severity": "low",
+      "desc": "子进程输出 JSON 中 `planChecks` 字段为必填，但对纯代码评审（无计划文档）场景无意义。建议改为可选字段或空数组默认值说明。"
+    },
+    {
+      "file": "README.md",
+      "line": 19,
+      "severity": "low",
+      "desc": "README 方式一 `./scripts/install.sh` 假定用户已在 skill 目录下，但 `npx skills add` 后当前目录不确定，缺少 `cd` 引导。SKILL.md 的 `cd ~/.claude/skills/review-cc-cli && bash scripts/install.sh` 做法更完整。"
+    }
+  ],
+  "suggestions": [
+    "settings-review.json 的 Read 白名单应改为 Read(**)（由于 deny 列表已封堵 Write 敏感路径，读权限放开更合理），或至少覆盖所有主流编程语言扩展名",
+    "README.md 和 install.sh 中所有 `/review` 替换为 `/review-cc-cli`",
+    "install.sh 增加覆盖前检查：`[ -f ~/.claude/settings-review.json ] && cp ~/.claude/settings-review.json ~/.claude/settings-review.json.bak`",
+    "SKILL.md 模型选择部分明确指定 settings.json 中的 key 路径（如 `model` 顶层字段 vs `hooks` 内嵌字段）",
+    "SKILL.md 补充 `--shallow`/`--explore` 对子进程 prompt 的具体影响说明",
+    "考虑将 rubrics 的 `不适用` 字段利用起来——当路径匹配到多个 rubric 时，可读取 `不适用` 字段做二次过滤",
+    "LICENSE 文件年份 2025 考虑更新为 2026",
+    "SKILL.md 步骤编号 ③-1 建议改为独立步骤 ④，避免编号混乱"
+  ],
+  "planChecks": []
+}

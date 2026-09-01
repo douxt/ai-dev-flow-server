@@ -1,17 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Read(**/*.md)",
-      "Read(**/*.py)",
-      "Read(**/*.sh)",
-      "Read(**/*.json)",
-      "Read(**/*.txt)",
-      "Read(**/*.yml)",
-      "Read(**/*.yaml)",
-      "Read(**/*.toml)",
-      "Read(**/*.cfg)",
-      "Read(**/*.conf)",
-      "Read(**/*.ini)",
+      "Read(**/*)",
       "Read(~/.claude/review-rubrics/**)",
       "Write(.review-*)"
     ],
@@ -19,7 +9,12 @@
       "Write(**/secret.json)",
       "Write(**/.env*)",
       "Write(~/.ssh/**)",
-      "Write(~/.gitee_token)"
+      "Write(~/.gitee_token)",
+      "Write(**/.git/**)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)",
+      "Write(**/credentials*)",
+      "Write(**/id_rsa*)"
     ]
   }
 }

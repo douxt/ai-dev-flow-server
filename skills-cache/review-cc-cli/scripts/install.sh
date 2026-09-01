@@ -10,7 +10,7 @@ case "${1:-}" in
   --help|-h)
     echo "用法: bash scripts/install.sh [--force]"
     echo ""
-    echo "部署 settings-review.json + rubrics 到 ~/.claude/"
+    echo "部署 settings-review.json + rubrics 到 ~/.claude/；review-providers.json 仅在缺失时种模板"
     echo ""
     echo "  --force  强制覆盖，即使目标是 symlink"
     echo "  --help   显示此帮助"
@@ -52,6 +52,21 @@ elif [ "$FORCE" = "true" ] || [ ! -e "$TARGET" ]; then
 else
   cp "$SKILL_DIR/config/settings-review.json" "$TARGET"
   echo "   ✅ settings-review.json"
+fi
+
+# ── review-providers.json（用户配置：只在缺失时种模板，永不覆盖，--force 也不例外） ──
+echo "==> Seeding review-providers.json..."
+mkdir -p "$HOME/.claude/secrets"
+chmod 700 "$HOME/.claude/secrets"
+
+PROVIDERS_TARGET="$HOME/.claude/review-providers.json"
+if [ -e "$PROVIDERS_TARGET" ] || [ -L "$PROVIDERS_TARGET" ]; then
+  echo "   已存在，跳过（本脚本永不覆盖用户 provider 配置）"
+else
+  cp "$SKILL_DIR/config/review-providers.example.json" "$PROVIDERS_TARGET"
+  chmod 600 "$PROVIDERS_TARGET"
+  echo "   ✅ review-providers.json（模板种入，请自行编辑 token_file 与模型）"
+  echo "   ⚠️  密钥请放置到 ~/.claude/secrets/*.key（chmod 600），勿写入本文件"
 fi
 
 # ── rubrics ──
