@@ -1,9 +1,8 @@
-"""P1 对话成熟度单元测试 — rewrite/scanner/rerank/validate_schema/INJECT 降级矩阵"""
+"""P1 对话成熟度单元测试 — precheck/rerank/validate_schema/INJECT 降级矩阵"""
 import asyncio
 import json
 import os
 import sys
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,177 +28,30 @@ def _valid_reflection(**overrides):
     return d
 
 
-def _recent(n=6):
-    return [{'metadata': {'text': f'm{i}'}} for i in range(n)]
-
-
-# ── P1.1 _rewrite_utterance ────────────────────────────────
+# ── B 线：实时层 precheck（零 LLM 标记器）─────────────────
 
 @pytest.fixture
 def detector():
-    plugin = MagicMock()
-    plugin.invoke_llm = AsyncMock(return_value='补全句：不对，DS920+才是')
     from service.correction import CorrectionDetector
-    return CorrectionDetector(plugin, bot_qq='', llm_model_uuid='uuid')
+    return CorrectionDetector(None, bot_qq='', llm_model_uuid='')
 
 
-class TestRewriteUtterance:
-    async def test_success(self, detector):
-        result = await detector._rewrite_utterance('不对，你搞错了', 'bot回复')
-        assert result == '补全句：不对，DS920+才是'
-        detector._plugin.invoke_llm.assert_awaited_once()
+class TestPrecheck:
+    @pytest.mark.parametrize('text', ['不对，你搞错了', '你说错了', '错了吧这', '请纠正一下',
+                                      '这个不准确', '没有的事，其实是X', '你再想想'])
+    def test_hit(self, detector, text):
+        matched, conf = detector.precheck(text)
+        assert matched and conf > 0
 
-    async def test_message_object(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(return_value=SimpleNamespace(content='补全句：不对，你搞错了，应该是DS920+'))
-        assert await detector._rewrite_utterance('不对，你搞错了', 'r') == '补全句：不对，你搞错了，应该是DS920+'
+    @pytest.mark.parametrize('text', ['今天天气不错', '乌龙茶记一下', '', '我7月20号领养的是什么？'])
+    def test_miss(self, detector, text):
+        matched, _ = detector.precheck(text)
+        assert not matched
 
-    async def test_shorter_keeps_original(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(return_value='不对')
-        assert await detector._rewrite_utterance('不对，你搞错了', 'r') == '不对，你搞错了'
-
-    async def test_empty_keeps_original(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(return_value='')
-        assert await detector._rewrite_utterance('不对，你搞错了', 'r') == '不对，你搞错了'
-
-    async def test_exception_keeps_original(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=RuntimeError('boom'))
-        assert await detector._rewrite_utterance('不对，你搞错了', 'r') == '不对，你搞错了'
-
-    async def test_timeout_keeps_original(self, detector, monkeypatch):
-        monkeypatch.setattr('service.correction._LLM_CONFIRM_TIMEOUT', 0.01)
-
-        async def _hang(*a, **k):
-            await asyncio.sleep(30)
-        detector._plugin.invoke_llm = AsyncMock(side_effect=_hang)
-        assert await detector._rewrite_utterance('不对，你搞错了', 'r') == '不对，你搞错了'
-
-
-class TestDetect:
-    async def test_stage1_miss_no_llm(self, detector):
-        signal = await detector.detect('g', '今天天气不错', 'bot回复', _recent())
-        assert signal is None
-        detector._plugin.invoke_llm.assert_not_awaited()
-
-    async def test_full_chain_rewritten(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=['补全句：你说错了，应该用DS920+', 'YES'])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is not None
-        assert signal.user_text == '补全句：你说错了，应该用DS920+'
-        assert signal.raw_user_text == '不对，你搞错了'
-        assert signal.confidence == 0.9
-
-    async def test_rewrite_rejected_retry_original(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=['补全句：不对，你搞错了，应该用DS920+', 'NO', 'YES'])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is not None
-        assert signal.user_text == '不对，你搞错了'  # 原文重试通过
-        assert detector._plugin.invoke_llm.call_count == 3
-
-    async def test_rewrite_no_change_no_retry(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=['不对，你搞错了', 'YES'])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is not None
-        assert detector._plugin.invoke_llm.call_count == 2  # 无变化不重试
-
-    async def test_both_rejected(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=['补全句：不对，你搞错了，应该用DS920+', 'NO', 'NO'])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is None
-        assert detector._plugin.invoke_llm.call_count == 3
-
-    async def test_rewrite_exception_fallback(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=[RuntimeError('x'), 'YES'])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is not None
-        assert signal.user_text == '不对，你搞错了'
-        assert signal.raw_user_text == '不对，你搞错了'
-
-    async def test_stage2_exception_high_conf_trust(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=[RuntimeError('x'), RuntimeError('y')])
-        signal = await detector.detect('g', '不对，你搞错了', 'bot回复内容', _recent())
-        assert signal is not None  # 0.9 直击词，异常降级为信任
-
-    async def test_stage2_exception_low_conf_drop(self, detector):
-        detector._plugin.invoke_llm = AsyncMock(side_effect=[RuntimeError('x'), RuntimeError('y')])
-        signal = await detector.detect('g', '请纠正一下', 'bot回复内容', _recent())
-        assert signal is None  # ACTION 0.7，异常降级为丢弃
-
-
-# ── P1.2 SelfReflectionScanner ─────────────────────────────
-
-@pytest.fixture
-def scanner():
-    plugin = MagicMock()
-    plugin.invoke_llm = AsyncMock(return_value='NONE')
-    from service.reflection import SelfReflectionScanner
-    return SelfReflectionScanner(plugin, 'uuid')
-
-
-class TestSelfReflectionScanner:
-    @pytest.mark.parametrize('resp', ['NONE', 'none', 'None', 'NONE。', '```json\nNONE\n```', '', '   '])
-    async def test_none_variants(self, scanner, resp):
-        scanner._plugin.invoke_llm = AsyncMock(return_value=resp)
-        assert await scanner.scan(['m1', 'm2']) is None
-
-    async def test_valid_json(self, scanner):
-        scanner._plugin.invoke_llm = AsyncMock(return_value=json.dumps(_valid_reflection(), ensure_ascii=False))
-        result = await scanner.scan(['m1'])
-        assert result is not None
-        assert result['when'] and result['then']
-        assert result['confirm_count'] == 1  # _enrich 生效
-
-    async def test_json_in_codeblock(self, scanner):
-        raw = f'```json\n{json.dumps(_valid_reflection(), ensure_ascii=False)}\n```'
-        scanner._plugin.invoke_llm = AsyncMock(return_value=raw)
-        assert await scanner.scan(['m1']) is not None
-
-    async def test_json_with_surrounding_text(self, scanner):
-        raw = f'分析如下：\n{json.dumps(_valid_reflection(), ensure_ascii=False)}\n以上。'
-        scanner._plugin.invoke_llm = AsyncMock(return_value=raw)
-        assert await scanner.scan(['m1']) is not None
-
-    async def test_empty_dict(self, scanner):
-        scanner._plugin.invoke_llm = AsyncMock(return_value='{}')
-        assert await scanner.scan(['m1']) is None
-
-    async def test_missing_when_tolerated_and_derived(self, scanner):
-        bad = _valid_reflection()
-        del bad['when']
-        del bad['then']
-        scanner._plugin.invoke_llm = AsyncMock(return_value=json.dumps(bad, ensure_ascii=False))
-        result = await scanner.scan(['m1'])
-        assert result is not None  # 缺省容忍
-        assert result['when'] == result['scenario']  # _enrich 推导
-
-    async def test_missing_scenario_rejected(self, scanner):
-        bad = _valid_reflection()
-        del bad['scenario']
-        scanner._plugin.invoke_llm = AsyncMock(return_value=json.dumps(bad, ensure_ascii=False))
-        assert await scanner.scan(['m1']) is None  # 旧字段仍强制
-
-    async def test_short_correct_approach_rejected(self, scanner):
-        scanner._plugin.invoke_llm = AsyncMock(return_value=json.dumps(_valid_reflection(correct_approach='太短')))
-        assert await scanner.scan(['m1']) is None
-
-    async def test_non_json(self, scanner):
-        scanner._plugin.invoke_llm = AsyncMock(return_value='完全没有JSON内容')
-        assert await scanner.scan(['m1']) is None
-
-    async def test_llm_exception(self, scanner):
-        scanner._plugin.invoke_llm = AsyncMock(side_effect=RuntimeError('boom'))
-        assert await scanner.scan(['m1']) is None
-
-    async def test_timeout(self, scanner, monkeypatch):
-        monkeypatch.setattr('service.reflection._LLM_TIMEOUT', 0.01)
-
-        async def _hang(*a, **k):
-            await asyncio.sleep(30)
-        scanner._plugin.invoke_llm = AsyncMock(side_effect=_hang)
-        assert await scanner.scan(['m1']) is None
-
-    async def test_empty_messages_no_llm(self, scanner):
-        assert await scanner.scan([]) is None
-        scanner._plugin.invoke_llm.assert_not_awaited()
+    def test_no_llm_surface_left(self, detector):
+        # 标记器不得残留 LLM 能力面
+        assert not any(hasattr(detector, m) for m in
+                       ('_rewrite_utterance', '_stage2_confirm', 'detect', '_dynamic_window'))
 
 
 # ── P1.3 rerank ────────────────────────────────────────────
@@ -276,7 +128,7 @@ class TestRerank:
         assert await gen.rerank('问题', []) == []
 
 
-# ── P1.4 validate_schema / INJECT / GENERATE_PROMPT ────────
+# ── P1.4 validate_schema / INJECT / CONSOLIDATE_PROMPT ────
 
 class TestValidateSchema:
     @pytest.fixture
@@ -351,8 +203,9 @@ class TestInjectTemplate:
             assert lines[-1].startswith('证据校验：')
 
 
-class TestGeneratePrompt:
+class TestConsolidatePrompt:
     def test_has_when_then_fields(self):
-        from service.reflection import GENERATE_PROMPT
-        prompt = GENERATE_PROMPT.format(correction_text='c', bot_reply='b', error_types='事实错误')
+        from service.consolidator import CONSOLIDATE_PROMPT
+        prompt = CONSOLIDATE_PROMPT.format(candidates='c', conversation='b',
+                                           active='a', error_types='事实错误')
         assert '"when"' in prompt and '"then"' in prompt

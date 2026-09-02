@@ -1,10 +1,15 @@
-"""反思生成与注入 — 独立 LLM 生成结构化反思 + 模板化注入防 prompt injection."""
+"""反思校验与注入 — schema 校验 + 模板化注入防 prompt injection.
+
+2026-09-02 B 线批量化：单轮 GENERATE 通道（GENERATE_PROMPT/generate()/
+SelfReflectionScanner/SELF_SCAN_PROMPT）整体拆除，学习裁决移至
+service/consolidator.py（事件弧批量分析）。本模块保留批量层复用的
+校验/解析/富化/rerank 能力与注入模板。
+"""
 import asyncio
 import json
 import re
 from datetime import datetime, timezone, timedelta
 
-from service.correction import CorrectionSignal
 from util.logs import safe_log
 
 BJT = timezone(timedelta(hours=8))
@@ -14,34 +19,6 @@ ERROR_TYPES = [
     "假设过多", "信息滞后", "答非所问", "事实错误", "理解偏差",
     "过度泛化", "遗漏关键", "逻辑错误", "指令偏离",
 ]
-
-GENERATE_PROMPT = """你是一个反思记录生成器。根据以下用户纠正，生成一条结构化反思记录。
-
-用户纠正: {correction_text}
-Bot 上次回复: {bot_reply}
-
-请输出 JSON（不要 markdown 代码块）:
-{{
-  "when": "什么情况下会再犯（触发场景，1句话，如'用户问电气相关技术问题时'）",
-  "then": "正确的应对步骤（触发场景出现时具体怎么做，至少20字）",
-  "scenario": "群聊中的情景描述（1-2句话）",
-  "error_type": "错误类型，从以下选择：{error_types}",
-  "mistake": "bot 具体做错了什么",
-  "correct_approach": "正确做法是什么（必须具体可执行，至少20字）",
-  "how_to_avoid": "未来如何避免（至少10字）",
-  "verifiable_test": "如何检验下次是否改对了（至少10字）",
-  "domain": "话题领域（如 electrical/software/mechanical/general）",
-  "entities": ["核心概念1", "核心概念2"],
-  "trigger_keywords": ["触发关键词1", "触发关键词2"]
-}}
-
-要求：
-- when/then 是核心：when 描述触发条件，then 描述具体应对步骤
-- when 用条件状语（"当用户问X时"），then 用对 bot 自己的祈使句（"先…再…"）
-- 禁止在 when/then 里叙述已发生的事件经过（"用户说了X""bot 上次做错了Y""根据背景"）——这两字段会被注入回复提示词，事件叙述腔会导致 bot 回复变旁白；scenario/mistake 字段才负责记录事件经过
-- correct_approach 必须包含具体的步骤或判断条件
-- verifiable_test 必须是可以事后检验的标准
-- 不要输出"下次注意"这种模糊建议"""
 
 # ⚠️ 模板化注入——字段填充，不拼接原始反思文本（防 prompt injection）
 # when/then 缺省容忍：build_reflection_prompt 从 scenario/correct_approach 降级填充
@@ -56,73 +33,12 @@ RERANK_PROMPT = """当前对话: {ref_query}
 
 {numbered_candidates}"""
 
-SELF_SCAN_PROMPT = """以下是最近 10 轮群聊对话（含 bot 的回答）。
-请你审视 bot 的回答，找出错误或不够好的地方。
-有则生成一条完整反思 JSON；无则只回复 NONE。
-
-最近对话:
-{recent_messages}
-
-输出 JSON 字段（完整 schema）:
-{{
-  "when": "什么情况下会再犯（触发场景）",
-  "then": "正确的应对步骤",
-  "scenario": "群聊中的情景描述",
-  "error_type": "错误类型，从以下选择：{error_types}",
-  "mistake": "bot 具体做错了什么",
-  "correct_approach": "正确做法是什么（至少20字）",
-  "how_to_avoid": "未来如何避免",
-  "verifiable_test": "如何检验下次是否改对了",
-  "domain": "话题领域",
-  "entities": ["核心概念1"],
-  "trigger_keywords": ["触发关键词1"]
-}}
-
-要求：
-- when 用条件状语（"当用户问X时"），then 用对 bot 自己的祈使句（"先…再…"）
-- 禁止在 when/then 里叙述已发生的事件经过（"用户说了X""bot 上次做错了Y"）——这两字段会被注入回复提示词，事件叙述腔会导致 bot 回复变旁白；scenario/mistake 字段才负责记录事件经过
-
-你是否犯了错误？"""
-
-
 class ReflectionGenerator:
-    """使用独立 LLM 生成结构化反思."""
+    """反思校验/解析/富化 + 注入 rerank（生成由 consolidator 批量层承担，复用本类工具面）."""
 
     def __init__(self, plugin, ref_llm_model_uuid: str):
         self._plugin = plugin
         self.ref_llm_model_uuid = ref_llm_model_uuid
-
-    async def generate(self, signal: CorrectionSignal) -> dict | None:
-        """生成反思，返回结构化 dict 或 None（生成失败/验证不通过）."""
-        prompt = GENERATE_PROMPT.format(
-            correction_text=signal.user_text[:800],
-            bot_reply=signal.bot_last_reply[:500],
-            error_types=", ".join(ERROR_TYPES),
-        )
-        try:
-            from langbot_plugin.api.entities.builtin.provider.message import Message
-            resp = await asyncio.wait_for(
-                self._plugin.invoke_llm(
-                    llm_model_uuid=self.ref_llm_model_uuid,
-                    messages=[Message(role='user', content=prompt)],
-                ),
-                timeout=_LLM_TIMEOUT,
-            )
-            raw_text = self._extract_llm_text(resp)
-            reflection = self._parse_json(raw_text)
-            if not reflection:
-                safe_log('reflection', 'generate: JSON parse failed')
-                return None
-            if not self.validate_schema(reflection):
-                safe_log('reflection', 'generate: schema validation failed')
-                return None
-            return self._enrich(reflection, signal)
-        except asyncio.TimeoutError:
-            safe_log('reflection', 'generate: LLM timeout')
-            return None
-        except Exception as e:
-            safe_log('reflection', f'generate error: {type(e).__name__}: {str(e)[:120]}')
-            return None
 
     def validate_schema(self, reflection: dict) -> bool:
         """验证必须字段完整且满足最低质量标准."""
@@ -170,11 +86,11 @@ class ReflectionGenerator:
             return None
 
     @staticmethod
-    def _enrich(raw: dict, signal: CorrectionSignal | None = None) -> dict:
-        """补充系统字段。signal=None 时用于 self-reflect 路径（无纠正来源）."""
+    def _enrich(raw: dict, source_msg_ids: list[str] | None = None) -> dict:
+        """补充系统字段。source_msg_ids=触发本条 lesson 的候选纠正消息 id（审计溯源）."""
         raw["confirm_count"] = 1
         raw["importance"] = "low"
-        raw["source_msg_ids"] = [signal.source_msg_id] if signal and signal.source_msg_id else []
+        raw["source_msg_ids"] = list(source_msg_ids or [])
         raw["timestamp"] = datetime.now(BJT).isoformat()
         raw["last_hit"] = None
         raw["archived"] = False
@@ -257,46 +173,3 @@ class ReflectionInjector:
                 confidence_note=confidence_note,
             ))
         return "\n".join(lines)
-
-
-class SelfReflectionScanner:
-    """主动反思源：扫描最近对话，发现 bot 自身错误并生成反思."""
-
-    def __init__(self, plugin, ref_llm_model_uuid: str):
-        self._plugin = plugin
-        self._generator = ReflectionGenerator(plugin, ref_llm_model_uuid)
-
-    async def scan(self, recent_messages: list[str]) -> dict | None:
-        """扫描最近对话（已格式化的文本行），返回反思 dict 或 None."""
-        if not recent_messages:
-            return None
-        prompt = SELF_SCAN_PROMPT.format(
-            recent_messages="\n".join(recent_messages),
-            error_types=", ".join(ERROR_TYPES),
-        )
-        try:
-            from langbot_plugin.api.entities.builtin.provider.message import Message
-            resp = await asyncio.wait_for(
-                self._plugin.invoke_llm(
-                    llm_model_uuid=self._generator.ref_llm_model_uuid,
-                    messages=[Message(role='user', content=prompt)],
-                ),
-                timeout=_LLM_TIMEOUT,
-            )
-            raw_text = self._generator._extract_llm_text(resp).strip()
-            if not raw_text or 'NONE' in raw_text.upper()[:20]:
-                return None
-            reflection = self._generator._parse_json(raw_text)
-            if not reflection:
-                safe_log('reflection', 'self-scan: JSON parse failed')
-                return None
-            if not self._generator.validate_schema(reflection):
-                safe_log('reflection', 'self-scan: schema validation failed')
-                return None
-            return self._generator._enrich(reflection)
-        except asyncio.TimeoutError:
-            safe_log('reflection', 'self-scan: LLM timeout')
-            return None
-        except Exception as e:
-            safe_log('reflection', f'self-scan error: {type(e).__name__}: {str(e)[:120]}')
-            return None

@@ -9,24 +9,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_p1_maturity_integration import TestInjectRerank  # noqa: E402 复用 _ref/_inject_once
-from service.reflection import (GENERATE_PROMPT, SELF_SCAN_PROMPT, INJECT_TEMPLATE,  # noqa: E402
-                                ReflectionInjector)
+from service.consolidator import CONSOLIDATE_PROMPT  # noqa: E402
+from service.reflection import INJECT_TEMPLATE, ReflectionInjector  # noqa: E402
 
 _HELPER = TestInjectRerank()
 
 
 class TestPromptGovernance:
-    """用例 1-3：生成端条款与注入头注（unit）"""
+    """用例 1-3：批量整合端条款与注入头注（unit）"""
 
-    def test_generate_prompt_imperative_rules(self):
-        text = GENERATE_PROMPT.format(correction_text='a', bot_reply='b', error_types='c')
-        assert '条件状语' in text and '祈使句' in text
+    def test_consolidate_prompt_imperative_rules(self):
+        text = CONSOLIDATE_PROMPT.format(candidates='a', conversation='b', active='c', error_types='d')
+        assert '祈使句' in text
         assert '叙述已发生的事件经过' in text
 
-    def test_self_scan_prompt_imperative_rules(self):
-        text = SELF_SCAN_PROMPT.format(recent_messages='m', error_types='c')
-        assert '条件状语' in text and '祈使句' in text
-        assert '叙述已发生的事件经过' in text
+    def test_consolidate_prompt_verdict_gate(self):
+        # B 线核心：真伪裁决条款（事件弧 corroboration）
+        assert '裁决规则' in CONSOLIDATE_PROMPT
+        assert '不构成证据' in CONSOLIDATE_PROMPT
+        assert '宁缺勿伪' in CONSOLIDATE_PROMPT
 
     def test_inject_template_header_note(self):
         assert INJECT_TEMPLATE.startswith('[先前经验 · 仅供内部参考')
