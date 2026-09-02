@@ -28,19 +28,25 @@ def merge_hook_groups(existing_groups, template_groups):
     existing_groups / template_groups 都是 [{"matcher": "...", "hooks": [...]}, ...] 格式。
     返回合并后的列表。
     """
-    # 同名 matcher 可能有多组（历史重复注册），必须聚合全部 hooks——
-    # dict 推导式只保留最后一组，丢失的 hooks 会被误判为"模板新增"而重复注入
+    # 两侧都必须聚合同名 matcher 的多组（模板自身 Edit|Write 即有 3 组）——
+    # 只聚合 existing 不聚合 template 时，模板循环每组都重复合并一次 existing，
+    # 产出 N 份相同组，历史三胞胎永不折叠（UMES3 问题五真根因，2026-09-02 实测复现）
     existing_by_matcher = {}
     for g in existing_groups:
-        m = g["matcher"]
-        existing_by_matcher.setdefault(m, []).extend(g.get("hooks", []))
-    template_by_matcher = {g["matcher"]: g.get("hooks", []) for g in template_groups}
+        existing_by_matcher.setdefault(g["matcher"], []).extend(g.get("hooks", []))
+    template_by_matcher = {}
+    for g in template_groups:
+        template_by_matcher.setdefault(g["matcher"], []).extend(g.get("hooks", []))
 
     result = []
+    processed = set()
 
-    # 先处理模板中的 matcher（保持模板顺序）
+    # 先处理模板中的 matcher（保持模板首次出现顺序，每个 matcher 仅产出一组）
     for tgroup in template_groups:
         matcher = tgroup["matcher"]
+        if matcher in processed:
+            continue
+        processed.add(matcher)
         existing_hooks = existing_by_matcher.get(matcher, [])
         template_hooks = template_by_matcher.get(matcher, [])
 
@@ -63,11 +69,21 @@ def merge_hook_groups(existing_groups, template_groups):
 
         result.append({"matcher": matcher, "hooks": merged})
 
-    # 追加用户自定义的 matcher（模板中没有的）
+    # 追加用户自定义的 matcher（模板中没有的）：同样聚合同名多组 + 组内去重，
+    # 否则三胞胎挂在自定义 matcher 下时原样透传，折叠逻辑被短路
     for egroup in existing_groups:
         matcher = egroup["matcher"]
-        if matcher not in template_by_matcher:
-            result.append(egroup)
+        if matcher in template_by_matcher or matcher in processed:
+            continue
+        processed.add(matcher)
+        seen = set()
+        deduped = []
+        for h in existing_by_matcher.get(matcher, []):
+            bn = hook_basename(h)
+            if bn not in seen:
+                seen.add(bn)
+                deduped.append(h)
+        result.append({"matcher": matcher, "hooks": deduped})
 
     return result
 

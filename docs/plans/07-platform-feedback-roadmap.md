@@ -23,7 +23,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-001 | UMES3 配置体检 | 修复版三门禁依赖 `grep -oP`（GNU），busybox 环境静默失效 | ⏳ 跨平台兼容改造待评估（stdin 测试已限 ubuntu 镜像） |
 | 遗留 | go-vue FEEDBACK-001 | 漏洞扫描检查类别（govulncheck / npm audit 按 tags 路由） | ⏳ 待排 |
 | DEFECT-003 | v3.5 回归对照 | **基线既有测试失败**：base 1c150a6 上 ubuntu 39 挂 / alpine 34 挂（migrate 系 13、rollback 系 6、hook 链 4、install mode/--home/--no-config 系 7、stage-tickets 系 8、escape/CLAUDE.md 路由表 2、verify 1）——非 v3.4/v3.5 引入，疑与同期 stage-tracker/install 改动或环境依赖有关 | ⏳ 待排（修前以 detached worktree 基线对照为准，参照记忆 bats-baseline-detached-worktree） |
-| DEFECT-004 | T3 传播暴露 | install.sh update 段 `chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh` 对 symlink **穿透改目标文件 mode**——claude-config 纳管环境下 4 个 644 hook 源文件被 +x（git mode 污染，已宿主手动还原）。修法：`[ -L ] || chmod +x` 或 find `! -type l`；同段 skills 轮换对同名 skill 的 mv 覆盖同理需 symlink 检查 | ⏳ 待排 |
+| DEFECT-004 | T3 传播暴露 | install.sh update 段 `chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh` 对 symlink **穿透改目标文件 mode**——claude-config 纳管环境下 4 个 644 hook 源文件被 +x（git mode 污染，已宿主手动还原）。修法：`[ -L ] || chmod +x` 或 find `! -type l`；同段 skills 轮换对同名 skill 的 mv 覆盖同理需 symlink 检查 | 🔄 chmod 三处已修（v3.5 merge-dedup 分支）；**skills mv/cp 穿透检查遗留待排** |
 
 ## 已处理反馈
 
@@ -34,6 +34,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-20260827 | UMES3 缺陷报告：三门禁 hook 静默失效（P0）+ file-guard 自保护死代码（P0）+ skills .bak 洪水（P1）+ 文档失实（P2） | ✅ 三门禁吸收 UMES3 修复版 + file-guard 重写（自保护前置/exit 2/stdin 取参）+ hooks 执行位 + 安装后 hook 自检（selftest_hooks）+ stdin 协议 bats 19 用例（含对照实验）；.bak 移出扫描根 + 同级只留 1 + 统计；CLAUDE.md 网关档位注 + Git 约束对齐 wt 实践。详见 `issues/2026-08-27-*.md` 处理记录 | gate-hooks-bak-fix 分支 |
 | DEFECT-002 | UMES3 配置体检 | 旧 bats 触碰真实 `$HOME`（workflow-gate.bats teardown/touch 删改 `.emergency-bypass`；本会话扩展发现 test_plan_backup.bats `rm -rf $HOME/.claude/plans/.git-backup`） | ✅ 两文件 setup 中 HOME 沙箱化（mktemp），真实文件哨兵验证存活 | v3.5 |
 | FEEDBACK-002-M0 | go-vue-scaffold | stacks 保鲜元数据 + 过期 gate 提示 | ✅ 12 模板文件 `reviewed_at`/`status` 占位符 + install 部署刷当天 + green-gate G2.5（90 天 warning，busybox 降级跳过，env 可覆盖阈值）+ stacks-freshness.bats 6 用例双镜像 | v3.5 |
+| 问题五 | UMES3 8/28 补记 | merge-settings hooks 三胞胎重复注册（同 matcher 3 组 × Edit/Write 链） | ✅ 真根因=1999ff6 只聚合 existing 侧、模板/自定义同名多组短路折叠——两侧聚合+每 matcher 单组修复；真实数据 3 组→1 组 + 4 bats 用例 + Dockerfile 补 python3。**勘误**：8/28 首次回执"重跑即折叠"为单组 fixture 假阳性，教训=幂等测试须用真实环境数据形态 | merge-dedup-chmod-symlink 分支 |
 
 ## 阶段二：stacks 知识保鲜机制（FEEDBACK-002）
 

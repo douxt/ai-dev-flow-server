@@ -206,6 +206,18 @@ selftest_hooks() {
     return 0
 }
 
+chmod_x_nonsymlink() {
+    # DEFECT-004：chmod 默认跟随 symlink——claude-config 等外部纳管环境以 symlink 部署 hook 时，
+    # 穿透 chmod 会篡改托管仓库源文件 git mode。统一只对真实文件加执行位。
+    local f
+    for f in "$@"; do
+        if [ -f "$f" ] && [ ! -L "$f" ]; then
+            chmod +x "$f" 2>/dev/null || true
+        fi
+    done
+    return 0
+}
+
 inject_stacks_reviewed_at() {
     # M0 保鲜（FEEDBACK-002）：部署后将 reviewed_at 占位符刷为当天=“最新部署即待重审”
     # grep 守卫：仅处理含占位符的模板文件，租户已审文件（真实日期）不动 → 幂等；dry_run 包裹防预演泄漏
@@ -558,7 +570,8 @@ if [ "$UPDATE_MODE" = true ]; then
         [ -f "$hook" ] && deploy_file "$hook" "$CLAUDE_HOME/.claude/hooks/$(basename "$hook")"
     done
     # deploy_file 的 cp 覆盖保留目标旧 mode，裸路径注册的 hook 必须有执行位
-    chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh 2>/dev/null || true
+    # DEFECT-004：chmod 沿 symlink 会穿透改托管源（claude-config）文件 mode——symlink 一律跳过
+    chmod_x_nonsymlink "$CLAUDE_HOME"/.claude/hooks/*.sh
     selftest_hooks "$CLAUDE_HOME/.claude/hooks"
 
     # 同步更新项目级 hooks（如果项目有独立拷贝而非 symlink 到用户级）
@@ -567,7 +580,7 @@ if [ "$UPDATE_MODE" = true ]; then
         for hook in "$SOURCE/config-templates/default/hooks/"*.sh; do
             [ -f "$hook" ] && deploy_file "$hook" "$project_hooks_dir/$(basename "$hook")"
         done
-        chmod +x "$project_hooks_dir"/*.sh 2>/dev/null || true
+        chmod_x_nonsymlink "$project_hooks_dir"/*.sh
     fi
 
     echo "  更新 issue 模板 ..."
@@ -905,11 +918,14 @@ if [ "$NO_CONFIG" = false ]; then
             hook_dst="$CLAUDE_HOME/.claude/hooks/$hook_name"
             if [ "$DRY_RUN" = true ]; then
                 echo "  [DRY-RUN] cp $hook_name → $hook_dst"
+            elif [ -L "$hook_dst" ]; then
+                # DEFECT-004 同源：symlink 目标属外部托管（claude-config），--force 也不穿透写内容/mode
+                echo "  ⚠️  hook/$hook_name 为 symlink（外部纳管），跳过"
             elif [ -f "$hook_dst" ] && [ "$FORCE" != true ]; then
                 echo "  ⚠️  hook/$hook_name 已存在，跳过"
             else
                 cp "$hook" "$hook_dst"
-                chmod +x "$hook_dst" 2>/dev/null || true
+                chmod_x_nonsymlink "$hook_dst"
                 echo "  ✅ hook/$hook_name"
             fi
         done

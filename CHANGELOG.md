@@ -448,6 +448,12 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 - **green-gate G2.5**（warning 档）：扫 `.devflow/knowledge/stacks/*/*.md`（SCRIPT_DIR 锚定），`reviewed_at` 早于 90 天 → 逐文件提示待重审；缺元数据不判；busybox `date -d` 不支持时静默跳过不误报；`GREEN_GATE_REVIEW_THRESHOLD=YYYY-MM-DD` 可覆盖阈值；成功文案同步 G2.1-G2.5
 - 注意：--update 时 stacks 文件（含占位符模板 vs 已部署真实日期）cmp 必不等，每文件产生 1 个轮换 `.bak-*`（同目标只留最新 1 份，属预期）
 
+### 修复（merge 折叠短路 + chmod 穿透，UMES3 问题五真根因）
+- `merge-settings.py`：**两侧聚合同名 matcher**（此前只聚合 existing 侧，而模板自身含 3 个 `Edit|Write` 组 → 折叠结果被复制 N 次、自定义 matcher 原样透传，三胞胎永不清零）。现每 matcher 恰输出一组；真实 UMES3 数据实测 3 组→1 组
+- `install.sh`：`chmod_x_nonsymlink` 统一替换用户级/项目级 hooks chmod 三处（DEFECT-004，chmod 沿 symlink 穿透篡改 claude-config 源 git mode）；fresh `--force` 遇 symlink 跳过不穿透
+- 新增 `tests/unit/test_merge_settings.bats`（4 用例 + 自定义 matcher 折叠；容器无 python3 时 skip）；**双镜像 Dockerfile 补 python3**（merge-settings.py 是 python SUT，此前测试镜像根本跑不到）
+- 勘误教训：8/28 回执"重跑 install 即折叠"系单组 9-hooks fixture 假阳性验证（未覆盖真实"3 独立同 matcher 组"形态）——幂等修复的测试 fixture 必须以**真实环境数据形态**构造
+
 ### 修复（selftest 盲区，UMES3 8/28 补记提醒②）
 - `selftest_hooks._st` 改**裸路径直调**（原 `bash <script>`）——与模板注册形态一致，「部署丢执行位 → exit 126 静默崩溃」从盲区变可测；模板侧维持"裸路径 + 755 + 部署 chmod + selftest 裸调"四重防线，不改 bash 前缀注册（理由见 issues 回执）
 

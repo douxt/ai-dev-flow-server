@@ -1,4 +1,4 @@
 FROM bats/bats:latest
-RUN apk add --no-cache git jq
+RUN apk add --no-cache git jq python3
 WORKDIR /code
 ENTRYPOINT ["bats"]
