@@ -293,3 +293,10 @@ execution:
 - **判决性证据是探针实测存储向量 norm**，不是行为日志——"inject candidates 有输出但全被拒"这种半死状态光看日志永远像"阈值调一下就好"。写任何距离/相似度门槛前：拿真实存储向量算该文本对的几何区间（下限、典型值、噪声上限），阈值夹在中间才有意义，口算即可发现不可达性。
 - **chroma list/query 不回传向量 → 迁移识别要预埋伏笔**：启动自愈用 metadata `vnorm:unit` 戳区分新旧格式（所有写点经 _sanitize_metadata 统一盖戳），幂等可重跑。本次实迁 10/10 条 norm→1.0000。
 - **调度点时序坑复发**：`initialize()` 内反思层块（L169）早于 `_bg_queue` 构造（L188），首版把迁移放反思块里 `AttributeError: no attribute '_bg_queue'` 炸 18 个集成 fixture——本地全量 pytest 在部署前拦住，验证了"测试与实现同 Phase"纪律。
+
+### 29. 主 prompt 生效验证锚不得指望插件 dump 日志（2026-09-02）
+
+- **根因**：改 LangBot pipeline 主 prompt（人设段）时计划判据写"gate.log RAW PROMPT 含新段"——该 dump 挂在插件**注入事件**阶段（default.py:545），此刻 LangBot core 尚未把 pipeline prompt 合入请求，dump 里结构上**永远没有**人设段，判据不可能满足（grep 0 命中≠未生效）。
+- **解决**：主 prompt 生效判定=DB 字节校验（json_set 回读与事实源文件 diff=0）+ **行为指纹**（条款文案自带特征句式模板，群回复逐字命中即实锤）。注入链尾文本（INJECT_TEMPLATE）是插件拼的，照常出现在 dump，可直接锚。本次 Q1 句式「我这边记录支持…除非你有新证据」被群回复逐字复现=强指纹。
+- **预防**：prompt 类改动计划的生效验证步，先分清"那条 message 由谁拼装"——插件拼的看 gate.log，core 拼的只能 DB+行为锚。设计条款时刻意留一个特征句式当天然指纹。
+- **连带教训（V4.5）**：本次假纠正未沉淀假反思，但归因是 **sender cooldown 拦截（3min 窗口 rate_limit），是运气不是防线**——detect 仍无真伪辨别力，生产上间隔>3min 的反复假纠正照样穿透入库。测后清点纪律长期保留，勿因一次干净结果裁撤。
