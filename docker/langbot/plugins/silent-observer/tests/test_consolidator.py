@@ -40,7 +40,10 @@ def _msgs(n, start_ts=1000.0, step=10.0):
 
 
 @pytest.fixture
-def deps():
+def deps(tmp_path, monkeypatch):
+    # 日志隔离：safe_log 不得写生产 /tmp/silent_reflection.log（测试污染基线教训）
+    import util.logs
+    monkeypatch.setattr(util.logs, '_log_dir', str(tmp_path))
     plugin = MagicMock()
     plugin.invoke_llm = AsyncMock(return_value='NONE|无佐证断言')
     plugin.get_plugin_storage = AsyncMock(return_value=None)
