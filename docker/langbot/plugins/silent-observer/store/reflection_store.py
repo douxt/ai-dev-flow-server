@@ -46,6 +46,13 @@ class ReflectionStore:
     def embedding_dim(self) -> int:
         return self._embedding_dim or 384
 
+    @staticmethod
+    def _norm_vec(v: list[float]) -> list[float]:
+        """L2 归一化。集合无 space 配置=chroma 默认 l2²，查询/存储必须对称归一，
+        否则距离被模长差撑爆（实测 norm 1 vs 1.86 → 同句距离下限 0.74，门槛永不可达）。"""
+        norm = math.sqrt(sum(x * x for x in v))
+        return [x / norm for x in v] if norm > 0 else v
+
     # ── 向量检索 ────────────────────────────────────────────
 
     async def search_similar(self, query: str, top_k: int = 5, domain: str | None = None) -> list[dict]:
@@ -55,13 +62,9 @@ class ReflectionStore:
                 self._plugin.invoke_embedding(self.embedding_model_uuid, [query]),
                 timeout=_API_TIMEOUT,
             )
-            qv = vectors[0]
-            dim = len(qv)
+            qv = self._norm_vec(vectors[0])
             if self._embedding_dim is None:
-                self._embedding_dim = dim
-            norm = math.sqrt(sum(v * v for v in qv))
-            if norm > 0:
-                qv = [v / norm for v in qv]
+                self._embedding_dim = len(qv)
 
             filters: dict = {"$and": [{"type": "reflection"}, {"archived": False}]}
             if domain:
@@ -108,13 +111,16 @@ class ReflectionStore:
 
     @staticmethod
     def _sanitize_metadata(meta: dict) -> dict:
-        """ChromaDB metadata 不支持 list/dict 嵌套，序列化为 JSON string."""
+        """ChromaDB metadata 不支持 list/dict 嵌套，序列化为 JSON string.
+        统一盖 vnorm 戳：声明本条目的存储向量已归一化（norm=1），
+        启动迁移据此识别旧格式条目（list_by_filter 不回传向量，无法直接实测 norm）."""
         clean = {}
         for k, v in meta.items():
             if isinstance(v, (list, dict)):
                 clean[k] = json.dumps(v, ensure_ascii=False)
             else:
                 clean[k] = v
+        clean['vnorm'] = 'unit'
         return clean
 
     async def store_reflection(self, reflection: dict) -> str:
@@ -128,6 +134,7 @@ class ReflectionStore:
                     self._plugin.invoke_embedding(self.embedding_model_uuid, [text]),
                     timeout=_API_TIMEOUT,
                 )
+                vectors = [self._norm_vec(vectors[0])]
                 await asyncio.wait_for(
                     self._plugin.vector_upsert(
                         collection_id=REFLECTION_COLLECTION,
@@ -145,11 +152,13 @@ class ReflectionStore:
             return ""
 
     async def _embed(self, text: str) -> list[list[float]]:
-        """重算单条文本 embedding（upsert 必填 vectors，list_by_filter 不回传向量）."""
-        return await asyncio.wait_for(
+        """重算单条文本 embedding（upsert 必填 vectors，list_by_filter 不回传向量）.
+        返回已归一化向量——update/archive 调用点全部继承，与查询侧对称."""
+        vectors = await asyncio.wait_for(
             self._plugin.invoke_embedding(self.embedding_model_uuid, [text]),
             timeout=_API_TIMEOUT,
         )
+        return [self._norm_vec(vectors[0])]
 
     async def update_reflection(self, doc_id: str, reflection: dict):
         """更新已有反思（confirm_count 递增等）."""
@@ -188,10 +197,7 @@ class ReflectionStore:
                 self._plugin.invoke_embedding(self.embedding_model_uuid, [query]),
                 timeout=_API_TIMEOUT,
             )
-            qv = vectors[0]
-            norm = math.sqrt(sum(v * v for v in qv))
-            if norm > 0:
-                qv = [v / norm for v in qv]
+            qv = self._norm_vec(vectors[0])
 
             raw = await asyncio.wait_for(
                 self._plugin.vector_search(
@@ -205,23 +211,25 @@ class ReflectionStore:
             if not raw:
                 return None, None, 'none'
 
+            # 对称归一化下 l2² = 2-2cos → cosine = 1 - d/2（旧公式 1-d 是 cosine 空间口径，
+            # 集合实为 chroma 默认 l2²，2026-08-31 探针实锤后纠正）
+            def _cos(entry: dict) -> float:
+                d = entry.get('distance', 99)
+                return max(0.0, min(1.0, 1.0 - d / 2.0))
+
             for entry in raw:
                 if not isinstance(entry, dict):
                     continue
-                distance = entry.get('distance', 99)
-                cosine = 1.0 - distance if distance < 2 else 0.0
                 existing = entry.get('metadata', {})
 
-                if cosine > 0.85:
+                if _cos(entry) > 0.85:
                     return entry.get('id', ''), existing, 'direct'
 
             # 二级：0.70-0.85 候选
             for entry in raw:
                 if not isinstance(entry, dict):
                     continue
-                distance = entry.get('distance', 99)
-                cosine = 1.0 - distance if distance < 2 else 0.0
-                if 0.70 < cosine <= 0.85:
+                if 0.70 < _cos(entry) <= 0.85:
                     return entry.get('id', ''), entry.get('metadata', {}), 'candidate'
 
             # 三级：实体重叠
@@ -258,6 +266,43 @@ class ReflectionStore:
         except Exception as e:
             safe_log('reflection', f'list_all error: {e}')
             return []
+
+    async def migrate_unit_vectors(self) -> int:
+        """启动自愈：旧格式（norm≠1，无 vnorm 戳）条目重算归一化向量写回。
+        幂等：新写入均带 vnorm 戳，迁移过的下次启动跳过。返回迁移条数."""
+        try:
+            items = await self.list_all()
+        except Exception as e:
+            safe_log('reflection', f'vector-migrate list error: {e}')
+            return 0
+        migrated = 0
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            meta = it.get('metadata') or {}
+            if meta.get('vnorm') == 'unit':
+                continue
+            doc_id = it.get('id', '')
+            text = it.get('document') or json.dumps(meta, ensure_ascii=False)
+            try:
+                async with self._api_sem:
+                    vectors = await self._embed(text)
+                    await asyncio.wait_for(
+                        self._plugin.vector_upsert(
+                            collection_id=REFLECTION_COLLECTION,
+                            vectors=vectors,
+                            ids=[doc_id],
+                            metadata=[self._sanitize_metadata({**meta, 'type': 'reflection'})],
+                            documents=[text],
+                        ),
+                        timeout=_API_TIMEOUT,
+                    )
+                migrated += 1
+            except Exception as e:
+                safe_log('reflection', f'vector-migrate error {doc_id}: {e}')
+        if migrated:
+            safe_log('reflection', f'vector-migrate: normalized {migrated} legacy entries')
+        return migrated
 
     async def archive_reflection(self, doc_id: str):
         """归档反思（设置 archived=True，保留在 collection 但不参与检索）."""

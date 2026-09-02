@@ -49,9 +49,12 @@ _norm_role = norm_role
 _resize_image = resize_image
 _clean_description = clean_description
 
-# 反思注入相似度门槛（cosine distance，find_duplicate 相关区间 ≈0.15-0.30，保守起步值）
-# inject candidates 观察日志积累一周真实分布后校准
-_REF_INJECT_MAX_DISTANCE = 0.45
+# 反思注入门槛。度量口径：对称归一化后 chroma l2² 距离 d = 2-2cos
+# （0=同句，1=正交，2=反相关）。旧值 0.45 建立在 norm 不对称+cosine 公式错的
+# 伪口径上，数学不可达（2026-08-31 探针实锤，见 docs/plans/2026-08-31-reflect-dist-norm-fix）。
+# 1.4=cos≥0.3：放行实证锚点（口语查询 vs JSON doc 强相关样本 cos≈0.39/d≈1.22），
+# 不相关文本典型 d≈1.6-1.8 挡外。inject candidates 攒 ≥20 条真实分布后收紧。
+_REF_INJECT_MAX_DISTANCE = 1.4
 
 # 事件日志路径（测试 monkeypatch 用，生产默认 /tmp）
 _EVENT_LOG = os.environ.get('SILENT_EVENT_LOG', '/tmp/silent_event.log')
@@ -184,6 +187,10 @@ class DefaultEventListener(EventListener):
         self._face_cache = {}
         self._bg_queue = asyncio.Queue(maxsize=10)
         self._bg_workers = [asyncio.create_task(self._bg_worker()) for _ in range(3)]
+
+        # 启动自愈：归一化旧格式存储向量（幂等，带 vnorm 戳即跳过）——须晚于 bg_queue 构造
+        if self.reflection_store:
+            self._run_background(self.reflection_store.migrate_unit_vectors())
 
         # === 上下文压缩初始化 ===
         self.compressor_enabled = bool(config.get('compression_enabled', False))
