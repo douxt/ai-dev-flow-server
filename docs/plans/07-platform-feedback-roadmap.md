@@ -28,6 +28,8 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-006 | cut-optimizer 接入 | 仓级 `.git/hooks/pre-commit`（"Agent B 禁改受保护文件"）**无 owner/人类通道**——install 产物本身（.devflow/**）首次提交即被拦，只能 `--no-verify`。修法：hook 识别 `DEVFLOW_OWNER=1` 类 env 或按 config.yaml role 放行；另 `.devflow/knowledge/*.bak` 出现在拦截清单（模板自带 bak 被跟踪，顺带清理） | ⏳ 待排 |
 | DEFECT-007 | cut-optimizer 接入 | `check_constitution.py --batch issues/` 误扫安装产物 `test-plan-template.md`（3 ❌ 全来自模板非真票）——batch 模式应排除 `TEMPLATE.md`/`*-template.md`，或 install 不落地到 issues/ | ⏳ 待排 |
 | FEEDBACK-005 | cut-optimizer | python 栈缺 greenfield/FastAPI 服务类知识（现仅 legacy-characterization，与新仓 TDD 场景错配）；项目级纪律暂由 `.claude/gate-checklists/cutting-stock-discipline.md` 承载 | ⏳ M2 反哺素材（含空仓过门禁 V2 观察：G2.4 ruff WARN 属预期，全链无崩溃） |
+| DEFECT-008 | cut-optimizer 会话（用户纠正） | 平台退役技能无清理通道：v3.0 退役 gate-* 但 `~/.claude/workflows/wf-gate-*.js`（meta.name 被会话注册进 available skills 列表，与真技能无异）+ 6 件套旧 skills 永驻租户环境——模型据此引用已退役 `/gate-2-prd` 误导用户 | ✅ 本机已清残备份（skill-backups/）+ `RETIRED.txt`/`prune_retired()` 通道 + 4 bats；**边界**：项目级 .claude/skills 残留（UMES3 WSL 树 3 链 + Win 树 6 链及 .agents 实体）通道不覆盖，须 UMES3 会话按其流程清，项目级扫描留通道 M1 迭代 |
+| DEFECT-009 | 本次清理中发现 | T1 复活的 file-guard 自保护分支含 `chmod a-w` 冻结受害文件——真实拦截 settings.json 后把它冻成 444，妨碍 owner 合法维护（本次 python 编辑 PermissionError 实锤）。冻结对** routinely 编辑的配置文件**是误伤设计。修法：保护分支只拦截不 chmod，或 chmod 后在拦截消息中告知解冻命令 | ⏳ 待排（claude-config 与 config-templates 双侧同改） |
 
 ## 已处理反馈
 

@@ -1,0 +1,37 @@
+# RETIRED.txt — 退役技能清理清单（DEFECT-008）
+# install.sh --update 时按本表把用户环境（$CLAUDE_HOME/.claude/）的退役残留
+# mv 进 skill-backups/（不删除，可还原）。幂等：目标不存在即跳过。
+# 格式：type:name 一行一项。type ∈ skill（skills/ 目录名）| wf（workflows/wf-<name>.js）| checklist（gate-checklists/ 文件名）
+# 平台改名/退役技能时**必须同步在本文件加行**（唯一事实源；教训：v3.0 退役 gate-* 但 wf-*.js 载体漏清，
+# workflows 的 meta.name 会注册进会话 available skills 列表 → 模型误引用已退役命令，2026-09-02 cut-optimizer 接入实录）
+
+# v1.0 → v1.1 改名替代（to-prd→to-spec、to-issues→to-tickets、grill-me→grill-with-docs）
+skill:to-prd
+skill:to-issues
+skill:grill-me
+
+# v3.0 退役（约束下沉 hook/checker 或 Matt 仓库移除）
+skill:caveman
+skill:zoom-out
+skill:write-a-skill
+
+# v3.0 退役门技能（workflows 载体，此前无任何清理通道）
+wf:gate-1-grill
+wf:gate-2-prd
+wf:gate-3-issues
+wf:gate-4-review
+wf:gate-5-local
+wf:gate-5-prep
+wf:gate-6-afk
+wf:gate-6-local
+
+# 门技能配套退役清单
+checklist:gate-1-grill.md
+checklist:gate-2-prd.md
+checklist:gate-3-issues.md
+checklist:gate-4-review.md
+checklist:gate-5-prep.md
+checklist:gate-6-afk.md
+
+# 备份目录泄漏进 skills 的清理（.bak 后缀曾被 CC 当真实 skill 加载，2026-08-27 缺陷报告同款）
+skill:review-cc-cli.bak

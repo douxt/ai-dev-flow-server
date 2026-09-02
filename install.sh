@@ -218,6 +218,45 @@ chmod_x_nonsymlink() {
     return 0
 }
 
+prune_retired() {
+    # DEFECT-008：退役清理通道——按 RETIRED.txt 把用户环境退役残留 mv 进 skill-backups/（幂等、可还原）。
+    # 教训：v3.0 退役 gate-* 时 workflows/wf-gate-*.js 载体漏清，其 meta.name 注册进会话 available
+    # skills 列表 → 模型误引用已退役命令误导用户（2026-09-02 cut-optimizer 接入实录）。
+    # settings.json permissions 属保护区只提示不代删；本通道覆盖用户级，项目级 .claude/skills 为已知边界。
+    [ -f "$SOURCE/RETIRED.txt" ] || { echo "  ⚠️  RETIRED.txt 缺失，跳过退役清理（SOURCE 不完整？）"; return 0; }
+    local bk="$CLAUDE_HOME/.claude/skill-backups" line n moved=0 stamp
+    stamp=$(date +%F)
+    dry_run "mkdir -p $bk/workflows $bk/checklists"
+    while IFS= read -r line; do
+        case "$line" in ''|'#'*) continue ;; esac
+        n="${line#*:}"
+        case "$line" in
+            skill:*)
+                if [ -e "$CLAUDE_HOME/.claude/skills/$n" ]; then
+                    dry_run "mv '$CLAUDE_HOME/.claude/skills/$n' '$bk/$n.pruned-$stamp'"
+                    echo "  [prune] skills/$n → skill-backups/"
+                    moved=$((moved + 1))
+                fi ;;
+            wf:*)
+                if [ -f "$CLAUDE_HOME/.claude/workflows/wf-$n.js" ]; then
+                    dry_run "mv '$CLAUDE_HOME/.claude/workflows/wf-$n.js' '$bk/workflows/'"
+                    echo "  [prune] workflows/wf-$n.js → skill-backups/workflows/"
+                    moved=$((moved + 1))
+                fi ;;
+            checklist:*)
+                if [ -f "$CLAUDE_HOME/.claude/gate-checklists/$n" ]; then
+                    dry_run "mv '$CLAUDE_HOME/.claude/gate-checklists/$n' '$bk/checklists/'"
+                    moved=$((moved + 1))
+                fi ;;
+        esac
+    done < "$SOURCE/RETIRED.txt"
+    if [ "$moved" -gt 0 ]; then
+        echo "  🧹 退役清理：$moved 项已移入 skill-backups/（可还原）"
+        echo "  ℹ️  若 settings.json permissions.allow 含 Skill(<退役名>) 请人工清理（保护区本工具不写）"
+    fi
+    return 0
+}
+
 inject_stacks_reviewed_at() {
     # M0 保鲜（FEEDBACK-002）：部署后将 reviewed_at 占位符刷为当天=“最新部署即待重审”
     # grep 守卫：仅处理含占位符的模板文件，租户已审文件（真实日期）不动 → 幂等；dry_run 包裹防预演泄漏
@@ -572,6 +611,7 @@ if [ "$UPDATE_MODE" = true ]; then
     # deploy_file 的 cp 覆盖保留目标旧 mode，裸路径注册的 hook 必须有执行位
     # DEFECT-004：chmod 沿 symlink 会穿透改托管源（claude-config）文件 mode——symlink 一律跳过
     chmod_x_nonsymlink "$CLAUDE_HOME"/.claude/hooks/*.sh
+    prune_retired
     selftest_hooks "$CLAUDE_HOME/.claude/hooks"
 
     # 同步更新项目级 hooks（如果项目有独立拷贝而非 symlink 到用户级）

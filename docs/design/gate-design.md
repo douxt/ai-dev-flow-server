@@ -37,7 +37,7 @@ Gate = 每一步 == 三段式 == 进入条件/执行规范/出口检查。
 
 **执行规范**
   - 宪法/规范文件引用
-  - 使用的 skill/命令
+  - 使用的 skill/命令（注意：退役/改名必须同步登记 `RETIRED.txt`——workflows 的 meta.name 同会被会话注册为可用技能，仅删 skills 目录不清 workflows 会留下误导源，DEFECT-008）
   - 各端角色说明
 
 **出口检查**

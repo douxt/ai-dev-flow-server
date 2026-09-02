@@ -452,6 +452,11 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 - `merge-settings.py`：**两侧聚合同名 matcher**（此前只聚合 existing 侧，而模板自身含 3 个 `Edit|Write` 组 → 折叠结果被复制 N 次、自定义 matcher 原样透传，三胞胎永不清零）。现每 matcher 恰输出一组；真实 UMES3 数据实测 3 组→1 组
 - `install.sh`：`chmod_x_nonsymlink` 统一替换用户级/项目级 hooks chmod 三处（DEFECT-004，chmod 沿 symlink 穿透篡改 claude-config 源 git mode）；fresh `--force` 遇 symlink 跳过不穿透
 - 新增 `tests/unit/test_merge_settings.bats`（4 用例 + 自定义 matcher 折叠；容器无 python3 时 skip）；**双镜像 Dockerfile 补 python3**（merge-settings.py 是 python SUT，此前测试镜像根本跑不到）
+
+### 新增（退役清理通道，DEFECT-008）
+- **`RETIRED.txt`**（仓根，唯一事实源）：`skill:`/`wf:`/`checklist:` 三前缀登记退役项。教训源头——v3.0 退役 gate-* 时 `~/.claude/workflows/wf-gate-*.js` 载体漏清，其 `meta.name` 会注册进会话 available skills 列表（与技能无异），模型据此引用已退役命令误导用户（2026-09-02 cut-optimizer 接入实录）
+- **`prune_retired()`**：install `--update` 时按清单把用户环境（`$CLAUDE_HOME/.claude/`）残留 **mv 进 skill-backups/**（可还原、幂等、dry_run 全包裹）；settings.json permissions 属保护区**只提示不代删**；覆盖用户级，项目级 `.claude/skills` 为已知边界（UMES3 双树残留已登记其侧）
+- 平台技能改名/退役**必须同步 RETIRED.txt 加行**（gate-design 执行规范已注）；`tests/unit/test_prune_retired.bats` 4 用例双镜像
 - 勘误教训：8/28 回执"重跑 install 即折叠"系单组 9-hooks fixture 假阳性验证（未覆盖真实"3 独立同 matcher 组"形态）——幂等修复的测试 fixture 必须以**真实环境数据形态**构造
 
 ### 修复（selftest 盲区，UMES3 8/28 补记提醒②）

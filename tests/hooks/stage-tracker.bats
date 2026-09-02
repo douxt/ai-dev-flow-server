@@ -196,7 +196,8 @@ STUB
     # 设 previous_stage = spec:done，检测到 tdd:done（跳过 tickets:done + tickets:reviewed）
     echo "spec:done" > "$TEST_DIR/.devflow/stage"
     echo "# spec" > "$TEST_DIR/spec.md"
-    # 创建 RED commit 以触发 tdd:done 检测
+    # 创建 RED commit 以触发 tdd:done 检测——必须在 TEST_DIR 内建库（原漏 cd 会在挂载的宿主仓库 git init/add/commit，DEFECT-002 第三例）
+    cd "$TEST_DIR"
     git init -q && git config user.email "t@t" && git config user.name "T"
     echo "// test" > test.js && git add -A && git commit -q -m "TDD: RED — t1"
 
