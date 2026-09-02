@@ -69,7 +69,7 @@ class TestConsolidateChain:
         self._feed(reflection_listener)
         ev = self._event()
         await reflection_listener._mark_correction(ev, 'group_t', user_text='不对，是阿黄。')
-        await reflection_listener._mark_correction(ev, 'group_t', user_text='其实是阿黄')
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='不对，应该是阿黄')
         reflection_listener.plugin.vector_upsert.assert_not_awaited()
         reflection_listener.plugin.set_plugin_storage.assert_awaited()  # 裁决过→水位推进
 
