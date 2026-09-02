@@ -154,22 +154,12 @@ spec:
     - name: reflection_daily_limit
       type: integer
       label:
-        en_US: Reflection Daily Limit
-        zh_Hans: 每日反思上限
+        en_US: Reflection Daily Batch Cap
+        zh_Hans: 每日反思整合批次数上限
       description:
-        en_US: Max reflection generations per day. 0 = unlimited.
-        zh_Hans: 每日反思生成上限，0 = 不限制
-      default: 20
-      required: false
-    - name: reflection_hourly_limit
-      type: integer
-      label:
-        en_US: Reflection Hourly Limit
-        zh_Hans: 每小时反思上限
-      description:
-        en_US: Max reflection generations per hour. 0 = unlimited.
-        zh_Hans: 每小时反思生成上限，0 = 不限制
-      default: 5
+        en_US: Max consolidation batches per day (rate guard; trigger is event-driven). 0 = default 10.
+        zh_Hans: 每日批量反思整合次数上限（失控兜底；触发为事件驱动）。0 = 默认 10
+      default: 10
       required: false
     - name: compression_enabled
       type: boolean

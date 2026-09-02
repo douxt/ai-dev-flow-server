@@ -1,10 +1,12 @@
-"""反思存储层 — 独立 ChromaDB collection + 三级去重 + 四层 rate limit + 衰减归档."""
+"""反思存储层 — 独立 ChromaDB collection + 三级去重 + 衰减归档.
+
+2026-09-02 B 线批量化：四层 rate limit 整体拆除（位置错位缺陷：检测前消耗配额），
+节奏控制移至 service/consolidator.py 的触发阈值+最小间隔+日 cap。"""
 import asyncio
 import hashlib
 import json
 import math
 import sys
-import time
 from datetime import datetime, timezone, timedelta
 
 from util.logs import safe_log
@@ -359,71 +361,3 @@ class ReflectionStore:
         except Exception:
             pass
         return None
-
-    # ── Rate Limit ──────────────────────────────────────────
-
-    async def check_rate_limit(self, session_name: str, sender_id: str) -> bool:
-        """
-        四层限流检查。返回 True 允许生成，False 拒绝。
-        计数器存储在 plugin_storage，key='reflection_rate_state'.
-        """
-        try:
-            raw = await self._plugin.get_plugin_storage('reflection_rate_state')
-            state = json.loads(raw if isinstance(raw, str) else raw.decode('utf-8')) if raw else {}
-        except Exception:
-            state = {}
-
-        now = time.time()
-        today = datetime.now(BJT).strftime('%Y-%m-%d')
-        hour = datetime.now(BJT).strftime('%Y-%m-%dT%H')
-
-        # 重置过期计数器
-        if state.get('day') != today:
-            state = {'day': today, 'day_count': 0, 'hour': hour, 'hour_count': 0,
-                     'session_windows': {}, 'sender_windows': {}}
-        if state.get('hour') != hour:
-            state['hour'] = hour
-            state['hour_count'] = 0
-
-        # 每日上限（默认 20）
-        daily_limit = 20
-        if state.get('day_count', 0) >= daily_limit:
-            safe_log('reflection', f'rate_limit: daily cap ({daily_limit})')
-            return False
-
-        # 每小时上限（默认 5）
-        hourly_limit = 5
-        if state.get('hour_count', 0) >= hourly_limit:
-            safe_log('reflection', f'rate_limit: hourly cap ({hourly_limit})')
-            return False
-
-        # 同 session 冷却：5 分钟内最多 2 条
-        session_windows = state.get('session_windows', {})
-        session_times = session_windows.get(session_name, [])
-        session_times = [t for t in session_times if now - t < 300]
-        if len(session_times) >= 2:
-            safe_log('reflection', f'rate_limit: session cooldown ({session_name})')
-            return False
-
-        # 同 sender 冷却：10 分钟内最多 1 条
-        sender_windows = state.get('sender_windows', {})
-        sender_last = sender_windows.get(sender_id, 0)
-        if now - sender_last < 600:
-            safe_log('reflection', f'rate_limit: sender cooldown ({sender_id})')
-            return False
-
-        # 更新计数器
-        state['day_count'] = state.get('day_count', 0) + 1
-        state['hour_count'] = state.get('hour_count', 0) + 1
-        session_times.append(now)
-        session_windows[session_name] = session_times
-        sender_windows[sender_id] = now
-        state['session_windows'] = session_windows
-        state['sender_windows'] = sender_windows
-
-        try:
-            await self._plugin.set_plugin_storage('reflection_rate_state', json.dumps(state).encode('utf-8'))
-        except Exception:
-            pass
-
-        return True

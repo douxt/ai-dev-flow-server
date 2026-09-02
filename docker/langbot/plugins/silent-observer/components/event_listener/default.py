@@ -31,7 +31,8 @@ from service.quote import QuoteService
 from service.retrieval import RetrievalService
 from store.reflection_store import ReflectionStore
 from service.correction import CorrectionDetector
-from service.reflection import ReflectionGenerator, ReflectionInjector, SelfReflectionScanner
+from service.reflection import ReflectionGenerator, ReflectionInjector
+from service.consolidator import ReflectionConsolidator
 from store.summary_store import SummaryStore, SummaryDocument, CompressionLogStore
 from service.context_compressor import (
     split_messages, build_compression_prompt, parse_summary_response, should_compress,
@@ -162,22 +163,23 @@ class DefaultEventListener(EventListener):
         # === 反思层初始化 ===
         ref_enabled = bool(config.get('reflection_enabled', False)) or os.environ.get('SILENT_REFLECTION_ENABLED', '0') == '1'
         ref_model_uuid = str(config.get('reflection_model_uuid', '') or os.environ.get('SILENT_REFLECTION_MODEL_UUID', ''))
-        ref_daily_limit = int(os.environ.get('SILENT_REFLECTION_DAILY_LIMIT', '0') or config.get('reflection_daily_limit', 0))
-        ref_hourly_limit = int(os.environ.get('SILENT_REFLECTION_HOURLY_LIMIT', '0') or config.get('reflection_hourly_limit', 0))
+        ref_daily_cap = int(os.environ.get('SILENT_REFLECTION_DAILY_LIMIT', '0') or config.get('reflection_daily_limit', 0) or 10)
         self.reflection_enabled = ref_enabled and bool(ref_model_uuid) and bool(emb_uuid)
         if self.reflection_enabled:
             self.reflection_store = ReflectionStore(self.plugin, emb_uuid)
             self.correction_detector = CorrectionDetector(self.plugin, self.bot_qq, ref_model_uuid)
             self.reflection_generator = ReflectionGenerator(self.plugin, ref_model_uuid)
             self.reflection_injector = ReflectionInjector()
-            self.reflection_scanner = SelfReflectionScanner(self.plugin, ref_model_uuid)
+            self.consolidator = ReflectionConsolidator(
+                self.plugin, ref_model_uuid, self.reflection_generator,
+                self.reflection_store, self.store, daily_cap=ref_daily_cap)
             self._last_reply_text = {}
         else:
             self.reflection_store = None
             self.correction_detector = None
             self.reflection_generator = None
             self.reflection_injector = None
-            self.reflection_scanner = None
+            self.consolidator = None
             self._last_reply_text = {}  # always available for save_reply cache
 
         # 运行时状态（不持久化）
@@ -308,17 +310,9 @@ class DefaultEventListener(EventListener):
             if self.compressor_enabled and self.kb_enabled and is_trigger:
                 self._trigger_compression(session_name)
 
-            # === 反思层：纠正检测钩子（所有消息路径之后） ===
-            if self.reflection_enabled:
-                last_reply_ts = self._reply_ts.get(session_name, 0)
-                if last_reply_ts > 0:
-                    window = self.correction_detector._dynamic_window(
-                        self._last_reply_text.get(session_name, '')
-                    )
-                    if time.time() - last_reply_ts < window:
-                        self._run_background(self._maybe_generate_reflection(
-                            ctx.event, session_name,
-                        ))
+            # === 反思层：纠正候选标记（B 线批量化——零 LLM，裁决在批量层） ===
+            if self.reflection_enabled and self._reply_ts.get(session_name, 0) > 0:
+                self._run_background(self._mark_correction(ctx.event, session_name))
 
         @self.handler(events.NormalMessageResponded)
         async def save_reply(ctx: context.EventContext):
@@ -395,16 +389,9 @@ class DefaultEventListener(EventListener):
                         qvars = await api_tmp.get_query_vars()
                         user_msg = str(qvars.get('user_message_text', '') or '')
                         sender_id = str(qvars.get('sender_id', '') or '')
-                        if user_msg:
-                            last_reply_ts = self._reply_ts.get(session_name, 0)
-                            if last_reply_ts > 0:
-                                window = self.correction_detector._dynamic_window(
-                                    self._last_reply_text.get(session_name, '')
-                                )
-                                if time.time() - last_reply_ts < window:
-                                    self._run_background(self._maybe_generate_reflection(
-                                        ctx.event, session_name, user_msg, sender_id,
-                                    ))
+                        if user_msg and self._reply_ts.get(session_name, 0) > 0:
+                            self._run_background(self._mark_correction(
+                                ctx.event, session_name, user_text=user_msg))
                     except Exception as _e:
                         safe_log('reflection', f'person correction check error: {_e}')
 
@@ -885,59 +872,43 @@ class DefaultEventListener(EventListener):
 
     # ── 反思层 ────────────────────────────────────────────
 
-    async def _maybe_generate_reflection(self, event, session_name: str, user_text: str = "", sender_id: str = ""):
-        """后台检测纠正信号并生成反思。"""
+    async def _mark_correction(self, event, session_name: str, user_text: str = ""):
+        """实时层标记（零 LLM）：stage1 命中 → 候选+重要性分，到阈值即调度批量整合."""
         try:
             if not user_text:
                 user_text = await self.timeline_service.extract_text(event.message_chain, max_length=300)
-            bot_reply = self._last_reply_text.get(session_name, '')
-            if not user_text or not bot_reply:
+            if not user_text:
                 return
-            if not sender_id:
-                sender_id = str(getattr(event, 'sender_id', ''))
-            if not await self.reflection_store.check_rate_limit(session_name, sender_id):
+            matched, _conf = self.correction_detector.precheck(user_text)
+            if not matched:
                 return
-            recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
-            signal = await self.correction_detector.detect(
-                session_name, user_text, bot_reply, recent,
-            )
-            if not signal:
-                return
-            reflection = await self.reflection_generator.generate(signal)
-            if not reflection:
-                return
-            await self._persist_reflection(reflection)
+            msg_id = str(getattr(getattr(event, 'message_event', None), 'message_id', '') or '')
+            if self.consolidator.mark(session_name, user_text, msg_id):
+                safe_log('reflection', f'mark: trigger reached ({session_name})')
+                await self._consolidate(session_name)
         except Exception as e:
-            safe_log('reflection', f'generate error: {type(e).__name__}: {str(e)[:120]}')
+            safe_log('reflection', f'mark error: {type(e).__name__}: {str(e)[:120]}')
 
     def _bump_reflection_counter(self, session_name: str):
-        """每 is_trigger 消息 +1，每 10 轮触发自我反思。gate 只留一行调用。"""
+        """每 is_trigger 消息 +1，每 10 轮跑一批反思整合（与纠正触发共用批量层）。gate 只留一行调用。"""
         self._reflection_round_count += 1
-        if self.reflection_enabled and self._reflection_round_count % 10 == 0:
-            self._run_background(self._maybe_self_reflect(session_name))
+        if (self.reflection_enabled and self._reflection_round_count % 10 == 0
+                and self.consolidator and self.consolidator.mark_round(session_name)):
+            self._run_background(self._consolidate(session_name))
 
-    async def _maybe_self_reflect(self, session_name: str):
-        """主动反思：扫描最近 10 条消息，发现 bot 自身错误并沉淀."""
+    async def _consolidate(self, session_name: str):
+        """批量整合：1 次 LLM 裁决事件弧，产出走共享 persist 路径."""
         try:
-            if not self.reflection_enabled or not self.reflection_store or not self.reflection_scanner:
+            if not self.reflection_enabled or not self.consolidator or not self.reflection_store:
                 return
-            # 限流必须在 scan 的 LLM 调用之前（sender 固定 'self-reflect'，10min 冷却全局生效）
-            if not await self.reflection_store.check_rate_limit(session_name, 'self-reflect'):
-                return
-            recent = await self.store.get_recent_messages(session_name, 10) if self.store else []
-            texts = [i.get('metadata', {}).get('text', '') for i in recent if i.get('metadata', {}).get('text')]
-            if not texts:
-                return
-            reflection = await self.reflection_scanner.scan(texts)
-            if not reflection:
-                return
-            await self._persist_reflection(reflection)
-            safe_log('reflection', f'self-reflect: stored {reflection.get("scenario", "")[:40]}')
+            lessons = await self.consolidator.consolidate(session_name)
+            for lesson in lessons:
+                await self._persist_reflection(lesson)
         except Exception as e:
-            safe_log('reflection', f'self-reflect error: {type(e).__name__}: {str(e)[:120]}')
+            safe_log('reflection', f'consolidate flow error: {type(e).__name__}: {str(e)[:120]}')
 
     async def _persist_reflection(self, reflection: dict):
-        """去重/合并/存储共享路径（纠正 + self-reflect 两条管线复用）."""
+        """去重/合并/存储共享路径（批量整合层产出唯一入口）."""
         existing_id, existing, level = await self.reflection_store.find_duplicate(
             reflection.get('scenario', ''),
             reflection.get('mistake', ''),

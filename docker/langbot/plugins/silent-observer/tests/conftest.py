@@ -224,7 +224,7 @@ def listener(monkeypatch):
     obj.correction_detector = None
     obj.reflection_generator = None
     obj.reflection_injector = None
-    obj.reflection_scanner = None
+    obj.consolidator = None
     obj._last_reply_text = {}
     # 服务层
     obj.vision_model_uuid = ''
@@ -355,10 +355,12 @@ def reflection_listener(monkeypatch, tmp_path):
     obj.reflection_store = ReflectionStore(plugin, 'emb1')
     from service.correction import CorrectionDetector
     obj.correction_detector = CorrectionDetector(plugin, obj.bot_qq, 'ref1')
-    from service.reflection import ReflectionGenerator, ReflectionInjector, SelfReflectionScanner
+    from service.reflection import ReflectionGenerator, ReflectionInjector
+    from service.consolidator import ReflectionConsolidator
     obj.reflection_generator = ReflectionGenerator(plugin, 'ref1')
     obj.reflection_injector = ReflectionInjector()
-    obj.reflection_scanner = SelfReflectionScanner(plugin, 'ref1')
+    obj.consolidator = ReflectionConsolidator(
+        plugin, 'ref1', obj.reflection_generator, obj.reflection_store, obj.store)
 
     # QueryBasedAPIProxy mock（inject 路径）
     mock_api_cls = MagicMock()

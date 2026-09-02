@@ -35,7 +35,7 @@ VALID_JSON = json.dumps(_valid_reflection(), ensure_ascii=False)
 
 
 def _ten_msgs():
-    return [{'metadata': {'text': f'[2026-08-21 10:{i:02d}] 用户{i}: 你好'}} for i in range(10)]
+    return [{'metadata': {'text': f'[2026-08-21 10:{i:02d}] 用户{i}: 你好', 'timestamp_unix': float(i)}} for i in range(10)]
 
 
 def _gen_prompt(listener, call_idx):
@@ -43,59 +43,74 @@ def _gen_prompt(listener, call_idx):
     return listener.plugin.invoke_llm.call_args_list[call_idx].kwargs['messages'][0].content
 
 
-class TestCorrectionChain:
-    """场景 1-3：纠正全链路（_maybe_generate_reflection）"""
+class TestConsolidateChain:
+    """场景 1-4：批量整合链（mark→触发→consolidate→persist）"""
 
-    async def test_full_chain(self, reflection_listener, scripted_llm):
-        scripted_llm(reflection_listener, ['补全句：你说错了，应该用DS920+', 'YES', VALID_JSON])
-        event = SimpleNamespace(message_chain=None, sender_id='u1')
-        await reflection_listener._maybe_generate_reflection(event, 'group_t', user_text='不对，你搞错了', sender_id='u1')
-        assert reflection_listener.plugin.invoke_llm.call_count == 3  # rewrite+stage2+generate
+    def _event(self):
+        return SimpleNamespace(message_chain=None, message_event=None, sender_id='u1')
+
+    def _feed(self, listener):
+        listener.store.get_recent_messages = AsyncMock(return_value=_ten_msgs())
+
+    async def test_two_marks_trigger_single_llm(self, reflection_listener, scripted_llm):
+        scripted_llm(reflection_listener, [VALID_JSON])
+        self._feed(reflection_listener)
+        ev = self._event()
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='不对，是阿黄。')
+        assert reflection_listener.plugin.invoke_llm.call_count == 0  # 第一次标记：零 LLM
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='你说错了')
+        assert reflection_listener.plugin.invoke_llm.call_count == 1  # 分满触发，恰好一批
         reflection_listener.plugin.vector_upsert.assert_awaited()
-        docs = reflection_listener.plugin.vector_upsert.call_args.kwargs['documents'][0]
-        assert '"when"' in docs and '"then"' in docs
-        assert '补全句：你说错了' in _gen_prompt(reflection_listener, 2)  # generate 用补全句
+        prompt = _gen_prompt(reflection_listener, 0)
+        assert '不对，是阿黄。' in prompt and '你说错了' in prompt  # 事件弧输入
 
-    async def test_rewrite_exception_fallback(self, reflection_listener, scripted_llm):
-        scripted_llm(reflection_listener, [RuntimeError('boom'), 'YES', VALID_JSON])
-        event = SimpleNamespace(message_chain=None, sender_id='u1')
-        await reflection_listener._maybe_generate_reflection(event, 'group_t', user_text='不对，你搞错了', sender_id='u1')
-        reflection_listener.plugin.vector_upsert.assert_awaited()
-        assert '不对，你搞错了' in _gen_prompt(reflection_listener, 2)  # 原文进 generate
-
-    async def test_rewrite_rejected_original_retry(self, reflection_listener, scripted_llm):
-        scripted_llm(reflection_listener, ['补全句：不对，你搞错了，应该用DS920+', 'NO', 'YES', VALID_JSON])
-        event = SimpleNamespace(message_chain=None, sender_id='u1')
-        await reflection_listener._maybe_generate_reflection(event, 'group_t', user_text='不对，你搞错了', sender_id='u1')
-        assert reflection_listener.plugin.invoke_llm.call_count == 4  # rewrite+stage2×2+generate
-        reflection_listener.plugin.vector_upsert.assert_awaited()
-        assert '不对，你搞错了' in _gen_prompt(reflection_listener, 3)  # 原文重试通过
-
-    async def test_both_rejected_no_store(self, reflection_listener, scripted_llm):
-        scripted_llm(reflection_listener, ['补全句', 'NO', 'NO'])
-        event = SimpleNamespace(message_chain=None, sender_id='u1')
-        await reflection_listener._maybe_generate_reflection(event, 'group_t', user_text='不对，你搞错了', sender_id='u1')
+    async def test_c_class_none_no_store(self, reflection_listener, scripted_llm):
+        scripted_llm(reflection_listener, ['NONE|断言无佐证，后续无人跟进'])
+        self._feed(reflection_listener)
+        ev = self._event()
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='不对，是阿黄。')
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='其实是阿黄')
         reflection_listener.plugin.vector_upsert.assert_not_awaited()
+        reflection_listener.plugin.set_plugin_storage.assert_awaited()  # 裁决过→水位推进
+
+    async def test_non_correction_no_action(self, reflection_listener, scripted_llm):
+        scripted_llm(reflection_listener, [VALID_JSON])
+        self._feed(reflection_listener)
+        await reflection_listener._mark_correction(self._event(), 'group_t', user_text='乌龙茶记一下')
+        reflection_listener.plugin.invoke_llm.assert_not_awaited()
+        assert reflection_listener.consolidator._scores.get('group_t', 0) == 0
+
+    async def test_parse_garbage_holds_watermark_keeps_candidates(self, reflection_listener, scripted_llm):
+        scripted_llm(reflection_listener, ['絮絮叨叨但没有 JSON'])
+        self._feed(reflection_listener)
+        ev = self._event()
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='不对，是阿黄。')
+        await reflection_listener._mark_correction(ev, 'group_t', user_text='你说错了')
+        reflection_listener.plugin.vector_upsert.assert_not_awaited()
+        reflection_listener.plugin.set_plugin_storage.assert_not_awaited()  # 水位保持
+        assert '不对，是阿黄。' in [c['text'] for c in reflection_listener.consolidator._candidates['group_t']]
 
 
-class TestSelfReflect:
-    """场景 4-8：_bump_reflection_counter + _maybe_self_reflect"""
+class TestRoundTick:
+    """场景 5-9：每 10 轮周期批（原 self-reflect 入口并入整合层）"""
 
     def _trigger(self, listener):
         listener._reflection_round_count = 9
         listener._bump_reflection_counter('group_t')
+        if listener._bg_queue.empty():
+            return None
         return listener._bg_queue.get_nowait()
 
     async def test_trigger_at_10th_round(self, reflection_listener, scripted_llm):
         reflection_listener.store.get_recent_messages = AsyncMock(return_value=_ten_msgs())
         scripted_llm(reflection_listener, [VALID_JSON])
         await self._trigger(reflection_listener)
-        assert reflection_listener.plugin.invoke_llm.call_count == 1  # 仅 scan
+        assert reflection_listener.plugin.invoke_llm.call_count == 1  # 仅批量一次
         reflection_listener.plugin.vector_upsert.assert_awaited()
 
-    async def test_scan_none_no_store(self, reflection_listener, scripted_llm):
+    async def test_consolidate_none_no_store(self, reflection_listener, scripted_llm):
         reflection_listener.store.get_recent_messages = AsyncMock(return_value=_ten_msgs())
-        scripted_llm(reflection_listener, ['NONE'])
+        scripted_llm(reflection_listener, ['NONE|例行回顾无值得固化内容'])
         await self._trigger(reflection_listener)
         reflection_listener.plugin.vector_upsert.assert_not_awaited()
 
@@ -111,13 +126,13 @@ class TestSelfReflect:
         assert kwargs['metadata'][0]['confirm_count'] == 2
         assert kwargs['metadata'][0]['when']  # when/then backfill
 
-    async def test_rate_limited_no_llm(self, reflection_listener):
-        reflection_listener.store.get_recent_messages = AsyncMock(return_value=_ten_msgs())
-        reflection_listener.reflection_store.check_rate_limit = AsyncMock(return_value=False)
-        await self._trigger(reflection_listener)
+    async def test_min_interval_skips_tick(self, reflection_listener):
+        import time as _t
+        reflection_listener.consolidator._last_run['group_t'] = _t.time()
+        assert self._trigger(reflection_listener) is None  # 防抖内不调度
         reflection_listener.plugin.invoke_llm.assert_not_awaited()
 
-    async def test_not_yet_triggered(self, reflection_listener):
+    def test_not_yet_triggered(self, reflection_listener):
         reflection_listener._reflection_round_count = 5
         reflection_listener._bump_reflection_counter('group_t')
         assert reflection_listener._reflection_round_count == 6
