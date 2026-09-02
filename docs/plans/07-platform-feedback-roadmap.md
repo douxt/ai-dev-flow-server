@@ -24,6 +24,10 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | 遗留 | go-vue FEEDBACK-001 | 漏洞扫描检查类别（govulncheck / npm audit 按 tags 路由） | ⏳ 待排 |
 | DEFECT-003 | v3.5 回归对照 | **基线既有测试失败**：base 1c150a6 上 ubuntu 39 挂 / alpine 34 挂（migrate 系 13、rollback 系 6、hook 链 4、install mode/--home/--no-config 系 7、stage-tickets 系 8、escape/CLAUDE.md 路由表 2、verify 1）——非 v3.4/v3.5 引入，疑与同期 stage-tracker/install 改动或环境依赖有关 | ⏳ 待排（修前以 detached worktree 基线对照为准，参照记忆 bats-baseline-detached-worktree） |
 | DEFECT-004 | T3 传播暴露 | install.sh update 段 `chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh` 对 symlink **穿透改目标文件 mode**——claude-config 纳管环境下 4 个 644 hook 源文件被 +x（git mode 污染，已宿主手动还原）。修法：`[ -L ] || chmod +x` 或 find `! -type l`；同段 skills 轮换对同名 skill 的 mv 覆盖同理需 symlink 检查 | 🔄 chmod 三处已修（v3.5 merge-dedup 分支）；**skills mv/cp 穿透检查遗留待排** |
+| DEFECT-005 | cut-optimizer 接入 | `--tech-stack python` 只写 config `language:` 不写 `tags:` → fresh 段 stacks 知识**静默不部署**（install.sh L821；L1084 读 tags 为空即跳）——需二次 --update 才补上。修法：模板写 `tags: ${TECH_STACK}` 或参数化多 tags | ⏳ 待排 |
+| DEFECT-006 | cut-optimizer 接入 | 仓级 `.git/hooks/pre-commit`（"Agent B 禁改受保护文件"）**无 owner/人类通道**——install 产物本身（.devflow/**）首次提交即被拦，只能 `--no-verify`。修法：hook 识别 `DEVFLOW_OWNER=1` 类 env 或按 config.yaml role 放行；另 `.devflow/knowledge/*.bak` 出现在拦截清单（模板自带 bak 被跟踪，顺带清理） | ⏳ 待排 |
+| DEFECT-007 | cut-optimizer 接入 | `check_constitution.py --batch issues/` 误扫安装产物 `test-plan-template.md`（3 ❌ 全来自模板非真票）——batch 模式应排除 `TEMPLATE.md`/`*-template.md`，或 install 不落地到 issues/ | ⏳ 待排 |
+| FEEDBACK-005 | cut-optimizer | python 栈缺 greenfield/FastAPI 服务类知识（现仅 legacy-characterization，与新仓 TDD 场景错配）；项目级纪律暂由 `.claude/gate-checklists/cutting-stock-discipline.md` 承载 | ⏳ M2 反哺素材（含空仓过门禁 V2 观察：G2.4 ruff WARN 属预期，全链无崩溃） |
 
 ## 已处理反馈
 
