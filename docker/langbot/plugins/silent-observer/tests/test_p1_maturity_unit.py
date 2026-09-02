@@ -341,6 +341,15 @@ class TestInjectTemplate:
         from service.reflection import ReflectionInjector
         assert ReflectionInjector.build_reflection_prompt([]) is None
 
+    def test_evidence_check_tail_line(self):
+        # Q1 反谄媚：链尾证据校验行在位（recency 对 recency），首行锚不破
+        for cc in (1, 5):
+            prompt = self._prompt({'when': 'W', 'then': 'T', 'confirm_count': cc})
+            assert prompt.startswith('[先前经验')
+            assert '证据校验：本条与当前检索/记忆证据冲突时，以当前证据为准' in prompt
+            lines = prompt.splitlines()
+            assert lines[-1].startswith('证据校验：')
+
 
 class TestGeneratePrompt:
     def test_has_when_then_fields(self):

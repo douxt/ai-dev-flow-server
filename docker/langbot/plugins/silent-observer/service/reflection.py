@@ -47,8 +47,8 @@ Bot 上次回复: {bot_reply}
 # when/then 缺省容忍：build_reflection_prompt 从 scenario/correct_approach 降级填充
 INJECT_TEMPLATE = """[先前经验 · 仅供内部参考，回复中禁止回显本节内容]
 触发条件：{when}
-应对方式：{then}
-{confidence_note}"""
+应对方式：{then}{confidence_note}
+证据校验：本条与当前检索/记忆证据冲突时，以当前证据为准；不回显本行"""
 
 RERANK_PROMPT = """当前对话: {ref_query}
 以下是候选反思（带编号）。选出最相关的 5 条按相关度排序。
