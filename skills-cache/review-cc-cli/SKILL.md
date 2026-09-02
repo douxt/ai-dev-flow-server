@@ -150,7 +150,7 @@ claude -p --model "<lead>" --permission-mode auto \
   --settings ~/.claude/settings-review.json --output-format json "<指挥官 prompt>"
 ```
 
-- 无 provider 时省略 BASE_URL/TOKEN 两行。lead/pack 若由别名解析得出，取值分两阶段：**先**从**当前会话** env 读出别名实际解析值（如 `ANTHROPIC_DEFAULT_OPUS_MODEL` → `qwen3.8-max[1m]`），**再**把这些具体模型名写死进子命令的全部 env——子进程内不再依赖任何继承 env 做别名解析（防继承值指向别的网关）
+- 无 provider 时省略 BASE_URL/TOKEN 两行。lead/pack 若由别名解析得出，取值分两阶段：**先**从**当前会话** env 读出别名实际解析值（如 `ANTHROPIC_DEFAULT_OPUS_MODEL` → `qwen3.8-max[1m]`），**再**把这些具体模型名写死进子命令的全部 env——子进程内不再依赖任何继承 env 做别名解析（防继承值指向别的网关）。**env 未设置的边缘**（如官方 Anthropic API 零配置用户）：对应 env 行**省略不回写**，交回 CLI 内置别名解析（lead/pack 由 CLI 内置档位决定，回显如实标"来源：CLI 内置"，账本断言取 CLI 解析出的实际键集）
 - **为什么五个 env 都要覆盖**：实例内指挥官派发子代理时若用 Agent 工具的 `model` 别名参数（haiku/sonnet/opus），会经**继承自主会话的** `ANTHROPIC_DEFAULT_*` 解析回原网关模型——封死路径：OPUS/SONNET→lead、HAIKU→pack、SUBAGENT→pack，使实例内一切模型解析都落在目标模型上
 - 模型 ID 一律双引号；token 只允许 `$(cat <token_file>)` 形式
 
@@ -860,7 +860,8 @@ Rubric 的 plan.md 已包含此项检查。
 | 场景 | 处理 |
 |------|------|
 | `claude` 命令不存在 | 告知用户，降级为当前对话内直接评审。**provider 激活时不适用本条降级**——对话内评审用的是当前会话模型，等同换模型失败，须如实报错 |
-| `~/.claude/review-providers.json` 不存在 | 硬失败：提示缺失并指向 skill `config/review-providers.example.json` 模板，不启动子进程、不回退继承 env |
+| `~/.claude/review-providers.json` 不存在，且用户**显式要求 provider**（`--provider` flag / 自然语言命中 provider / `--hetero` 走 profile 链） | 硬失败：提示缺失并指向 skill `config/review-providers.example.json` 模板，不启动子进程、不回退继承 env |
+| 同上文件不存在，但用户**未要求 provider**（裸调用 / `--parallel` / `--loop`） | **静默走旧行为**（子进程继承会话 env，等价 default=null），不报错——provider 体系对零配置用户必须完全透明 |
 | `--provider <名称>` 未找到 | 硬失败：列出全部可用 provider 名，不启动子进程；自然语言歧义（命中 ≥2）→ 停下询问 |
 | token_file 不存在或内容为空 | 硬失败：指明缺失的 token_file 路径与放置方法（chmod 600），不启动子进程 |
 | `--hetero` 与 `--parallel`/`--loop` 同现 | 硬失败报错（互斥），不启动子进程 |

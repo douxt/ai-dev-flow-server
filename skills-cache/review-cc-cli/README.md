@@ -62,7 +62,7 @@ profile 文件 `~/.claude/review-providers.json`（首次 install.sh 自动从�
 - **profile 文件不放密钥明文**，只放路径；密钥仅在子进程 env 展开瞬间存在，不进 prompt/transcript/日志
 - 顶层 `default` 键非 null 时，省略 `--provider` 也会启用该 profile —— **设置即全局改变默认评审端点，确认后再配**；模板默认 null（不改变旧行为）
 - 自然语言输入解析后强制回显 `已解析 provider/model/base_url/来源`；歧义必询问，不猜
-- profile/密钥缺失一律硬失败，**不静默回退继承会话 env**（防止"以为换了模型实际没换"）
+- **零配置兜底**：不要求 provider（裸调用 / `--parallel` / `--loop`）时 provider 体系完全透明，无 profile 文件也走旧行为（继承会话 env），不报错；一旦**显式要求** provider（含自然语言命中、`--hetero` 走 profile 链）而 profile/密钥缺失则硬失败给指引，**不静默回退**（防止"以为换了模型实际没换"）
 - ⚠️ 仅适用于个人独占机器：token 会进入子进程 env，同机进程可读 `/proc/<pid>/environ`
 
 ## 异构双层评审（--hetero）

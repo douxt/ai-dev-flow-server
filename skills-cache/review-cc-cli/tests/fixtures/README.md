@@ -73,7 +73,7 @@
 | P1 | `/review-cc-cli --provider deepseek --scope tests/fixtures/fixture-bugs.js` | 子进程返回 JSON 的 `model` 字段 == profile 声明的模型；启动前回显「已解析 provider=..., model=..., base_url=..., 来源=显式参数」 |
 | P2 | 跑完 P1 后检查本会话 transcript 与 `~/.claude/logs/file-audit.jsonl` | grep 密钥明文 0 命中；命令文本仅含 `$(cat <token_file>)` 形式 |
 | P3 | `/review-cc-cli --provider not-exist` | 报错列出全部可用 provider 名；不启动任何 claude -p 子进程；不降级为对话内评审 |
-| P4 | 不带 --provider 且 default=null | 命令与旧版逐字一致（无 env 前缀），行为无回归 |
+| P4 | 不带 --provider 且（default=null **或 profile 文件根本不存在**） | 命令与旧版逐字一致（无 env 前缀）且无报错——provider 体系对零配置用户完全透明 |
 | P5 | `/review-cc-cli --provider deepseek --parallel --scope tests/fixtures/fixture-bugs.js` | 全部维度 agent + verifier 的 model 字段一致；confirmed 数量与串行 P1 一致（≥ 8） |
 | P6 | `/review-cc-cli --provider ali --model "qwen3.8-max[1m]"` | 显式 --model 覆盖 profile.model；模型名含 `[1m]` 不被 shell 破坏 |
 | P7 | 自然语言：`用 deepseek 评审这次改动` | 命中 alias → 等效 --provider deepseek，回显来源=自然语言 |
