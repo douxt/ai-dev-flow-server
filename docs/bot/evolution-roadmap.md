@@ -228,6 +228,8 @@ P1:   embedding 搜 top-10 → LLM 从 10 条挑最相关的 5 条 → 精准注
 
 ### B 线：反思通道批量化（2026-09-02 立项，supersede 实时 LLM 检测链）
 
+> **状态 2026-09-03：✅ 已上线**——consolidator 批量层+零 LLM 标记器部署生产，V1-V7 全过（3 批裁决全 NONE 带理由、反思库零污染、触发链实锤）；执行结果、cap 读取 `'0'`-truthy 自纠、LTM 第二学习通道新盲区见 docs/plans/2026-09-02-reflection-consolidator.md 与记忆 #30。
+
 **动因**：8/29 受控假纠正实验沉淀出谄媚教训条目 94325ac8（"冲突以用户最新纠正为准并承认错误"），9/02 假纠正"阿黄"复测再次命中 detect 盲区——实时链的 rewrite/stage2/GENERATE 三跳全是**单轮视野**，结构上无真伪辨别力；且限流在检测前消耗配额（无关消息吃槽挡真纠正）。二次调研定案：行业共识为**混合双层**——实时层零 LLM 只做关键词标记+重要性分（Generative Agents 阈值 150 触发反思），智能裁决全部放批量层（Letta sleep-time agents、Anthropic Dreams 带外重建可审查、OpenAI Codex memories 双模型+idle 等待），投毒研究（arXiv 2608.21230/2606.24322）证明防御重心须在读端校验+多源 corroboration——批量窗口=事件弧，恰是 corroboration 的载体。
 
 **形态**：stage1 命中→候选+加分（+50），分满 100 或每 10 轮→触发 `ReflectionConsolidator`（1 次强模型调用/批）：输入=水位后对话增量+候选句+活跃反思摘要，按四规则裁决（明示/佐证→可学，冲突无佐证→不学+留由，拿不准→宁缺勿伪），产出 ≤2 条走既有 validate/merge/inject（**下游零改动**）。水位线持久化幂等续扫；四层限流拆除留日 cap=10 兜底。明示学习（remember()→LTM）不受影响。
@@ -366,7 +368,7 @@ inject 增加后：时间线 → 引用提取 → 图片注入 → ★反思检�
 1. **P1（本周可做）**：话语重写 + 自我反思源 + When-Then 格式 + LLM Rerank，~185 行
 2. **P2（2-4 周）**：反思生命周期管理 + A/B 评估框架，~200 行
 3. **P2.3（2 月，依赖标注数据积累）**：纠正检测分类器（RoBERTa）
-4. **B 线·反思通道批量化（9/02 立项，~1 人日，supersede P1 实时 LLM 检测链）**：stage1 零成本标记+重要性分触发 → ReflectionConsolidator 批量裁决（事件弧判真伪）；详见 §三-A B 线，计划已批准待开工
+4. **B 线·反思通道批量化（9/02 立项，~1 人日，supersede P1 实时 LLM 检测链）**：stage1 零成本标记+重要性分触发 → ReflectionConsolidator 批量裁决（事件弧判真伪）；详见 §三-A B 线，✅ 2026-09-03 已上线（V1-V7 全过，LTM 盲区挂 V8）
 
 ### 会话质量线（2026-09-02 新增，三线并行）
 
