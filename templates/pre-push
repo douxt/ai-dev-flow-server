@@ -1,30 +1,60 @@
 #!/bin/bash
-# .git/hooks/pre-push — 拦截 Agent B 越权 push
-# 由 ai-dev-flow-server install.sh 部署
+# .git/hooks/pre-push — 推送目标角色门（v3.6）
+# 由 ai-dev-flow-server install.sh 部署；本文件与 pre-commit 的 role/trace 段刻意自包含重复
+#（git hooks 无稳定 source 路径，单文件自包含 > DRY）
+#
+# 判定全部基于 stdin 每行 <src_ref> <src_oid> <dst_ref> <dst_oid> 的 **dst 侧**——
+# v2 版用本地 HEAD 判定，`git push origin HEAD:master` 从任意 ai/* 分支即可绕过（2026-09-03 评审沙箱实锤）。
+# 身份凭证：role=owner（config.yaml，人设）+ OWNER_SESSION=1（会话显式带）双因子，每决策写 gitdir 留痕。
 
 REF_LIST=$(cat)
 
-# 分支删除（zero SHA）→ 放行
-if echo "$REF_LIST" | grep -q "0000000000000000000000000000000000000000"; then
-    exit 0
-fi
-
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-# www 用户（dispatch/reconciler 进程）允许直推 main
+# daemon 豁免：dispatch/reconciler 以 www 进程跑（unix 用户即凭证；其脚本头部 unset OWNER_SESSION 防交互泄漏）
 if [ "$(whoami)" = "www" ]; then
     exit 0
 fi
 
-# 硬阻断：master/main 分支
-if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
-    echo "⛔ BLOCKED: Agent B 禁止直推 $BRANCH。请推 ai/ 分支，然后 gh pr merge 合并。"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+CFG="$REPO_ROOT/.devflow/config.yaml"
+ROLE=""
+if [ -f "$CFG" ]; then
+    ROLE=$(grep -E '^[[:space:]]*role:' "$CFG" 2>/dev/null | head -1 \
+        | sed 's/.*role:[[:space:]]*//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tr -d '"' || true)
+fi
+[ -z "$ROLE" ] && ROLE="agent-b"
+
+GD=$(git rev-parse --git-common-dir 2>/dev/null || true)
+trace() {  # trace <event> [extra-json]——写 gitdir 内（不被跟踪、全 worktree 汇聚），失败静默
+    [ -n "$GD" ] || return 0
+    printf '{"ts":"%s","hook":"pre-push","event":"%s","role":"%s"%s}\n' \
+        "$(date +%FT%T 2>/dev/null)" "$1" "$ROLE" "${2:-}" \
+        >> "$GD/devflow-trace.jsonl" 2>/dev/null || true
+}
+
+PROTECTED_HIT=""
+while read -r src_ref src_oid dst_ref dst_oid; do
+    [ -z "$dst_ref" ] && continue
+    # 删除操作 = src_oid 全零才放行（v2 全文 grep zero-SHA 不分字段，把一切"新建分支"当删除放行——dst 全零是新建，不得逃逸）
+    [ "$src_oid" = "0000000000000000000000000000000000000000" ] && continue
+    case "$dst_ref" in
+        refs/heads/master|refs/heads/main) PROTECTED_HIT="$dst_ref" ;;
+    esac
+done <<< "$REF_LIST"
+
+if [ -n "$PROTECTED_HIT" ]; then
+    if [ "$ROLE" = "owner" ] && [ "${OWNER_SESSION:-}" = "1" ]; then
+        trace "owner-bypass" ",\"dst_ref\":\"$PROTECTED_HIT\""
+        exit 0
+    fi
+    trace "blocked" ",\"dst_ref\":\"$PROTECTED_HIT\""
+    echo "⛔ 直推 ${PROTECTED_HIT#refs/heads/} 需 owner 授权（policy: role=$ROLE）。"
+    echo "   owner 会话: OWNER_SESSION=1 git push（留痕审计）  |  developer/agent-b: 推 ai/* 分支走 PR"
     exit 1
 fi
 
-# 软阻断：非 ai/ 分支警告
-if ! echo "$BRANCH" | grep -q '^ai/'; then
-    echo "⚠️  WARNING: 分支 '$BRANCH' 不以 ai/ 开头，继续推送但请确认合规。"
+# 非保护目标：软警告（限 refs/heads/*，tag 推送不骚扰；v2 按本地分支名判定已废）
+FIRST_DST=$(echo "$REF_LIST" | head -1 | awk '{print $3}')
+if [ -n "$FIRST_DST" ] && echo "$FIRST_DST" | grep -q '^refs/heads/' && ! echo "$FIRST_DST" | grep -q '^refs/heads/ai/'; then
+    echo "⚠️  WARNING: 目标分支 '${FIRST_DST#refs/heads/}' 不以 ai/ 开头，继续推送但请确认合规。"
 fi
-
 exit 0

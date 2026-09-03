@@ -3,6 +3,9 @@
 # 由 systemd timer 每 5 分钟触发。从 .devflow/config.yaml 读项目配置。
 # 用法: bash dispatch.sh <项目路径>
 # 隔离策略: git worktree add origin/main --detach（替代旧版 stash 模式）
+# v3.6 身份封漏：AFK 进程不得携带 owner 凭证——人若从 export 过 OWNER_SESSION 的终端手动跑本脚本，
+# 双因子塌成单因子。www 用户名豁免仍有效，此 unset 封的是非 www 手跑路径
+unset OWNER_SESSION
 set -euo pipefail
 
 WORKSPACE="${1:-$(pwd)}"

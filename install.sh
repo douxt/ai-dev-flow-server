@@ -628,6 +628,25 @@ if [ "$UPDATE_MODE" = true ]; then
     deploy_file "$SOURCE/templates/issue-template.md" "$TARGET/issues/TEMPLATE.md"
     deploy_file "$SOURCE/templates/test-plan-template.md" "$TARGET/issues/test-plan-template.md"
 
+    # 仓级 git hooks（v3.6 角色门）——此前只 fresh 部署、update 从不刷新（sync-gap 同族缺陷）
+    # [ -d ] 守卫：worktree 目标 .git 是文件，跳过=正确语义（hooks 属主仓共享），勿改用 -e
+    if [ -d "$TARGET/.git" ]; then
+        echo "  更新 git hooks ..."
+        for g in pre-commit pre-push; do
+            old_md5="-"; [ -f "$TARGET/.git/hooks/$g" ] && old_md5=$(md5sum "$TARGET/.git/hooks/$g" | cut -d' ' -f1)
+            deploy_file "$SOURCE/templates/$g" "$TARGET/.git/hooks/$g"
+            new_md5=$(md5sum "$TARGET/.git/hooks/$g" 2>/dev/null | cut -d' ' -f1 || echo "-")
+            if [ "$old_md5" != "$new_md5" ] && [ "$DRY_RUN" = false ]; then
+                # P1 透明化：钩子变更必须留痕（旧→新，actor 可查）
+                printf '{"ts":"%s","hook":"%s","event":"hooks.change","actor":"install","old_md5":"%s","new_md5":"%s"}\n' \
+                    "$(date +%FT%T)" "$g" "$old_md5" "$new_md5" \
+                    >> "$TARGET/.git/devflow-trace.jsonl" 2>/dev/null || true
+                echo "  [hooks.change] $g: ${old_md5:0:8} → ${new_md5:0:8}"
+            fi
+        done
+        chmod_x_nonsymlink "$TARGET/.git/hooks/pre-commit" "$TARGET/.git/hooks/pre-push"
+    fi
+
     # RULES.md 测试质量规则（标记区间，--update 时同步；先删旧区间再追加，保证幂等）
     if [ -f "$TARGET/RULES.md" ]; then
         rules_section="$SOURCE/templates/RULES.md.test-quality"
@@ -1290,11 +1309,21 @@ echo ""
 # 9. git hooks
 # ═══════════════════════════════════
 echo "── 步骤 9: 部署 git hooks ──"
-HOOKS_DIR="$TARGET/.git/hooks"
-dry_run "mkdir -p $HOOKS_DIR"
-maybe_cp "$SOURCE/templates/pre-commit" "$HOOKS_DIR/pre-commit"
-maybe_cp "$SOURCE/templates/pre-push" "$HOOKS_DIR/pre-push"
-[ "$DRY_RUN" = false ] && chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push" 2>/dev/null || true
+if [ -d "$TARGET/.git" ]; then
+    HOOKS_DIR="$TARGET/.git/hooks"
+    dry_run "mkdir -p $HOOKS_DIR"
+    maybe_cp "$SOURCE/templates/pre-commit" "$HOOKS_DIR/pre-commit"
+    maybe_cp "$SOURCE/templates/pre-push" "$HOOKS_DIR/pre-push"
+    [ "$DRY_RUN" = false ] && chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push" 2>/dev/null || true
+    # 遮蔽检测（P1）：全局 core.hooksPath 会整体接管，仓级钩子仅经全局串联链生效（DEFECT-008 家族）
+    GH=$(git config --global core.hooksPath 2>/dev/null || true)
+    if [ -n "$GH" ] && [ "${GH%.git/hooks}" = "$GH" ]; then
+        echo "  ⚠️  全局 core.hooksPath=$GH 已接管钩子执行——仓级 pre-push 仅当该目录存在串联脚本才生效"
+        echo "     （平台 templates/global-git-hooks/pre-push 有源档；未串联则直推防线不覆盖本仓）"
+    fi
+else
+    echo "  ⚠️  $TARGET 非 git 主 checkout（无 .git 目录），跳过 git hooks 部署——worktree 目标属正常语义"
+fi
 echo ""
 
 # ═══════════════════════════════════

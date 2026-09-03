@@ -3,6 +3,7 @@
 # 由 systemd timer 每 15 分钟触发。检测卡住/孤儿 issue。
 # 用法: bash reconciler.sh <项目路径>
 # 隔离策略: git worktree add origin/main --detach（替代旧版 stash 模式）
+unset OWNER_SESSION  # v3.6 身份封漏：AFK 进程不得继承 owner 凭证（详见 dispatch.sh 注释）
 set -euo pipefail
 
 WORKSPACE="${1:-$(pwd)}"

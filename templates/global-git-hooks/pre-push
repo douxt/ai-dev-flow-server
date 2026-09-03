@@ -1,0 +1,14 @@
+#!/bin/bash
+# ~/.git-hooks/pre-push — 全局串联器（v3.6，源档留本平台，部署=cp 到 ~/.git-hooks/）
+# 存在理由：全局 core.hooksPath 整体接管后，仓级 .git/hooks/pre-push 永不执行（pre-commit
+# 已有同款串联，pre-push 缺失致直推防线在所有租户仓从未生效——DEFECT-008 家族，2026-09-03 实锤）。
+# 路径用 git-common-dir：linked worktree 的 .git 是文件，相对路径在 worktree 内不可达。
+GD=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+if [ -n "$GD" ] && [ -f "$GD/hooks/pre-push" ]; then
+    SELF=$(readlink -f "$0")
+    HOOK=$(readlink -f "$GD/hooks/pre-push" 2>/dev/null || true)
+    if [ -n "$HOOK" ] && [ "$SELF" != "$HOOK" ]; then
+        exec "$HOOK" "$@"
+    fi
+fi
+exit 0
