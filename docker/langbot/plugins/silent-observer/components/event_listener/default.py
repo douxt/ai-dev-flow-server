@@ -163,7 +163,9 @@ class DefaultEventListener(EventListener):
         # === 反思层初始化 ===
         ref_enabled = bool(config.get('reflection_enabled', False)) or os.environ.get('SILENT_REFLECTION_ENABLED', '0') == '1'
         ref_model_uuid = str(config.get('reflection_model_uuid', '') or os.environ.get('SILENT_REFLECTION_MODEL_UUID', ''))
-        ref_daily_cap = int(os.environ.get('SILENT_REFLECTION_DAILY_LIMIT', '0') or config.get('reflection_daily_limit', 0) or 10)
+        # ⚠️ env 默认值必须用 ''——'0' 是 truthy 会截断 or 链（首版踩坑：cap 恒 0→1）
+        ref_daily_cap = int(os.environ.get('SILENT_REFLECTION_DAILY_LIMIT', '')
+                            or config.get('reflection_daily_limit', 0) or 10)
         self.reflection_enabled = ref_enabled and bool(ref_model_uuid) and bool(emb_uuid)
         if self.reflection_enabled:
             self.reflection_store = ReflectionStore(self.plugin, emb_uuid)
