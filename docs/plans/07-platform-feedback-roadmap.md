@@ -2,7 +2,7 @@
 
 > 全局长期方案——平台级租户反馈的唯一持久归口，不被任务级计划覆盖。
 > 配套：测试质量路线图 [06-testing-quality-roadmap.md](06-testing-quality-roadmap.md)（测试门禁专属，本文件管平台其余反馈）。
-> 上次更新：2026-08-28
+> 上次更新：2026-09-03
 
 ## 文档定位
 
@@ -25,11 +25,14 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-003 | v3.5 回归对照 | **基线既有测试失败**：base 1c150a6 上 ubuntu 39 挂 / alpine 34 挂（migrate 系 13、rollback 系 6、hook 链 4、install mode/--home/--no-config 系 7、stage-tickets 系 8、escape/CLAUDE.md 路由表 2、verify 1）——非 v3.4/v3.5 引入，疑与同期 stage-tracker/install 改动或环境依赖有关 | ⏳ 待排（修前以 detached worktree 基线对照为准，参照记忆 bats-baseline-detached-worktree） |
 | DEFECT-004 | T3 传播暴露 | install.sh update 段 `chmod +x "$CLAUDE_HOME/.claude/hooks"/*.sh` 对 symlink **穿透改目标文件 mode**——claude-config 纳管环境下 4 个 644 hook 源文件被 +x（git mode 污染，已宿主手动还原）。修法：`[ -L ] || chmod +x` 或 find `! -type l`；同段 skills 轮换对同名 skill 的 mv 覆盖同理需 symlink 检查 | 🔄 chmod 三处已修（v3.5 merge-dedup 分支）；**skills mv/cp 穿透检查遗留待排** |
 | DEFECT-005 | cut-optimizer 接入 | `--tech-stack python` 只写 config `language:` 不写 `tags:` → fresh 段 stacks 知识**静默不部署**（install.sh L821；L1084 读 tags 为空即跳）——需二次 --update 才补上。修法：模板写 `tags: ${TECH_STACK}` 或参数化多 tags | ⏳ 待排 |
-| DEFECT-006 | cut-optimizer 接入 | 仓级 `.git/hooks/pre-commit`（"Agent B 禁改受保护文件"）**无 owner/人类通道**——install 产物本身（.devflow/**）首次提交即被拦，只能 `--no-verify`。修法：hook 识别 `DEVFLOW_OWNER=1` 类 env 或按 config.yaml role 放行；另 `.devflow/knowledge/*.bak` 出现在拦截清单（模板自带 bak 被跟踪，顺带清理） | ⏳ 待排 |
+| DEFECT-006 | cut-optimizer 接入 | 仓级钩子无 owner 通道 + `.devflow/knowledge/*.bak` 混进拦截清单 | 🔄 前半已修（v3.6 角色门，含双评审实锤的 HEAD:master 绕过洞与 zero-SHA 误放新建洞）；**bak 拦截清单半项拆 DEFECT-013** |
 | DEFECT-007 | cut-optimizer 接入 | `check_constitution.py --batch issues/` 误扫安装产物 `test-plan-template.md`（3 ❌ 全来自模板非真票）——batch 模式应排除 `TEMPLATE.md`/`*-template.md`，或 install 不落地到 issues/ | ⏳ 待排 |
 | FEEDBACK-005 | cut-optimizer | python 栈缺 greenfield/FastAPI 服务类知识（现仅 legacy-characterization，与新仓 TDD 场景错配）；项目级纪律暂由 `.claude/gate-checklists/cutting-stock-discipline.md` 承载 | ⏳ M2 反哺素材（含空仓过门禁 V2 观察：G2.4 ruff WARN 属预期，全链无崩溃） |
 | DEFECT-008 | cut-optimizer 会话（用户纠正） | 平台退役技能无清理通道：v3.0 退役 gate-* 但 `~/.claude/workflows/wf-gate-*.js`（meta.name 被会话注册进 available skills 列表，与真技能无异）+ 6 件套旧 skills 永驻租户环境——模型据此引用已退役 `/gate-2-prd` 误导用户 | ✅ 本机已清残备份（skill-backups/）+ `RETIRED.txt`/`prune_retired()` 通道 + 4 bats；**边界**：项目级 .claude/skills 残留（UMES3 WSL 树 3 链 + Win 树 6 链及 .agents 实体）通道不覆盖，须 UMES3 会话按其流程清，项目级扫描留通道 M1 迭代 |
-| DEFECT-009 | 本次清理中发现 | T1 复活的 file-guard 自保护分支含 `chmod a-w` 冻结受害文件——真实拦截 settings.json 后把它冻成 444，妨碍 owner 合法维护（本次 python 编辑 PermissionError 实锤）。冻结对** routinely 编辑的配置文件**是误伤设计。修法：保护分支只拦截不 chmod，或 chmod 后在拦截消息中告知解冻命令 | ⏳ 待排（claude-config 与 config-templates 双侧同改） |
+| DEFECT-009 | 本次清理中发现 | T1 复活的 file-guard 自保护分支含 `chmod a-w` 冻结受害文件——真实拦截 settings.json 后把它冻成 444，妨碍 owner 合法维护（本次 python 编辑 PermissionError 实锤）。冻结对** routinely 编辑的配置文件**是误伤设计。修法：保护分支只拦截不 chmod，或 chmod 后在拦截消息中告知解冻命令 | ⏳ 待排（**勘误：仅 claude-config 单侧**——模板版 file-guard 无 chmod 分支且 deploy_file 遇 symlink skip，评审核实） |
+| DEFECT-010 | 反馈五·补（cut-optimizer 拆票实证） | check_constitution.py 三缺陷：①规则 10 `scan_ac_levels` 主路径返回 (level,ac) 元组列表而判定比字符串——`[auto]` 正确标注必误报 warning（我方 seed 时 1 warn 即此，互证）；②规则 16 检测端只认 `来源:`，模板/惯例书写 `来源=`，模板过不了自身机检（改 `[:：=]` 三态）；③规则 8 "hash" 一词误命中 crypto 域（词表加边界） | ⏳ 待排（三处小修可并一 commit+bats） |
+| DEFECT-011 | v3.6 评审 | cut-optimizer 13:14:18 repo 级 hooksPath 写入者未定位（与 auto-worktree 时间戳吻合属嫌疑）；盲区=`git config` 类命令不落 file-audit。SessionStart 防线漂移检测为候选方案 | ⏳ 观察项待排 |
+| DEFECT-012 | v3.6 评审 | 全局 `~/.git-hooks/` 不在任何 git 纳管（pre-commit/post-commit 散养无版本）；新 pre-push 已有平台源档 templates/global-git-hooks/（sha256 留档），余两文件纳管 claude-config 需另行授权 | ⏳ 待排 |
 
 ## 已处理反馈
 
@@ -76,6 +79,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 
 | 日期 | 版本 | 内容 |
 |------|------|------|
+| 2026-09-03 | v1.3 | v3.6 钩子角色门+全局串联落地；DEFECT-006 拆分（010 归 check_constitution 三缺陷）、新登 011/012 |
 | 2026-08-28 | v1.2 | M0 落地（stacks 元数据+G2.5）+ DEFECT-002 修复（bats HOME 沙箱，含 test_plan_backup.bats 扩展） |
 | 2026-08-27 | v1.1 | UMES3 缺陷报告 4 项归口处理（三门禁/file-guard/.bak/文档）；新入 DEFECT-001（grep -oP 跨平台）、DEFECT-002（旧测试删真实 bypass）、漏洞扫描遗留 |
 | 2026-08-21 | v1.0 | 初始版本——4 张 go-vue 反馈归口：001/003 完成标记，002 调研分层（M0/M1/M2），004 待审 |

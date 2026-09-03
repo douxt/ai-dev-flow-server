@@ -465,3 +465,23 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 ### 修复（测试基建，DEFECT-002 扩展）
 - workflow-gate.bats / test_plan_backup.bats **HOME 沙箱化**：前者 teardown/touch 原会删改真实 `~/.claude/.emergency-bypass`，后者 setup 的 `rm -rf "$HOME/.claude/plans/.git-backup"` 在宿主直跑 bats 调试时属破坏性删除——现全部落 mktemp 沙箱
 - stacks-freshness.bats（6 用例双镜像）；其 inject 用例逮修 `inject_stacks_reviewed_at` 在 set -e 下末文件 grep 不中返回 1 崩溃 install 的缺陷
+
+## v3.6 钩子角色门（2026-09-03）
+
+> 回应 cut-optimizer 反馈《钩子体系反馈:角色门禁错位与静默收紧》（outbox/agent-b/feedback-hooks-role-gating-20260903.md，四问题核实属实）；双评审沙箱又实锤 4 洞，全部纳入。
+
+### 变更（templates/pre-push、pre-commit 重写）
+- **判定基座换 stdin dst_ref**：v2 用本地 HEAD 判定，`git push origin HEAD:master` 从任意 ai/* 分支可绕过（实锤）；zero-SHA 放行不分字段，一切新建分支 push 被当删除放行（实锤）。现按每行 `<src_ref> <src_oid> <dst_ref> <dst_oid>` 判定，删除=src 全零才豁免，保护目标=dst∈refs/heads/{master,main} 一律过角色门
+- **owner 双因子**：`role=owner`（.devflow/config.yaml，人设）+ `OWNER_SESSION=1`（会话显式）才放行直推/受保护提交；软凭证模型（与 BYPASS_WT_CHECK 同信任层），每决策留痕，dispatch/reconciler 头部 `unset OWNER_SESSION` 封手跑泄漏
+- **留痕落位** `$(git rev-parse --git-common-dir)/devflow-trace.jsonl`（gitdir 内：不被跟踪、全 worktree 汇聚；`.devflow/trace.jsonl` 属 gate 体系另议）；文案去"Agent B"冠名改报 policy+出路
+- **update 分支补 git hooks 刷新链**（此前只 fresh 部署、--update 永不刷新=第三处 sync-gap；deploy_file 备份+`hooks.change` 事件 旧→新 md5）+ `[ -d .git ]` worktree 守卫
+- **全局串联** `~/.git-hooks/pre-push`（源档 `templates/global-git-hooks/pre-push`，sha256 见回执）——根治架构事实：**全局 core.hooksPath 接管下仓级 pre-push 在所有租户仓从未生效**（pre-commit 因全局有串联链而活）；串联用 git-common-dir 路径，linked worktree 不再真空
+- 遮蔽检测：install 报告提示全局 hooksPath 接管状态
+
+### 传播纪律（收紧时序原子化）
+- 顺序锁死：main 合并 → 扫描替换存量旧钩子（go-vue 已换，`.pre-v36.bak` 留存）→ 建全局链。跳步=旧版无 owner 通道钩子经链上岗误伤 owner
+- UMES3 预告：其 local hooksPath 指向近乎空的 .git/hooks（现零 git 防线），全量传播将"从零跳满防线"，首次受影响 commit 可能突拦
+- 存量租户吃新钩子须 --update；live 自证：cut-optimizer 回执推送即 owner-bypass（trace 可查）
+
+### 测试
+- `tests/unit/test_git_hooks_role.bats` 8 用例双镜像（含绕过反例、删除/新建语义、worktree 串联、update 刷新链、引号 role、pre-commit 双路径）；夹具自测中自家角色门拦截自家受保护提交=活体生效旁证
