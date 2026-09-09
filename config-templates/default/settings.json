@@ -16,7 +16,18 @@
       "Read(__WORKSPACE__/**)"
     ],
     "deny": [
-      "Bash(rm -rf *)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~*)",
+      "Bash(rm -rf $HOME*)",
+      "Bash(rm -rf /usr*)",
+      "Bash(rm -rf /etc*)",
+      "Bash(rm -rf /var*)",
+      "Bash(rm -rf /bin*)",
+      "Bash(rm -rf /sbin*)",
+      "Bash(rm -rf /lib*)",
+      "Bash(rm -rf /boot*)",
+      "Bash(rm -rf /opt*)",
+      "Bash(rm -rf /root*)",
       "Read(__WORKSPACE__/**/.env*)",
       "Read(**/__pycache__/**)",
       "Read(~/.ssh/**)"
