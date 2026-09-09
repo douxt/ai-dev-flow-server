@@ -161,18 +161,19 @@ teardown() {
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 2 ]  # PreToolUse 阻断语义 exit 2
     [[ "$output" =~ workflow-gate ]]
-    [ -f "$TEST_PROJECT/.workflow-route" ]
+    # P1-1 起 route 为全局单文件（HOME 已在 setup 沙箱）
+    [ -f "$HOME/.claude/mem-state/workflow-route" ]
 }
 
-@test "workflow-gate: route 存在 → 第二次放行" {
+@test "workflow-gate: route 新鲜（TTL 内）→ 第二次放行" {
     bash "$REPO_ROOT/install.sh" "$TEST_PROJECT" --mode full
     HOOK="$HOME/.claude/hooks/workflow-gate.sh"
 
     export WORKSPACE="$TEST_PROJECT"
     export CC_SESSION_ID="routing-test-001"
-    mkdir -p "$TEST_PROJECT/.devflow"
+    mkdir -p "$TEST_PROJECT/.devflow" "$HOME/.claude/mem-state"
 
-    echo "routing-test-001|assessed|1700000000" > "$TEST_PROJECT/.workflow-route"
+    echo "routing-test-001|assessed|$(date +%s)" > "$HOME/.claude/mem-state/workflow-route"
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 0 ]
 }
