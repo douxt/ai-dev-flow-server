@@ -4,10 +4,16 @@
 #
 # 逻辑：
 # 1. 逃生文件 ~/.claude/.emergency-bypass 存在 → 全部放行
-# 2. .workflow-route 存在且 session_id 匹配 → 放行
-# 3. .workflow-route 不存在 → 拦截一次，注入路由规则，写入 route 文件
+# 2. 全局 route（~/.claude/mem-state/workflow-route）mtime 在 TTL 内 → 放行
+# 3. route 缺失/过期 → 拦截一次，注入路由规则，写入 route 文件
 #    （信任 agent 看到注入规则后会做评估；第二次调用放行）
-# 4. session 不匹配的 route → 清理后重新评估
+#
+# route 状态键演进（2026-09-09 UMES3 反馈 P1-1）：
+#   旧 $WORKSPACE/.workflow-route + session_id 严格比对 → 会话跨目录（多根/worktree/
+#   写 ~/.claude/plans）时每个 WORKSPACE 各一份 route，同会话连拦 4 次；压缩/子代理
+#   换 sid 又反复拦（session_expired 噪音，f230245 已改 TTL）。现收为全局单文件+TTL：
+#   与目录、session_id 双解耦。已接受的取舍：同 TTL 窗口内跨 .devflow 项目不再重新拦。
+#   旧各工作区的 .workflow-route 为孤儿文件，不再读取。
 
 set -euo pipefail
 
@@ -26,7 +32,8 @@ else
     WS_CWD=$(printf '%s' "$_STDIN" | jq -r '.cwd // empty')
 fi
 WORKSPACE="${WORKSPACE:-${WS_CWD:-$(pwd)}}"
-ROUTE_FILE="$WORKSPACE/.workflow-route"
+# 全局单文件：评估状态与 WORKSPACE/session_id 解耦（命名沿袭 mem-state 会话态文件惯例）
+ROUTE_FILE="$HOME/.claude/mem-state/workflow-route"
 BYPASS_FILE="$HOME/.claude/.emergency-bypass"
 TRACE_SCRIPT="$WORKSPACE/.devflow/scripts/trace.sh"
 
@@ -61,8 +68,8 @@ case "$TOOL_NAME" in
         ;;
 esac
 
-# ── 目标文件是 .workflow-route 自身 → 放行（避免死锁） ──
-if [ -n "$target_file" ] && echo "$target_file" | grep -q ".workflow-route"; then
+# ── 目标文件是 route（新旧路径形态）自身 → 放行（避免死锁） ──
+if [ -n "$target_file" ] && echo "$target_file" | grep -q "workflow-route"; then
     exit 0
 fi
 
@@ -72,21 +79,24 @@ fi
 # ── 当前 session_id（stdin JSON 提取，见文件头） ──
 session_id="${SESSION_ID:-unknown}"
 
-# ── .workflow-route 存在且 session_id 匹配 → 放行 ──
+# ── route 存在且在新鲜期内 → 放行 ──
+# 评估是"一次会话任务"级别的，与具体 session id / 工作目录均无关；
+# TTL（f230245）解 session churn，全局路径（P1-1）解跨目录重复拦。
 if [ -f "$ROUTE_FILE" ]; then
-    route_content=$(cat "$ROUTE_FILE" 2>/dev/null || echo "")
-    route_session=$(echo "$route_content" | cut -d'|' -f1)
-    if [ "$route_session" = "$session_id" ]; then
-        trace "gate.pass" reason="route_exists" session_id="$session_id"
+    route_ts=$(echo "$ROUTE_FILE" | xargs stat -c %Y 2>/dev/null || echo 0)
+    now_ts=$(date +%s)
+    ROUTE_TTL="${WORKFLOW_GATE_TTL:-14400}"   # 默认 4 小时
+    if [ "$route_ts" -gt 0 ] && [ $((now_ts - route_ts)) -lt "$ROUTE_TTL" ]; then
+        trace "gate.pass" reason="route_fresh" session_id="$session_id"
         exit 0
     fi
-    # session 不匹配 → 清理过期 route，继续拦截
-    trace "gate.block" reason="session_expired" old_session="$route_session" current_session="$session_id"
+    trace "gate.block" reason="route_stale" age=$((now_ts - route_ts))
     rm -f "$ROUTE_FILE"
 fi
 
 # ── 首次拦截：注入路由规则 → 写入 route 文件（信任 agent 会做评估）→ 退出 ──
 trace "gate.block" reason="first_edit" tool="$TOOL_NAME" session_id="$session_id"
+mkdir -p "$(dirname "$ROUTE_FILE")" 2>/dev/null || true
 echo "${session_id}|pending|$(date +%s)" > "$ROUTE_FILE"
 
 cat >&2 <<'EOF'

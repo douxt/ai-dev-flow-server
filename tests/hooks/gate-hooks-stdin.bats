@@ -29,14 +29,23 @@ json_edit() {
 }
 
 # ── workflow-gate ──
+# P1-1 起 route 为全局文件（$HOME/.claude/mem-state/workflow-route）——本节用例
+# 必须沙箱 HOME，否则首拦用例在真实 mem-state 留下新鲜 route，后续运行假放行。
+
+sandbox_home() {
+    export HOME="$TEST_DIR/home"
+    mkdir -p "$HOME/.claude"
+}
 
 @test "workflow-gate: stdin 首次 Edit 无 route → exit 2 拦截" {
+    sandbox_home
     mkdir -p .devflow   # 修复版前置：仅在有 .devflow/ 的工作区生效
     call_hook workflow-gate.sh "$(json_edit "$TEST_DIR/src/a.ts")"
     [ "$RC" -eq 2 ]
 }
 
 @test "workflow-gate: stdin 同 session 第二次 → 放行" {
+    sandbox_home
     mkdir -p .devflow
     call_hook workflow-gate.sh "$(json_edit "$TEST_DIR/src/a.ts")"
     call_hook workflow-gate.sh "$(json_edit "$TEST_DIR/src/b.ts")"
@@ -44,8 +53,24 @@ json_edit() {
 }
 
 @test "workflow-gate: stdin 非 Edit/Write 工具 → 放行" {
+    sandbox_home
     call_hook workflow-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"},\"session_id\":\"$SID\",\"cwd\":\"$TEST_DIR\"}"
     [ "$RC" -eq 0 ]
+}
+
+@test "workflow-gate: 同 session 跨两个 .devflow 目录只拦一次（P1-1 核心回归）" {
+    sandbox_home
+    unset WORKSPACE   # 走 JSON .cwd 解析——route 已全局化，WORKSPACE 不再决定状态位置
+    mkdir -p wsA/.devflow wsB/.devflow
+    local jA jB
+    jA=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s/wsA/src/a.ts"},"session_id":"%s","cwd":"%s/wsA"}' "$TEST_DIR" "$SID" "$TEST_DIR")
+    jB=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s/wsB/src/b.ts"},"session_id":"%s","cwd":"%s/wsB"}' "$TEST_DIR" "$SID" "$TEST_DIR")
+    call_hook workflow-gate.sh "$jA"
+    [ "$RC" -eq 2 ]
+    call_hook workflow-gate.sh "$jB"
+    [ "$RC" -eq 0 ]
+    # 旧 workspace 级 route 不再产生
+    [ ! -e "$TEST_DIR/wsA/.workflow-route" ]
 }
 
 # ── stage-gate-block ──

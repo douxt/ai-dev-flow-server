@@ -22,12 +22,13 @@ teardown() {
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 2 ] # 修复：PreToolUse 阻断语义 exit 2（旧断言 1 = 无效拦截）
     [[ "$output" =~ workflow-gate ]]
-    # 确认 route 文件已被写入（用于下次放行）
-    [ -f "$TEST_DIR/.workflow-route" ]
+    # 确认全局 route 已写入（用于下次放行；P1-1 起与 WORKSPACE 解耦）
+    [ -f "$HOME/.claude/mem-state/workflow-route" ]
 }
 
-@test "route 存在且 session 匹配 → 放行" {
-    echo "test-session-001|assessed|1700000000" > "$TEST_DIR/.workflow-route"
+@test "route 新鲜（TTL 内）→ 放行，与 session_id 无关" {
+    mkdir -p "$HOME/.claude/mem-state"
+    echo "other-session-999|assessed|$(date +%s)" > "$HOME/.claude/mem-state/workflow-route"
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 0 ]
 }
@@ -37,14 +38,15 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "session 不匹配 → 拦截并清理过期 route" {
-    echo "old-session-999|assessed|1700000000" > "$TEST_DIR/.workflow-route"
+@test "route 超 TTL → 重新拦截并刷新" {
+    mkdir -p "$HOME/.claude/mem-state"
+    echo "test-session-001|assessed|1700000000" > "$HOME/.claude/mem-state/workflow-route"
+    touch -d '5 hours ago' "$HOME/.claude/mem-state/workflow-route"
     run bash "$HOOK" "Write" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 2 ]
-    # 过期 route 已被清理，新 route 已写入当前 session
-    [ -f "$TEST_DIR/.workflow-route" ]
-    ! grep -q "old-session-999" "$TEST_DIR/.workflow-route"
-    grep -q "test-session-001" "$TEST_DIR/.workflow-route"
+    # 过期 route 被拦截路径重写为当前 session（mtime 刷新）
+    grep -q "test-session-001" "$HOME/.claude/mem-state/workflow-route"
+    ! grep -q "assessed" "$HOME/.claude/mem-state/workflow-route"
 }
 
 @test "逃生文件存在 → 全部放行" {
@@ -57,7 +59,7 @@ teardown() {
 @test "非 Edit/Write/Bash 修改类 → 不检查" {
     run bash "$HOOK" "Read" '{"file_path":"/tmp/test.txt"}'
     [ "$status" -eq 0 ]
-    [ ! -f "$TEST_DIR/.workflow-route" ]
+    [ ! -f "$HOME/.claude/mem-state/workflow-route" ]
 }
 
 @test "Bash 无写入重定向 → 不拦截" {

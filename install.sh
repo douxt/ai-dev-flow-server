@@ -179,11 +179,16 @@ selftest_hooks() {
         fi
     }
     # workflow-gate：首次编辑无 route 文件 → 应拦（exit 2）。全局逃生门存在则必然放行，SKIP 防误报
+    # HOME 沙箱必套——route 已全局化（~/.claude/mem-state/workflow-route），打真实 HOME 会污染
+    # 且在第二次自检时因 route 新鲜而假失败
     if [ -f "$HOME/.claude/.emergency-bypass" ]; then
         echo "  ⚠️  .emergency-bypass 存在，workflow-gate 自检跳过"
         st_skip=$((st_skip+1))
     else
-        _st workflow-gate.sh 2 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+        local wg_home
+        wg_home=$(mktemp -d); mkdir -p "$wg_home/.claude"
+        _ST_HOME="$wg_home" _st workflow-gate.sh 2 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+        rm -rf "$wg_home"
     fi
     # stage-gate-block：自检目录无 .devflow/stage → 放行（exit 0）
     _st stage-gate-block.sh 0 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
