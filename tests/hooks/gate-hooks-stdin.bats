@@ -89,6 +89,34 @@ json_edit() {
     [ "$RC" -eq 0 ]
 }
 
+# ── stage-gate-block：多行 stage 存量（2026-09-09 UMES3 反馈 P0-1/P2-2）──
+
+@test "stage-gate: 多行 stage 末行 implement:done + 写实现 → 放行（修复前永久误拦）" {
+    mkdir -p .devflow
+    printf 'explore:done\ngrill:done\nspec:done\ntickets:done\ntdd:done\nimplement:done\n' > .devflow/stage
+    call_hook stage-gate-block.sh "$(json_edit "$TEST_DIR/src/a.ts")"
+    [ "$RC" -eq 0 ]
+}
+
+@test "stage-gate: 多行 stage 末行 spec:done + 写实现 → exit 2 且报错为单行值+损坏提示" {
+    mkdir -p .devflow
+    printf 'explore:done\nspec:done\n' > .devflow/stage
+    ERR=""
+    RC=0
+    ERR=$(printf '%s' "$(json_edit "$TEST_DIR/src/a.ts")" | bash "$HOOKS/stage-gate-block.sh" 2>&1 >/dev/null) || RC=$?
+    [ "$RC" -eq 2 ]
+    echo "$ERR" | grep -q '当前阶段: spec:done'
+    ! echo "$ERR" | grep -q '当前阶段: explore:done'
+    echo "$ERR" | grep -q '疑似多行损坏'
+}
+
+@test "stage-gate: stage 尾随空行 → 按末个非空行判定不退化" {
+    mkdir -p .devflow
+    printf 'spec:done\n\n\n' > .devflow/stage
+    call_hook stage-gate-block.sh "$(json_edit "$TEST_DIR/src/a.ts")"
+    [ "$RC" -eq 2 ]
+}
+
 # ── test-gate-block ──
 
 json_bash() {

@@ -79,7 +79,15 @@ is_source_file() {
 }
 
 # ── 读取当前阶段 ──
-current_stage=$(cat "$STAGE_FILE" 2>/dev/null || echo "")
+# 兼容历史多行 stage 文件（旧 tracker 追加写遗留，2026-09-09 UMES3 反馈 P0-1）：
+# 取末个非空行而非整个文件——整读使 L91 token 比对永不命中、误入 pre-tdd 阻断；
+# 不用裸 tail -n1——尾部空行会取到空串，判定以另一种姿势退化
+current_stage=$( { grep -v '^[[:space:]]*$' "$STAGE_FILE" 2>/dev/null || true; } | tail -n1 )
+stage_lines=$( { grep -c '[^[:space:]]' "$STAGE_FILE" 2>/dev/null || true; } )
+stage_lines=${stage_lines:-0}
+if [ "$stage_lines" -gt 1 ]; then
+    echo "⚠️ stage-gate-block: .devflow/stage 疑似多行损坏（${stage_lines} 行）——已按末行判定，请收敛为单行" >&2
+fi
 
 # ── 阶段顺序 ──
 stage_order="explore:done spec:done tickets:done tickets:reviewed tdd:done implement:done done"
