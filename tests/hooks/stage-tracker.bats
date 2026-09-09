@@ -95,7 +95,7 @@ teardown() {
     [[ "$output" =~ "tickets:done" ]]
     [[ "$output" =~ "/tdd" ]]
     [[ "$output" =~ "RED" ]]
-    [[ "$output" =~ "GREEN" ]]
+    [[ "$output" =~ "test-gate.sh" ]]
 }
 
 @test "TDD: RED commit → 检测到 tdd:done" {
@@ -129,7 +129,7 @@ teardown() {
     [[ "$output" =~ "tdd:done" ]]
     [[ "$output" =~ "tdd-readiness" ]]
     [[ "$output" =~ "test-checklist" ]]
-    [[ "$output" =~ "C1-C4" ]]
+    [[ "$output" =~ "C1-C5" ]]
 }
 
 # ═══════════════════════════════════════

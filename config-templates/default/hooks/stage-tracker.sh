@@ -5,9 +5,23 @@
 
 set -euo pipefail
 
-TOOL_NAME="$1"
-TOOL_INPUT="$2"
-WORKSPACE="${WORKSPACE:-$(pwd)}"
+# Claude Code hook 协议：JSON 走 stdin。2026-09-09 UMES3 反馈 P0-2——本脚本曾以
+# 位置参数取参而注册是无参 stdin 调用，set -u 下每次 "$1: unbound variable" exit 1，
+# stage 从未写入（2026-08-27 gate-hooks-stdin.bats 同族缺陷的漏改项）。
+# 位置参数 $1/$2 仅保留给手动测试。
+if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+    TOOL_NAME="$1"
+    TOOL_INPUT="${2:-}"
+    WS_CWD=""
+else
+    _STDIN=$(cat)
+    command -v jq >/dev/null 2>&1 || exit 0   # jq 缺失 → 降级放行，不锁死会话
+    TOOL_NAME=$(printf '%s' "$_STDIN" | jq -r '.tool_name // empty')
+    TOOL_INPUT=$(printf '%s' "$_STDIN" | jq -r '(.tool_input // {}) | tostring')
+    WS_CWD=$(printf '%s' "$_STDIN" | jq -r '.cwd // empty')
+fi
+# .cwd 兜底：钩子进程 PWD 是 CC 启动目录，跨 worktree/多根时会判错仓库
+WORKSPACE="${WORKSPACE:-${WS_CWD:-$(pwd)}}"
 STAGE_FILE="$WORKSPACE/.devflow/stage"
 TRACE_SCRIPT="$WORKSPACE/.devflow/scripts/trace.sh"
 
@@ -50,9 +64,15 @@ fi
 # 无检测到任何阶段更新 → 跳过
 [ -z "$detected_stage" ] && exit 0
 
-# 读取上次记录
+# 读取上次记录——取末个非空行（历史多行存量防御，与 stage-gate-block 同契约）
 previous_stage=""
-[ -f "$STAGE_FILE" ] && previous_stage=$(cat "$STAGE_FILE" 2>/dev/null || echo "")
+if [ -f "$STAGE_FILE" ]; then
+    previous_stage=$( { grep -v '^[[:space:]]*$' "$STAGE_FILE" 2>/dev/null || true; } | tail -n1 )
+    stage_lines=$( { grep -c '[^[:space:]]' "$STAGE_FILE" 2>/dev/null || true; } )
+    if [ "${stage_lines:-0}" -gt 1 ]; then
+        echo "[stage-tracker] ⚠️ .devflow/stage 疑似多行损坏（${stage_lines} 行）——按末行读取，下次阶段推进时覆盖写收敛，建议手动清为单行" >&2
+    fi
+fi
 
 # 无变化 → 跳过
 [ "$detected_stage" = "$previous_stage" ] && exit 0
@@ -71,6 +91,7 @@ done
 
 # ── 5.9: 过渡门禁验证——硬阻断 stage 写入 ──
 VERIFY_SCRIPT="$WORKSPACE/.devflow/scripts/stage-verify.sh"
+BLOCK_FILE="$WORKSPACE/.devflow/.verify-blocks"
 if [ -f "$VERIFY_SCRIPT" ]; then
     # 构建待验证阶段列表（含被跳过的中间阶段）
     stages_to_verify=""
@@ -82,7 +103,6 @@ if [ -f "$VERIFY_SCRIPT" ]; then
     done
     if ! bash "$VERIFY_SCRIPT" $stages_to_verify 2>&1; then
         # 死循环检测
-        BLOCK_FILE="$WORKSPACE/.devflow/.verify-blocks"
         block_count=0
         [ -f "$BLOCK_FILE" ] && block_count=$(grep "^$detected_stage:" "$BLOCK_FILE" 2>/dev/null | cut -d: -f2 || echo "0")
         block_count=$((block_count + 1))
@@ -106,8 +126,10 @@ else
     echo "[stage-tracker] ⚠️ stage-verify.sh 未部署——本次推进跳过验证（advisory）" >&2
 fi
 
-# 写入新阶段
-echo "$detected_stage" > "$STAGE_FILE"
+# 写入新阶段——tmp+mv 原子写，消除与 stage-gate-block 读取方的半写竞态
+tmp_stage="$STAGE_FILE.tmp.$$"
+echo "$detected_stage" > "$tmp_stage"
+mv -f "$tmp_stage" "$STAGE_FILE"
 trace "stage.transition" from="$previous_stage" to="$detected_stage"
 
 # ── 阶段进入提醒（advisory，不拦截）──

@@ -189,6 +189,8 @@ selftest_hooks() {
     _st stage-gate-block.sh 0 "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
     # test-gate-block：非 RED commit 命令 → 放行（exit 0）
     _st test-gate-block.sh 0 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m plain\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # stage-tracker（PostToolUse）：无产物沙箱 → exit 0。死协议版（$1 unbound）此断言必红——2026-09-09 P0-2 防再潜伏
+    _st stage-tracker.sh 0 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
     # file-guard：安全配置自保护路径 → 拦截（exit 2，死代码复活的核心验证）
     # 断言路径在沙箱 HOME 构造——修复版 file-guard 拦截时会 chmod a-w + 写审计日志，不得打到真实 settings.json
     local fg_home

@@ -117,6 +117,47 @@ json_edit() {
     [ "$RC" -eq 2 ]
 }
 
+# ── stage-tracker：无参 stdin 协议（2026-09-09 反馈 P0-2——修复前每次 exit 1）──
+
+@test "stage-tracker: 无参 stdin + 有 spec.md → exit 0 且 stage 写为单行" {
+    unset WORKSPACE   # 走 JSON .cwd 解析路径
+    mkdir -p .devflow
+    echo "# spec content" > spec.md
+    call_hook stage-tracker.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TEST_DIR/spec.md\"},\"session_id\":\"$SID\",\"cwd\":\"$TEST_DIR\"}"
+    [ "$RC" -eq 0 ]
+    [ "$(wc -l < .devflow/stage)" -eq 1 ]
+    [ "$(cat .devflow/stage)" = "spec:done" ]
+}
+
+@test "stage-tracker: 无参 stdin + 无 .devflow → 放行不写" {
+    unset WORKSPACE
+    echo "# spec content" > spec.md
+    call_hook stage-tracker.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TEST_DIR/spec.md\"},\"session_id\":\"$SID\",\"cwd\":\"$TEST_DIR\"}"
+    [ "$RC" -eq 0 ]
+    [ ! -f .devflow/stage ]
+}
+
+@test "stage-tracker: 多行 previous + 新产物 → 收敛为单行" {
+    unset WORKSPACE
+    mkdir -p .devflow issues
+    printf 'explore:done\nspec:done\n' > .devflow/stage
+    echo "# spec" > spec.md
+    echo "# ticket" > issues/t1.md
+    call_hook stage-tracker.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TEST_DIR/issues/t1.md\"},\"session_id\":\"$SID\",\"cwd\":\"$TEST_DIR\"}"
+    [ "$RC" -eq 0 ]
+    [ "$(wc -l < .devflow/stage)" -eq 1 ]
+    [ "$(cat .devflow/stage)" = "tickets:done" ]
+}
+
+@test "stage-tracker: 原子写无 tmp 残留" {
+    unset WORKSPACE
+    mkdir -p .devflow
+    echo "# spec" > spec.md
+    call_hook stage-tracker.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TEST_DIR/spec.md\"},\"session_id\":\"$SID\",\"cwd\":\"$TEST_DIR\"}"
+    [ "$RC" -eq 0 ]
+    [ -z "$(ls .devflow/ | grep '\.tmp\.' || true)" ]
+}
+
 # ── test-gate-block ──
 
 json_bash() {
