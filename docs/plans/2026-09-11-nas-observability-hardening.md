@@ -131,3 +131,11 @@ NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里�
 ```bash
 ( crontab -l 2>/dev/null; echo '0 * * * * /home/dou/dev/ai-dev-flow-server/nas/watchdog.sh' ) | crontab -
 ```
+
+### T3 完成情况（2026-09-11）—— 实现方式调整
+
+原计划 cron 跑完整 8 场景套件；实测该套件会话争用（409）导致假失败、重试后超时，**改为最小金丝雀**：`nas/deep-canary.py`（napcat 在线 + `/sync code=0` + 回复非空，每次独立会话），由 `nas/deep-smoke.sh` 包装，NAS cron `17 */6 * * *`。
+
+- 验证：连续 2 次 `CANARY: OK`；失败路径实测写出 `ALERT deep-smoke-fail`
+- 完整套件修好会话争用后仍保留给"部署后人工验证"
+- 副产品观察：回复中偶见提示词片段（质量问题，另开工单）

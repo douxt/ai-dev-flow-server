@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """部署烟雾测试 — 8 场景，部署后自动验证核心功能。
 用法: docker cp 到 napcat 容器后执行 python3 /tmp/test_deploy_smoke.py
-      退出码 0=全部通过, 1=有失败"""
-import urllib.request, json, time, hmac, hashlib, sys
+      退出码 0=全部通过, 1=有失败
+
+2026-09-11 修复（T3）：原实现所有场景共用同一 session_id，LangBot 对占用中的
+会话返回 409，导致大面积"空回复"假失败（实测 6/18）。现改为：
+  1) 每个场景用独立 session（避免互相抢锁，也避免污染真实测试群会话状态）
+  2) 409/超时自动重试（间隔递增）
+"""
+import urllib.request, json, time, hmac, hashlib, sys, uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BOT_UUID = "dcbe70d9-af11-4624-908a-9928e4a08bdb"
@@ -14,22 +20,37 @@ NAPCAT = "http://localhost:3000"
 passed = 0
 failed = 0
 
-def send_sync(message_parts, timeout=90, session=None):
+
+def scene_session(tag):
+    """每个场景一个独立会话，避免 409 会话占用（保留测试群前缀便于识别）"""
+    return f"{SESSION}-smoke-{tag}-{uuid.uuid4().hex[:6]}"
+
+
+def send_sync(message_parts, timeout=90, session=None, retries=3):
     body = json.dumps({
         "session_id": session or SESSION, "session_type": "group",
         "sender": {"id": "999888777", "name": "Smoke测试", "group_name": "测试群"},
         "message": message_parts
     }).encode()
-    ts = str(int(time.time()))
-    sig = "sha256=" + hmac.new(SECRET, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
-    req = urllib.request.Request(f"{LANGBOT}/bots/{BOT_UUID}/sync",
-        data=body, headers={"Content-Type":"application/json",
-        "X-LB-Timestamp": ts, "X-LB-Signature": sig}, method="POST")
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    last_err = ""
+    for attempt in range(retries + 1):
+        ts = str(int(time.time()))
+        sig = "sha256=" + hmac.new(SECRET, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+        req = urllib.request.Request(f"{LANGBOT}/bots/{BOT_UUID}/sync",
+            data=body, headers={"Content-Type":"application/json",
+            "X-LB-Timestamp": ts, "X-LB-Signature": sig}, method="POST")
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            return json.loads(resp.read())
+        except Exception as e:
+            last_err = str(e)
+            print(f"    [diag] attempt{attempt+1} error: {last_err[:140]}", flush=True)
+            busy = "409" in last_err or "timed out" in last_err.lower()
+            if attempt < retries and busy:
+                time.sleep(3 * (attempt + 1))
+                continue
+            break
+    return {"error": last_err}
 
 def extract_text(resp):
     parts = resp.get("data", {}).get("message", [])
@@ -62,7 +83,7 @@ print("场景 2: Langbot /sync 正常")
 r = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Plain", "text": " 你好"}
-])
+], session=scene_session("s2"))
 reply = extract_text(r)
 check(r.get("code") == 0, "sync HTTP 200", f"code={r.get('code')}")
 check(len(reply) > 3, "sync 回复非空", reply[:60])
@@ -75,7 +96,7 @@ print("场景 3: 表情 @bot")
 r = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Face", "face_id": 14, "face_name": ""}
-])
+], session=scene_session("s3"))
 reply = extract_text(r)
 check(r.get("code") == 0, "face: HTTP 200", f"code={r.get('code')}")
 check(len(reply) > 5, "face: 回复非空", reply[:80])
@@ -92,7 +113,7 @@ r = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Quote", "origin": [{"type": "Plain", "text": "这是一条被引用的消息"}]},
     {"type": "Plain", "text": " 上面说的对吗"}
-])
+], session=scene_session("s4"))
 reply = extract_text(r)
 check(r.get("code") == 0, "quote: HTTP 200", f"code={r.get('code')}")
 check(len(reply) > 5, "quote: 回复非空", reply[:80])
@@ -107,7 +128,7 @@ r = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Plain", "text": " 处理这张图"},
     {"type": "Image", "url": "https://example.com/test.png", "base64": "data:image/png;base64,AAAA"}
-])
+], session=scene_session("s5"))
 reply = extract_text(r)
 check(r.get("code") == 0, "img: HTTP 200", f"code={r.get('code')}")
 time.sleep(3)
@@ -147,7 +168,7 @@ print("场景 7: 多轮对话")
 r1 = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Plain", "text": " 我叫小明"}
-])
+], session=scene_session("s7a"))
 reply1 = extract_text(r1)
 check(r1.get("code") == 0, "multi: 第1轮 HTTP 200")
 check(len(reply1) > 3, "multi: 第1轮回复非空", reply1[:60])
@@ -157,7 +178,7 @@ time.sleep(2)
 r2 = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Plain", "text": " 我叫什么名字"}
-])
+], session=scene_session("s7"))
 reply2 = extract_text(r2)
 check(r2.get("code") == 0, "multi: 第2轮 HTTP 200")
 check(len(reply2) > 3, "multi: 第2轮回复非空", reply2[:60])
@@ -170,7 +191,7 @@ print("场景 8: 时区正确")
 r = send_sync([
     {"type": "At", "target": "3228649756"},
     {"type": "Plain", "text": " 现在北京时间几点了？"}
-])
+], session=scene_session("s8"))
 reply = extract_text(r)
 check(r.get("code") == 0, "tz: HTTP 200", f"code={r.get('code')}")
 check("凌晨" not in reply, "tz: 不含凌晨（时区正确）", reply[:80])

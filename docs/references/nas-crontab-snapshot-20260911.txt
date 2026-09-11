@@ -7,3 +7,4 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/syno/sbin:/usr/syno/bin:/usr/local/sbin:
 55	2	*	*	5	root	/usr/syno/bin/synoschedtask --run id=1
 0	0	*	*	*	root	/usr/syno/bin/synoschedtask --run id=4
 10	18	*	*	0	root	/usr/syno/bin/synoschedtask --run id=2
+17 */6 * * * root /volume1/docker/langbot/deep-smoke.sh

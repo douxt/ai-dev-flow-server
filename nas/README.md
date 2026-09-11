@@ -62,3 +62,13 @@ bash nas/check-drift.sh            # 默认 root@nas；只读，无副作用
 ```
 
 自检：`WD_FORCE_PROBLEM=1 bash nas/watchdog.sh`（会真实推一条 Telegram）。
+
+## 2026-09-11 阶段二（T3）更新
+
+| 仓库文件 | 部署位置 | md5 | 说明 |
+|---|---|---|---|
+| `deep-smoke.sh` | NAS `/volume1/docker/langbot/deep-smoke.sh` | `6f4ea4763af0936ebe4597d415b14ce4` | cron 包装（`17 */6 * * *`）：跑金丝雀，失败写 `state/alert` |
+| `deep-canary.py` | NAS `/volume1/docker/langbot/tests/deep-canary.py` | `c573119ff20b4d4cd0d48419de78d2c7` | 最小金丝雀（napcat 在线 + sync code=0 + 回复非空） |
+| `../docs/references/nas-crontab-snapshot-20260911.txt` | `/etc/crontab` | `b1e7b5e5d84daabee39eed7a0f02ba8e` | 快照已含 deep-smoke 行 |
+
+完整 8 场景套件（`tests/scripts/test_deploy_smoke.py`）**不进 cron**：会话争用（409）使其不适合周期运行，仅部署后人工跑（已修好每场景独立会话 + 重试 + 诊断）。
