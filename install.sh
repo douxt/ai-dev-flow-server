@@ -166,7 +166,8 @@ ensure_spec_gate_state() {
     [ -d "$t/.devflow" ] || return 0
     local b="$t/.devflow/spec-gate-baseline"
     if [ ! -f "$b" ]; then
-        ( cd "$t" && find docs/specs -name '*.md' -type f 2>/dev/null ) > "$b"
+        # set -e 防御：无 docs/specs/ 目录时 find rc=1 不得拖崩安装（官方套件 #190 实测教训）
+        ( cd "$t" && find docs/specs -name '*.md' -type f 2>/dev/null || true ) > "$b"
     fi
     [ -f "$t/.devflow/spec-gate-mode" ] || printf 'warn\n' > "$t/.devflow/spec-gate-mode"
     return 0
