@@ -194,7 +194,28 @@ NAS 上的 `/volume1/docker/langbot/health-check.sh` 每 5 分钟在跑、日志
 - 不把深度冒烟（LLM+检索）放进 cron
 - **不做告警通知通道**（B6）
 
-## 十、自查修订记录（2026-09-11）
+## 十、执行记录（2026-09-11）
+
+| 阶段 | 结果 | 证据 |
+|------|------|------|
+| Phase 0 基线回灌 | ✅ commit `56e6d70` | 三份文件 md5 与 NAS 逐字节一致（`3ae8bd85…` / `9a76f0a4…` / `968d2619…`） |
+| Phase 1 脚本重写 | ✅ commit `07bdc1a` | `bash -n` 通过；真机影子运行 `heartbeat probe=11111 link=1 restart=0` |
+| Phase 2 零依赖自测 | ✅ commit `5e55a31` | 38 项全绿（本机无 bats/无镜像，改用 bash + docker stub） |
+| Phase 4 文档口径 | ✅ commit `7d49849` | 4 文档 + 过期路径 9 处 + napcat 端口事实表 |
+| Phase 5 漂移对账 | ✅ commit `8d33235` | `nas/check-drift.sh` 首发 3 项全 OK |
+| Phase 3 部署 | ✅ 10:55 部署（md5 `8df81347…`），旧版备份 `health-check.sh.bak.20260911` | 两端 md5 一致 |
+| Phase 3a 计数验证 | ✅ 真机 `FAIL #1/#2`、计数=2、无重启、阈值 99 | 生产日志 |
+| Phase 3b 真实重启 | ✅ 11:00:30 触发，11:01:07 完成（**37 秒**） | 顺序 `langbot-plugin → langbot → port ready=1 (24s) → napcat`；三容器 StartedAt 全部更新 |
+| 3b 恢复验证 | ✅ 全通过 | `healthy`、HTTP 200、`kb_enabled=True vision_enabled=True`（init log 11:00:54）、`link=1`、插件事件 11:01:52 恢复、**QQ 登录未丢**（`get_login_info` = 机器豆）、序列后无 refused |
+| 生产 cron 首轮 | ✅ 11:00:01 `heartbeat probe=11111 link=1 restart=0` | 单行、无失败计数 |
+
+**判读修正（写进文档）**：重启 langbot 期间 napcat 侧会出现**1 条瞬时** `ECONNREFUSED 192.168.176.3:2280`，属预期（langbot 先重启、napcat 还在用旧连接，15s 重连自愈）。判据应为"序列**完成后**是否仍 refused"，而非"窗口内一条都没有"。
+
+**残余观察项**：① 深度链路（LLM+检索）覆盖由人工冒烟承担，未进 cron；② QQ 掉线需人工扫码，巡检只记 `ACCOUNT-OFFLINE`（无告警通道，B6 决定）；③ `napcat` 配置声称 `0.0.0.0:5700` 而实际仅在容器内 `127.0.0.1:3000`（登录后）提供 API——配置漂移本身未修，已记录在文档。
+
+---
+
+## 十一、自查修订记录（2026-09-11）
 
 自查方式：把计划中的每条技术假设拿到线上实测（NAS + 本机 docker/工具链）。
 

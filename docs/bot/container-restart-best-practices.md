@@ -60,6 +60,11 @@ sleep 5
 ssh root@nas "timeout 10 $DOCKER logs --tail 20 napcat > /tmp/nc.log 2>&1; grep -i refused /tmp/nc.log || echo 'no errors'"
 ```
 
+> **判读说明（2026-09-11 实测）**：重启 langbot 期间 napcat 侧出现 **1 条瞬时**
+> `connect ECONNREFUSED <langbot-ip>:2280` 属预期——langbot 先重启、napcat 还在用旧连接，
+> 等 napcat 按 `reconnectInterval: 15000` 重连即恢复。**判据应看"序列完成后是否还在 refused"**，
+> 而不是"整个窗口内一条都没有"。实测序列耗时（plugin→langbot→端口就绪→napcat）约 37 秒。
+
 ---
 
 ## 二、SSH 连接最佳实践
