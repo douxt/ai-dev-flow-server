@@ -157,6 +157,21 @@ ensure_gitignore() {
     fi
 }
 
+# spec-gate 状态文件：基线清单（安装时存量 spec 按路径豁免，不用 mtime——
+# PostToolUse 触发时 mtime 必为"刚刚"且 git checkout 会重置）+ warn/block 模式开关。
+# 基线 create-once：重复 --update 不刷新，安装后新增的无表 spec 本就该被管。
+ensure_spec_gate_state() {
+    local t="$1"
+    [ "$DRY_RUN" = true ] && return 0
+    [ -d "$t/.devflow" ] || return 0
+    local b="$t/.devflow/spec-gate-baseline"
+    if [ ! -f "$b" ]; then
+        ( cd "$t" && find docs/specs -name '*.md' -type f 2>/dev/null ) > "$b"
+    fi
+    [ -f "$t/.devflow/spec-gate-mode" ] || printf 'warn\n' > "$t/.devflow/spec-gate-mode"
+    return 0
+}
+
 # 安装后 hook 生效性自检（B5.8）：stdin JSON 模拟真实 PreToolUse 调用，断言退出码。
 # 失败不中断安装，但醒目标红——历史上三门禁 hook 因取参/退出码错误静默失效数月无感知。
 selftest_hooks() {
@@ -196,6 +211,22 @@ selftest_hooks() {
     _st test-gate-block.sh 0 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m plain\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
     # stage-tracker（PostToolUse）：无产物沙箱 → exit 0。死协议版（$1 unbound）此断言必红——2026-09-09 P0-2 防再潜伏
     _st stage-tracker.sh 0 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$st_dir/x.ts\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # spec-gate 降级断言：.devflow 无 checker → 静默放行 rc 0（崩溃/缺失绝不解读为缺项）
+    mkdir -p "$st_dir/docs/specs"; printf 'x\n' > "$st_dir/docs/specs/t.md"
+    _st spec-gate.sh 0 "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$st_dir/docs/specs/t.md\"},\"session_id\":\"$sid\",\"cwd\":\"$st_dir\"}"
+    # spec-gate 正路径断言：装好 checker + 无合规表 spec → stdout 必须含 additionalContext
+    # （死钩子/坏 warn 通道都得不出这行——"无 .devflow→rc0"型断言对静默失效零信息量）
+    if [ -f "$hooks_dir/spec-gate.sh" ] && [ -f "$SOURCE/scripts/check_constitution.py" ] && command -v python3 >/dev/null 2>&1; then
+        mkdir -p "$st_dir/.devflow/scripts"
+        cp "$SOURCE/scripts/check_constitution.py" "$st_dir/.devflow/scripts/"
+        local _sg_out
+        _sg_out=$(printf '{"tool_name":"Write","tool_input":{"file_path":"%s/docs/specs/t.md"},"session_id":"%s","cwd":"%s"}' "$st_dir" "$sid" "$st_dir" | (cd "$st_dir" && WORKSPACE="$st_dir" env ${_ST_HOME:+HOME=$_ST_HOME} "$hooks_dir/spec-gate.sh" 2>/dev/null) || true)
+        if printf '%s' "$_sg_out" | grep -q "additionalContext"; then
+            st_pass=$((st_pass+1))
+        else
+            st_fail=$((st_fail+1)); echo "  ❌ hook 自检失败: spec-gate.sh 正路径无 additionalContext 输出（warn 通道失效？）"
+        fi
+    fi
     # file-guard：安全配置自保护路径 → 拦截（exit 2，死代码复活的核心验证）
     # 断言路径在沙箱 HOME 构造——修复版 file-guard 拦截时会 chmod a-w + 写审计日志，不得打到真实 settings.json
     local fg_home
@@ -619,6 +650,7 @@ if [ "$UPDATE_MODE" = true ]; then
     # DEFECT-004：chmod 沿 symlink 会穿透改托管源（claude-config）文件 mode——symlink 一律跳过
     chmod_x_nonsymlink "$CLAUDE_HOME"/.claude/hooks/*.sh
     prune_retired
+    ensure_spec_gate_state "$TARGET"
     selftest_hooks "$CLAUDE_HOME/.claude/hooks"
 
     # 同步更新项目级 hooks（如果项目有独立拷贝而非 symlink 到用户级）
@@ -1175,6 +1207,7 @@ for py in "$SOURCE/scripts/check_constitution.py" "$SOURCE/scripts/merge-setting
     [ -f "$py" ] && maybe_cp "$py" "$TARGET/.devflow/scripts/$(basename "$py")"
 done
 [ "$DRY_RUN" = false ] && { for f in "$TARGET/.devflow/scripts/"*.sh "$TARGET/.devflow/scripts/"*.py; do [ -f "$f" ] && chmod +x "$f" 2>/dev/null; done; true; }
+ensure_spec_gate_state "$TARGET"
 
 # archon/ + AFK scripts — backend + full
 if [ "$BACKEND" = true ]; then
