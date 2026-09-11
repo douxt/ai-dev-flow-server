@@ -82,5 +82,15 @@ safety: ""
 ### AC 状态
 
 - [x] `[human-verify]` AC1: 生效配置来源与证据已给出（env 驱动 WS + JSON 字段不生效 → 实际 3000）
-- [ ] `[human-verify]` AC2: **需你选 A/B**（我按 B 先写文档；选 A 我再排维护窗口）
+- [x] `[human-verify]` AC2: 已按 **方案 B** 落地（文档统一到实际；方案 A 保留为可选，需维护窗口）
 - [x] `[human-verify]` AC3: 未改配置 → `get_login_info` / `link=1` 均未受影响（巡检 `probe=11111 link=1 qq=1`）
+
+---
+
+## 方案 B 已实施（2026-09-11，用户未反对即采用推荐项）
+
+- `docs/bot/nas-access-best-practices.md` §一 端口事实表：明确"容器内 `127.0.0.1:3000`（登录后才有）"、"宿主 `:3000` 是 nginx"、"宿主 `:5700` 无后端（compose 已发布但 JSON 字段不生效）"
+- `docs/bot/automated-testing-guide.md`：示例前加端口陷阱说明，并给出"从宿主调用"的正确写法（`docker exec napcat curl 127.0.0.1:3000/...`）
+- `skills/nas-ops/SKILL.md`：故障速查表引用同一事实
+
+方案 A（修 napcat HTTP 配置使其在 5700 生效）仍可随时开——需要维护窗口 + 配置备份 + 改后 `get_status`/`link=1` 验证；当前无调用方依赖，收益为零，故不做。
