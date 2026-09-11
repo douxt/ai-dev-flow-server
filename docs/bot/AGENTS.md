@@ -37,10 +37,11 @@ Docker 路径：`/volume1/@appstore/ContainerManager/usr/bin/docker`
 
 | 脚本 | 容器 | 用途 |
 |------|------|------|
-| `tests/test_smoke.py` | napcat | 冒烟（连通性） |
-| `tests/test_e2e_sync.py` | langbot-plugin | E2E 回归 |
-| `tests/test_bg_stress.py` | langbot-plugin | 20 并发压力 |
-| `tests/test_quote_e2e.py` | langbot-plugin | 引用自动化（不依赖 QQ） |
+| `tests/scripts/test_smoke.py` | napcat | 冒烟（连通性；**走 /sync 全链路，含 LLM，勿放进 cron**） |
+| `tests/scripts/test_e2e_sync.py` | langbot-plugin | E2E 回归 |
+| `tests/scripts/test_bg_stress.py` | langbot-plugin | 20 并发压力 |
+| `tests/scripts/test_quote_e2e.py` | langbot-plugin | 引用自动化（不依赖 QQ） |
+| `../../tests/integration/health_check_selftest.sh` | 本机/NAS | 巡检脚本零依赖自测（stub docker） |
 
 ## 关键 UUID / 配置
 
@@ -75,4 +76,5 @@ gRPC emit_event 不能阻塞。gate handler 秒回，重活走 Queue(10)+3 worke
 
 - 流式去重不完善（1s cooldown 不够）
 - LTM 插件缺失（框架层，非致命）
-- health-check cron 每 5 分钟触发 LLM pipeline
+- ~~health-check cron 每 5 分钟触发 LLM pipeline~~ → **2026-09-11 已整改**：巡检改为五项心跳探针（零 LLM），详见 [nas-access-best-practices.md](nas-access-best-practices.md) §健康巡检
+- QQ 掉线（需人工扫码）无法自动恢复：巡检只记 `ACCOUNT-OFFLINE`，请留意 `/tmp/health_check.log`；登录入口 = napcat WebUI `http://nas:6099`（token `udimc123`）

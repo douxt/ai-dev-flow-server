@@ -1,6 +1,6 @@
 # NAS 访问与运维最佳实践
 
-> 2026-07-10 初稿 | 2026-07-11 新增 Tailscale 性能诊断
+> 2026-07-10 初稿 | 2026-07-11 新增 Tailscale 性能诊断 | 2026-09-11 新增 §十二 健康巡检重写 + napcat 端口实测事实
 
 ---
 
@@ -16,7 +16,16 @@ ssh root@nas
 |------|------|---------|
 | `langbot` | LangBot 主进程 | DB: `/app/data/langbot.db`, ChromaDB: `/app/data/chroma/` |
 | `langbot-plugin` | 插件运行时 | 插件代码: `/app/data/plugins/dou__langbot-silent-observer/` |
-| `napcat` | QQ 协议 | 配置: `/app/napcat/config/onebot11_3228649756.json` |
+| `napcat` | QQ 协议 | 配置: `/app/napcat/config/onebot11_3228649756.json`（NapCat 4.18.1） |
+
+### napcat 端口实测事实（2026-09-11，别再踩）
+
+| 位置 | 实测结果 |
+|---|---|
+| 容器内 `127.0.0.1:3000` | **NapCat OneBot v11 API**（`app_name=NapCat.Onebot`，token `udimc123`，错 token → 403）。**仅在 QQ 登录后才监听**；未登录时无监听 |
+| 宿主 `:3000` | **nginx**（另一服务，返回 HTML）——从宿主 `curl localhost:3000/...` 打到的不是 napcat |
+| 宿主 `:5700` | docker-proxy 在听，容器内无后端 → `Connection reset by peer`（配置声称 `0.0.0.0:5700`，与实际不符） |
+| 宿主 `:6099` | napcat WebUI（token `udimc123`）——**QQ 掉线时来这里扫码登录** |
 
 ### 核心代码地图（本地 ↔ NAS）
 
@@ -24,12 +33,15 @@ ssh root@nas
 |------|---------------------|-------------|
 | **插件主文件** | `docker/langbot/plugins/silent-observer/components/event_listener/default.py` | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py` |
 | | | NAS 卷: `/volume1/docker/langbot/data/plugins/dou__langbot-silent-observer/components/event_listener/default.py` |
-| **单元测试** | `docker/langbot/plugins/silent-observer/tests/test_face_unit.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
-| **冒烟测试** | `docker/langbot/plugins/silent-observer/tests/test_smoke.py` | 部署到 `napcat:/tmp/` 执行 |
-| **E2E 测试** | `docker/langbot/plugins/silent-observer/tests/test_e2e_sync.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
-| **压力测试** | `docker/langbot/plugins/silent-observer/tests/test_bg_stress.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
-| **引用E2E测试** | `docker/langbot/plugins/silent-observer/tests/test_quote_e2e.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
-| **健康巡检** | `nas/health-check.sh` | NAS: `/volume1/docker/langbot/health-check.sh` |
+| **单元测试** | `docker/langbot/plugins/silent-observer/tests/scripts/test_face_unit.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **冒烟测试** | `docker/langbot/plugins/silent-observer/tests/scripts/test_smoke.py` | 部署到 `napcat:/tmp/` 执行（**走 /sync 全链路含 LLM，勿放进 cron**） |
+| **E2E 测试** | `docker/langbot/plugins/silent-observer/tests/scripts/test_e2e_sync.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **压力测试** | `docker/langbot/plugins/silent-observer/tests/scripts/test_bg_stress.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **引用E2E测试** | `docker/langbot/plugins/silent-observer/tests/scripts/test_quote_e2e.py` | 部署到 `langbot-plugin:/tmp/` 执行 |
+| **巡检自测** | `tests/integration/health_check_selftest.sh` | 本机或 NAS 直接 `bash`（stub docker，零依赖） |
+| **健康巡检** | `nas/health-check.sh` | NAS: `/volume1/docker/langbot/health-check.sh`（状态目录 `/volume1/docker/langbot/state/`） |
+| **僵尸清理** | `nas/clean-zombie-ssh.sh` | NAS: `/usr/local/bin/clean-zombie-ssh.sh`（cron `*/30`） |
+| **crontab 快照** | `docs/references/nas-crontab-snapshot-20260911.txt` | NAS: `/etc/crontab` |
 | **审查清单** | `.claude/gate-checklists/bot-plugin-review.md` | Plan Mode 强制对照审查 |
 | **插件入口** | `docker/langbot/plugins/silent-observer/main.py` | 容器 `langbot-plugin:/app/data/plugins/dou__langbot-silent-observer/main.py` |
 | **relay v2** | (临时，待入库) | 容器 `napcat:/tmp/relay_v2.py`，监听 `:8888` |
@@ -151,6 +163,7 @@ ssh root@nas "timeout 5 $DOCKER inspect langbot --format '{{.State.Health.Status
 **关键纪律**：
 - 部署**必须**清 `__pycache__`，否则已删的函数仍被调用
 - 重启**必须先 plugin 后主进程**，否则 napcat WebSocket 可能不重连（踩坑 #5）
+- 完整顺序以 [container-restart-best-practices.md §一](container-restart-best-practices.md) 为权威：`langbot-plugin` → `langbot` → 等端口就绪/healthcheck → **最后 `napcat`**（仅改插件时不必须重启 napcat；巡检触发的重启走全序列）
 - 重启后等 3 秒再验证，否则日志可能还没写完
 
 ---
@@ -334,6 +347,47 @@ WSL 的 Tailscale 通常会自动探测正确 MTU（1140），Windows 可能不�
 | 8 | Tailscale Serve gVisor Nagle + Windows Schannel | TLS 握手 >2s，页面极慢 | 升级 Tailscale 到最新版 |
 | 9 | Tailscale MTU > 路径 MTU | TCP 段静默丢弃，重传风暴 | `ping -f -l` 探测，调低接口 MTU |
 | 10 | `docker logs` 管道跨 SSH | Docker 守护进程耗尽，exec/restart/kill 全卡死 | `init: true` + timeout + 管道放 sh -c 内 |
+| 11 | 健康检查用真实消息走 LLM 全链路（`/sync`）当探针 | 288 次/天 LLM 调用、污染聊天归档表、抢 WS 队列；LLM 抖动会被误判为服务故障而重启容器 | 探针只查"活着"（进程/端口/心跳），深度验证部署后人工跑一次 |
+| 12 | `docker logs --tail N` 不带 `--since` 做时间窗检测 | 插件日志约 1 行/5 分钟，300 行横跨约 **25 小时** → 旧报错被反复计入 → 每 10 分钟重启容器，永不停止 | 必须 `--since 5m --tail N` 组合 |
+| 13 | `set -e` 让失败计数与重启分支不可达 | `timeout … docker exec` 非 0 退出即终止脚本 → 计数/阈值/重启全跑不到，自愈静默失效 30+ 天 | 失败命令用 `\|\| exit_code=$?` 捕获；改名用 `\|\|` 链 |
+| 14 | napcat HTTP API 的端口/前提被误判 | 该 API **仅在 QQ 登录后才监听**；宿主 `:3000` 是 nginx、`:5700` 无后端 → 探针 `Errno 99`，且把"掉线"错当"服务故障" | 登录态用 WS 链路（`grep -c 08E8 /proc/net/tcp`）判定，进程存活另判 |
+| 15 | QQ 掉线（需人工扫码）被当作可自愈故障 | 重启容器对掉线无效，反而制造重启循环 | 巡检只记 `ACCOUNT-OFFLINE` 不计阈值；人工从 WebUI `:6099` 扫码 |
+| 16 | NAS 在版脚本与仓库脱节（3410B vs 1486B，md5 不同） | 照仓库修 = 修的不是线上那份 | 回灌入 `nas/`（见 `nas/README.md`），改完当场核对 md5；`patches/` 目录同样要三向核对（仓库 / NAS 在版 / 容器内生效版，参见 ADR 010） |
+| 17 | NAS 宿主机直接落文件到容器挂载卷 | root 属主文件容器内 UID 1000 读不到（code-server 场景） | 宿主机部署后 `chown 1000:1000` 再进容器操作 |
+
+---
+
+## 十二、健康巡检（2026-09-11 重写，取代旧"烟雾测试"方案）
+
+脚本：`nas/health-check.sh` → NAS `/volume1/docker/langbot/health-check.sh`；cron `*/5`；自测 `tests/integration/health_check_selftest.sh`（38 项，零依赖）。
+
+### 五项探针（零 LLM 调用、零副作用，任一项失败计入阈值）
+
+| # | 检查 | 判据 |
+|---|------|------|
+| ① | 插件心跳：`/tmp/silent_stats.log` 年龄（插件每 60s 自写，`default.py` 的 `stats_report_loop`） | < 180s |
+| ② | `langbot` 2280 端口在听（`grep -c 08E8 /proc/net/tcp`） | ≥ 1 |
+| ③ | `docker inspect langbot --format '{{.State.Health.Status}}'` | `healthy` |
+| ④ | `langbot` HTTP：容器内 `GET http://langbot:5300/` | 200 |
+| ⑤ | napcat QQ 进程存活（`grep -la "/opt/QQ/qq" /proc/[0-9]*/cmdline`） | 输出非空 |
+
+**非重启项**：napcat ↔ langbot WS 链路（`grep -c 08E8 /proc/net/tcp`）——=0 记 `ACCOUNT-OFFLINE`（通常=未登录，重启无效），不计入阈值。
+
+### 失败策略与顺序
+
+- 连续 3 次失败（`HC_FAIL_THRESHOLD`）→ 重启：`langbot-plugin` → `langbot` → 轮询端口就绪（≤60s）→ `napcat`，每条 docker 命令带 `timeout`
+- `flock` 防重入 + 10 分钟重启防抖锁；锁与计数在 `/volume1/docker/langbot/state/`
+- 每轮一行心跳：`heartbeat probe=11111 link=1 restart=0`；日志 `/tmp/health_check.log` 保留末 500 行
+
+### 人工排查入口
+
+```bash
+ssh root@nas 'tail -5 /tmp/health_check.log'                                  # 最近几轮结果
+ssh root@nas 'cat /volume1/docker/langbot/state/health_fail_count'            # 当前失败计数
+ssh root@nas 'cat /volume1/docker/langbot/state/health.lock'                  # 上次重启时间戳
+```
+
+QQ 掉线（`link=0` / `ACCOUNT-OFFLINE`）→ 浏览器开 `http://nas:6099`（token `udimc123`）扫码 **人工**恢复。
 
 ---
 

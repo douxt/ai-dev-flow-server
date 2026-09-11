@@ -19,7 +19,7 @@ NAS 上的 `/volume1/docker/langbot/health-check.sh` 每 5 分钟在跑、日志
 | 6 | 仓库与线上不是同一份 | NAS 3410B/83 行 vs 仓库 1486B/46 行，md5 不同 | 照仓库修 = 修的不是线上那份 |
 | 7 | 探针走真实 LLM 全链路 | 旧探针 `POST /bots/<uuid>/sync` → gate → 检索 → LLM | LLM 用量开销、写入聊天归档表、抢 WS 队列、**LLM 抖动被误判为服务故障并触发重启** |
 | 8 | 文档口径三处矛盾 | 真实 cron 为 `*/5`；主文档未写、容器重启文档写 30 分钟、事故报告写 6 小时 | 事后复盘依据不可信 |
-| 9 | napcat 判据用错端口，且混淆两类故障 | 旧探针查 `localhost:3000/get_status`，实测 napcat HTTP 服务配在 **5700**（3000 从未监听）；2026-09-11 实测账号未登录、WS 未建连 | 修好后会永久判失败并每 10 分钟重启容器；真正需人工扫码的掉线无法被表达 |
+| 9 | napcat 判据选错，且混淆两类故障 | 旧探针查 `localhost:3000/get_status`。实测：容器内 `127.0.0.1:3000` 确为 NapCat OneBot v11 API（`app_name=NapCat.Onebot`），但**登录后才监听**——未登录时无监听，探针必然失败（实测 `Errno 99`）。宿主 `:3000` 是 **nginx**（另一服务，返回 HTML），宿主 `:5700` 有 docker-proxy 但容器内无监听（`Connection reset`）；配置声称 `0.0.0.0:5700` 与实际不符 | 判据把"账号未登录"混同为"服务故障"：修好后会每 10 分钟重启容器，而真正需要人工扫码的掉线无法被表达 |
 
 **附带查明（缺陷 1 的真正根因）**：`test_smoke.py` 已于 commit `d96e25a`（2026-07-28）从 `tests/` 移入 `tests/scripts/`，NAS 脚本仍在找旧布局路径。**"把文件补到旧路径"是错的修法。**
 
@@ -56,7 +56,16 @@ NAS 上的 `/volume1/docker/langbot/health-check.sh` 每 5 分钟在跑、日志
 | ⑤ napcat QQ 进程存活 | `$DOCKER exec napcat sh -c 'grep -la "/opt/QQ/qq" /proc/[0-9]*/cmdline 2>/dev/null \| head -1'` | 输出非空 | 无 |
 | （非重启项）napcat↔langbot WS | `$DOCKER exec napcat sh -c 'grep -c 08E8 /proc/net/tcp'` | ≥ 1；=0 时记 `ACCOUNT-OFFLINE`，**不计入重启阈值** | 无 |
 
-**环境实测（均已确认）**：插件容器有 `/app/.venv/bin/python3`、`date`、`stat`、`flock`；napcat 容器有 `python3`、`curl`、`flock`；napcat **无 healthcheck**（`{{if .State.Health}}` 为空）故必须自建 ⑤；`langbot:5300` 从 napcat 容器内 `GET /` 实测返回 **200**；`napcat` 的 HTTP 服务**配置在 5700**（`0.0.0.0:5700`），文档与旧探针里的 `3000` **从未监听**，故 ⑤ 不能用 HTTP 判据。
+**环境实测（均已确认）**：插件容器有 `/app/.venv/bin/python3`、`date`、`stat`、`flock`；napcat 容器有 `python3`、`curl`、`flock`；napcat **无 healthcheck**（`{{if .State.Health}}` 为空）故必须自建 ⑤；`langbot:5300` 从 napcat 容器内 `GET /` 实测返回 **200**。
+
+**napcat HTTP 端口的实测事实（用于避免踩坑）**：
+
+| 位置 | 事实 | 说明 |
+|---|---|---|
+| 容器内 `127.0.0.1:3000` | **NapCat OneBot v11 API 正常**（`app_name=NapCat.Onebot` v4.18.1，`get_login_info` 返回 `机器豆/3228649756`，错 token → 403） | **登录后才监听**；未登录（2026-09-11 上午实测）时该端口无监听 → 探针 ⑤ 必然失败 |
+| 宿主 `:3000` | **nginx**（另一服务，返回 HTML 页面） | 文档里从宿主 `curl localhost:3000/...` 的示例会打到 nginx，不是 napcat |
+| 宿主 `:5700` | docker-proxy 在听，但容器内**无监听** → `Connection reset by peer` | 配置 `onebot11_3228649756.json` 声称 `0.0.0.0:5700`，与实际不符 |
+| 宿主 `:6099` | napcat WebUI（`301`），token `udimc123` | 登录二维码入口 |
 
 **㊙ 2026-09-11 探针实测发现的线上事故（与本计划的判据设计直接相关）**
 
@@ -68,7 +77,7 @@ NAS 上的 `/volume1/docker/langbot/health-check.sh` 每 5 分钟在跑、日志
 | WS 未建连 | napcat 内 `grep -c 08E8 /proc/net/tcp` = **0** |
 | 登录入口 | napcat WebUI 监听 `6099`（`curl :6099/` 返回 301），token `udimc123`；容器端口映射 `5700→5700`、`6099→6099` |
 
-**结论**："未登录"与"进程死了"是**两类不同故障**——前者重启容器毫无作用，必须人工扫码。旧探针（查 `localhost:3000/get_status`）既用了错端口，又把两类故障混为一谈：修好后会永久判失败并每 10 分钟重启容器一次，而真正需要人介入的掉线反而无法表达。故 ⑤ 改为"进程存活"（重启项），另设非重启项 WS 链路检测并输出 `ACCOUNT-OFFLINE` 标记。
+**结论**："未登录"与"进程死了"是**两类不同故障**——前者重启容器毫无作用，必须人工扫码。旧探针把判据绑在"登录后才存在"的 NapCat HTTP 接口上（未登录时无监听，实测 `Errno 99`），于是把两类故障混为一谈：修好后会每 10 分钟重启容器一次，而真正需要人介入的掉线反而无法被表达。故 ⑤ 改为"进程存活"（重启项），另设非重启项 WS 链路检测并输出 `ACCOUNT-OFFLINE` 标记。
 
 **心跳为何可信**：`silent_stats.log` 由插件事件循环内的 `stats_report_loop` 每 60 秒重写；mtime 变旧即代表**插件进程死亡或事件循环被阻塞**，正是 LTM not-found / 事件循环阻塞这类真实故障的直接指标。
 
@@ -211,6 +220,6 @@ NAS 上的 `/volume1/docker/langbot/health-check.sh` 每 5 分钟在跑、日志
 
 **补记：探针上机实测（2026-09-11，写脚本后逐条在真 NAS 跑）**
 - 探针 ①–④ 与就绪轮询、日志扫描**实测全部符合预期**（心跳年龄 59s、端口 1、healthy、HTTP 200、`grep -q` ok、扫描 0 命中）。
-- 探针 ⑤ **原设计失败**：`localhost:3000` 报 `Errno 99 / Connection refused`；进一步查证 napcat HTTP 服务配在 5700 且当前未监听，3000 从未监听 → 判据改为"QQ 进程存活"。
+- 探针 ⑤ **原设计失败**：`localhost:3000` 报 `Errno 99`。查证后确认：容器内 `127.0.0.1:3000` 就是 NapCat OneBot API，但**仅在登录后才监听**（宿主 `:3000` 是 nginx、`:5700` 无后端）→ 判据改为"QQ 进程存活"，另设 WS 链路非重启项。
 - 顺带发现**线上事故**：QQ 账号未登录、Bot 掉线约 2 天（详见 §五）→ 新增非重启项 `link`（WS 链路）与 `ACCOUNT-OFFLINE` 标记，并把该发现写入缺陷 9。
 - 自测相应扩充：T7b（QQ 进程缺失 → `probe=11110` 计入阈值）、T7c（WS 掉线 → 记 `ACCOUNT-OFFLINE`、`link=0`、**不触发重启**）；整套自测 38 项全绿。

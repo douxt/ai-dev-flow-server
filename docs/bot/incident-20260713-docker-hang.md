@@ -78,7 +78,7 @@ SSH 断开 → ash 会话不回收 → docker logs 子进程僵死 → Docker da
    ```
    管道操作改用单次 exec + sh -c 内完成。
 
-3. **NAS 添加 cron 巡检**（每 6 小时）：
+3. **NAS 添加 cron 巡检**（实际投产为**每 5 分钟**，见 `nas/health-check.sh`）：
    ```sh
    #!/bin/sh
    COUNT=$(ps aux | grep -c 'docker (logs|exec)')
@@ -100,7 +100,7 @@ SSH 断开 → ash 会话不回收 → docker logs 子进程僵死 → Docker da
 - [x] langbot、langbot-plugin compose 加 `init: true`（tini 回收僵尸）
 - [x] langbot 加 healthcheck（端口 2280 TCP 监听检测）
 - [x] `restart: on-failure` → `restart: unless-stopped`
-- [x] NAS `/etc/crontab` 加每 30 分钟健康巡检
+- [x] NAS `/etc/crontab` 加每 5 分钟健康巡检（2026-09-11 核实；此前文档记的 30 分钟/6 小时均与实际不符）
 - [x] 视觉识别模型已切换到 qwen3.7-plus
 - [x] `container-restart-best-practices.md` 更新：timeout 规范 + 管道规则 + 三层防御
 - [x] napcat WS 连接正常，无 ECONNREFUSED

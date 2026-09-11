@@ -55,9 +55,9 @@ ssh root@nas "timeout 5 $DOCKER exec langbot sh -c 'grep 08E8 /proc/net/tcp | he
 sleep 30
 # 再重启 napcat
 ssh root@nas "timeout 10 $DOCKER restart napcat"
-# 验证无 ECONNREFUSED
+# 验证无 ECONNREFUSED（docker logs 不跨管道：重定向到文件后在远端 grep）
 sleep 5
-ssh root@nas "timeout 5 $DOCKER logs napcat 2>&1 | grep -i refused || echo 'no errors'"
+ssh root@nas "timeout 10 $DOCKER logs --tail 20 napcat > /tmp/nc.log 2>&1; grep -i refused /tmp/nc.log || echo 'no errors'"
 ```
 
 ---
@@ -238,13 +238,17 @@ tailscale.exe status      # Windows
 | **合并不连击** | 多条命令用 `sh -c "cmd1; cmd2"` 一次跑完 |
 | **卡住立刻停手** | 不再 SSH 重复打 — 只会堆积更多僵尸 |
 
-### NAS 定时巡检（已部署）
+### NAS 定时巡检（现行实现，2026-09-11 重写）
 
-`/etc/crontab` 每 30 分钟运行 `/volume1/docker/langbot/health-check.sh`：
+`/etc/crontab` **每 5 分钟**运行 `/volume1/docker/langbot/health-check.sh`（仓库镜像：`nas/health-check.sh`）：
 
-- 重启 unhealthy 容器
-- 杀超过 10 分钟的 `docker exec/logs` 残留进程
-- 僵尸数 > 10 写告警日志到 `/tmp/docker-health.log`
+- **五项心跳探针**（零 LLM 调用、零副作用）：插件 `silent_stats.log` 心跳年龄 < 180s、langbot 2280 端口在听、langbot healthcheck=healthy、langbot HTTP 200、napcat QQ 进程存活
+- **连续 3 次失败** → 按 §一 顺序重启：`langbot-plugin` → `langbot` → 轮询端口就绪 → `napcat`（每条 docker 命令带 `timeout`）
+- **非重启项**：napcat ↔ langbot WS 链路；未建连通常意味着 QQ 未登录，重启无效 → 只记 `ACCOUNT-OFFLINE`，不计入阈值
+- 防护：`flock` 防重入 + 10 分钟重启防抖锁（`/volume1/docker/langbot/state/`）
+- 日志：`/tmp/health_check.log`，每轮一行心跳 `heartbeat probe=… link=… restart=…`，保留末 500 行
+
+> 历史误记：本节曾写"每 30 分钟运行，重启 unhealthy 容器 / 杀残留进程 / 僵尸数 > 10 写 `/tmp/docker-health.log`"，与实际脚本不符。杀残留 `docker exec/logs` 进程是另一个脚本 `clean-zombie-ssh.sh`（`*/30`）。
 
 ### Docker 守护进程卡死时的紧急恢复
 
@@ -290,7 +294,7 @@ LangBot 插件运行时通过独立 WebSocket 连接注册插件。WS 断连 →
 
 #### B. 运维层自动恢复（已实施）
 
-NAS cron 每 30 分钟检测：最近 5 分钟出现 LTM 错误 → 自动重启 `langbot-plugin` + `langbot` + `napcat`。
+NAS cron 每 5 分钟检测：最近 5 分钟出现 LTM 错误 → 自动重启 `langbot-plugin` + `langbot` + `napcat`。
 
 脚本：`/volume1/docker/langbot/health-check.sh`
 

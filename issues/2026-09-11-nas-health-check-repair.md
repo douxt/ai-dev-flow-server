@@ -55,9 +55,13 @@ NAS 在版 3410B / 83 行；仓库 `nas/health-check.sh` 1486B / 46 行；md5 �
 
 旧探针通过 `POST /bots/<uuid>/sync` 发起真实消息 → gate → 检索 → LLM。后果：LLM 用量开销、向聊天归档表写入巡检伪造记录、抢 WS 队列（dev-journal 第 16 坑）、**失败可能是 LLM 抖动而非服务故障，会诱发误重启**。
 
-## 缺陷八：napcat 判据用错端口，且混淆"未登录"与"进程死了"
+## 缺陷八：napcat 判据选错，且混淆"未登录"与"进程死了"
 
-旧探针查 `http://localhost:3000/get_status`，实测 napcat 的 HTTP 服务**配置在 5700**（`0.0.0.0:5700`），`3000` 从未监听。修好路径后会永久判失败 → 每 10 分钟重启容器一次；而真正需要人工扫码的"账号掉线"却无法被表达。修复：⑤ 改判"QQ 进程存活"（重启项），另设非重启项 WS 链路检测（`napcat` 内 `grep -c 08E8 /proc/net/tcp`），未建连时输出 `ACCOUNT-OFFLINE` 但不计入阈值。
+旧探针查 `http://localhost:3000/get_status`。实测（2026-09-11）：
+- 容器内 `127.0.0.1:3000` **确为** NapCat OneBot v11 API（`app_name=NapCat.Onebot` v4.18.1，`get_login_info` 返回 `机器豆/3228649756`，错 token → 403），但**仅在登录后才监听**；账号未登录时该端口无监听 → 探针必然失败（实测 `Errno 99`）
+- 宿主 `:3000` 是 **nginx**（另一服务，返回 HTML）；宿主 `:5700` 有 docker-proxy 但容器内无监听（`Connection reset by peer`）；配置 `onebot11_3228649756.json` 声称 `0.0.0.0:5700` 与实际不符
+
+后果：判据把"账号未登录"混同为"服务故障"——修好后会每 10 分钟重启容器，而真正需要人工扫码的掉线无法被表达。修复：⑤ 改判"QQ 进程存活"（重启项，`grep -la "/opt/QQ/qq" /proc/[0-9]*/cmdline`），另设非重启项 WS 链路检测（`grep -c 08E8 /proc/net/tcp`），未建连时输出 `ACCOUNT-OFFLINE` 但不计入阈值。
 
 ## 附：2026-09-11 关联线上事故（QQ 掉线，需人工处置）
 

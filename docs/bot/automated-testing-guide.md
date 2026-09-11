@@ -44,7 +44,7 @@ Chatbot 插件与普通软件不同：
 
 ### 已有测试
 
-文件：[`docker/langbot/plugins/silent-observer/tests/test_face_unit.py`](../../docker/langbot/plugins/silent-observer/tests/test_face_unit.py)
+文件：[`docker/langbot/plugins/silent-observer/tests/scripts/test_face_unit.py`](../../docker/langbot/plugins/silent-observer/tests/scripts/test_face_unit.py)
 
 覆盖范围：
 1. `_QQ_FACE_NAME` 映射表正确性（6 个边界 case）
@@ -56,7 +56,7 @@ Chatbot 插件与普通软件不同：
 
 ```bash
 # 本地 → NAS，在插件容器内执行
-scp docker/langbot/plugins/silent-observer/tests/test_face_unit.py root@nas:/tmp/
+scp docker/langbot/plugins/silent-observer/tests/scripts/test_face_unit.py root@nas:/tmp/
 ssh root@nas "timeout 10 \$DOCKER cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && \
   timeout 10 \$DOCKER exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py"
 ```
@@ -118,7 +118,16 @@ napcat 内置 HTTP API（默认端口 3000），可以直接 `curl` 发送消息
 ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'cat /app/napcat/config/onebot11_3228649756.json' | python3 -m json.tool | grep -A8 httpServers"
 ```
 
-需确认 `httpServers` 中包含 port 3000 的配置。
+⚠️ **端口实测事实（2026-09-11，务必先读，别照抄下面的 URL）**
+
+| 位置 | 实测 |
+|---|---|
+| 容器内 `127.0.0.1:3000` | **NapCat OneBot v11 API**（`app_name=NapCat.Onebot` v4.18.1，token `udimc123`），**仅在 QQ 登录后才监听**；未登录时连接被拒 |
+| 宿主 `:3000` | **nginx**（另一服务）——从宿主 curl `localhost:3000` 拿到的是 HTML，不是 napcat |
+| 宿主 `:5700` | docker-proxy 在听但容器内无后端 → `Connection reset by peer`（配置文件里写的 `0.0.0.0:5700` 与实际不符） |
+
+结论：下面示例里的 `http://napcat:3000` 只有在 **docker 网络内**调用才成立；从 NAS 宿主机调用请写成
+`ssh root@nas "timeout 10 \$DOCKER exec napcat curl -s -m 5 'http://127.0.0.1:3000/…'"`。
 
 ### 示例
 
@@ -290,7 +299,7 @@ if __name__ == "__main__":
 ssh root@nas "timeout 5 \$DOCKER exec napcat sh -c 'pgrep -f relay_v2'"
 
 # 2. 运行 E2E 脚本（在 napcat 容器内，使用 /sync 端点）
-scp tests/test_e2e_sync.py root@nas:/tmp/
+scp tests/scripts/test_e2e_sync.py root@nas:/tmp/
 ssh root@nas "timeout 5 \$DOCKER cp /tmp/test_e2e_sync.py napcat:/tmp/ && timeout 90 \$DOCKER exec napcat python3 /tmp/test_e2e_sync.py"
 
 # 4. 检查 chat_index 存储
@@ -345,7 +354,7 @@ DOCKER=/volume1/@appstore/ContainerManager/usr/bin/docker
 ssh root@nas "timeout 5 \$DOCKER ps --format '{{.Names}} {{.Status}}'"
 
 # 单元测试
-scp tests/test_face_unit.py root@nas:/tmp/ && \
+scp tests/scripts/test_face_unit.py root@nas:/tmp/ && \
   ssh root@nas "timeout 10 \$DOCKER cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && \
   timeout 10 \$DOCKER exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py"
 
@@ -375,7 +384,7 @@ print(f'LLM调用: {row[0]}次, tokens: {row[1]}')
 在本地 `~/.bashrc` 或 `.zshrc` 中添加：
 
 ```bash
-alias bot-test-unit='scp $HOME/dev/ai-dev-flow-server/docker/langbot/plugins/silent-observer/tests/test_face_unit.py root@nas:/tmp/ && ssh root@nas "timeout 10 /volume1/@appstore/ContainerManager/usr/bin/docker cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && timeout 10 /volume1/@appstore/ContainerManager/usr/bin/docker exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py"'
+alias bot-test-unit='scp $HOME/dev/ai-dev-flow-server/docker/langbot/plugins/silent-observer/tests/scripts/test_face_unit.py root@nas:/tmp/ && ssh root@nas "timeout 10 /volume1/@appstore/ContainerManager/usr/bin/docker cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && timeout 10 /volume1/@appstore/ContainerManager/usr/bin/docker exec langbot-plugin /app/.venv/bin/python3 /tmp/test_face_unit.py"'
 
 alias bot-gate='ssh root@nas "timeout 5 /volume1/@appstore/ContainerManager/usr/bin/docker exec langbot-plugin sh -c \"tail -15 /tmp/silent_gate.log\""'
 
@@ -444,7 +453,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Unit Test
         run: |
-          scp tests/test_face_unit.py ${{ secrets.NAS_HOST }}:/tmp/
+          scp tests/scripts/test_face_unit.py ${{ secrets.NAS_HOST }}:/tmp/
           ssh ${{ secrets.NAS_HOST }} 'docker cp /tmp/test_face_unit.py langbot-plugin:/tmp/ && docker exec langbot-plugin python3 /tmp/test_face_unit.py'
       - name: Smoke Test
         run: |
@@ -452,7 +461,7 @@ jobs:
           ssh ${{ secrets.NAS_HOST }} 'docker exec langbot-plugin cat /tmp/silent_init.log | grep -q "vision_enabled=True"'
       - name: E2E - Face Test
         run: |
-          python3 tests/test_e2e_face.py  # 通过 HTTP Bot 发送测试消息
+          python3 tests/scripts/test_e2e_face.py  # 通过 HTTP Bot 发送测试消息
           sleep 15
           ssh ${{ secrets.NAS_HOST }} 'docker exec langbot-plugin sh -c "tail -10 /tmp/silent_gate.log" | grep -q "QQ表情"'
 ```
@@ -496,4 +505,4 @@ done
 | napcat 文档 | [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) |
 | OneBot v11 协议 | [botuniverse/onebot-11](https://github.com/botuniverse/onebot-11) |
 | 本项目单元测试 | `docker/langbot/plugins/silent-observer/tests/` |
-| 本项目集成测试 | `docker/langbot/plugins/silent-observer/tests/test_face_recognition.sh` |
+| 本项目集成测试 | `docker/langbot/plugins/silent-observer/tests/scripts/test_face_recognition.sh` |
