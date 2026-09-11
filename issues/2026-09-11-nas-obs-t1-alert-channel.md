@@ -105,3 +105,10 @@ NAS 巡检（零外网，只写 state/alert）
 - [x] `[human-verify]` AC5: 通道实测可达（云侧 `sent`，退出码 0；两次真实消息已发出，待用户确认收到）
 - [x] `[human-verify]` AC6: 端到端演练 —— 真机强制失败 ×3 → 31 秒完成重启 → `state/alert` 写入 → 云侧 `sent 1 alert line(s)` → NAS 侧 `alert` 归档为 `alert.history`；恢复后 `health=healthy / link=1 / qq online`
 - [ ] `[human-verify]` AC9: 文档更新（本次提交完成）
+
+---
+
+## 收官确认（2026-09-11）
+
+- [x] `[human-verify]` AC5 补记：**用户确认 Telegram 已收到消息** → Cloud → Clash 代理（Tailscale `100.83.141.78:7890`）→ Telegram 链路正式可用
+- [x] `[human-verify]` AC9: 文档已更新（`nas-access-best-practices.md` §十二·补、`automated-testing-guide.md`、`skills/nas-ops`）
