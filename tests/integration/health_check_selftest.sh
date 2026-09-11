@@ -42,25 +42,43 @@ case "$1" in
        *"grep -c 08E8"*) if [ "$C" = "napcat" ]; then echo "${STUB_LINK_COUNT:-1}"; else echo "${STUB_PORT_COUNT:-1}"; fi; exit 0 ;;
        *"grep -q 08E8"*) [ "${STUB_PORT_COUNT:-1}" -ge 1 ] && exit 0 || exit 1 ;;
        *"langbot:5300"*) echo "${STUB_HTTP_CODE:-200}"; exit 0 ;;
+       *get_status*)
+          [ "${STUB_QQ_API_FAIL:-0}" = "1" ] && exit 1
+          if [ "${STUB_QQ_ONLINE:-1}" = "1" ]; then
+              echo '{"status":"ok","retcode":0,"data":{"online":true,"good":true}}'
+          else
+              echo '{"status":"ok","retcode":0,"data":{"online":false,"good":false}}'
+          fi
+          exit 0 ;;
        *"/opt/QQ/qq"*)   [ "${STUB_NO_QQ_PROC:-0}" = "1" ] && exit 0; echo "${STUB_QQ_PROC:-/proc/143/cmdline}"; exit 0 ;;
      esac
      exit "${STUB_EXEC_EXIT:-0}" ;;
-  logs)    [ "${STUB_LOGS_FAIL:-0}" = "1" ] && exit 1; cat "$STUB_LOGS" 2>/dev/null; exit 0 ;;
+  logs)
+     [ "${STUB_LOGS_FAIL:-0}" = "1" ] && exit 1
+     case "$*" in
+       *napcat*) cat "${STUB_QQ_LOGS:-/dev/null}" 2>/dev/null ;;
+       *)        cat "$STUB_LOGS" 2>/dev/null ;;
+     esac
+     exit 0 ;;
   restart) exit "${STUB_RESTART_EXIT:-0}" ;;
 esac
 exit 0
 STUB
     chmod +x "$SB/bin/docker"
-    export STUB_CALLS="$SB/calls.txt" STUB_LOGS="$SB/logs.txt"
-    : > "$STUB_CALLS"; : > "$STUB_LOGS"
+    export STUB_CALLS="$SB/calls.txt" STUB_LOGS="$SB/logs.txt" STUB_QQ_LOGS="$SB/qq.log"
+    : > "$STUB_CALLS"; : > "$STUB_LOGS"; : > "$STUB_QQ_LOGS"
     export HC_DOCKER="$SB/bin/docker" HC_STATE_DIR="$SB/state" \
            HC_LOG="$SB/health.log" HC_SCAN_FILE="$SB/scan.txt"
     unset HC_FAIL_THRESHOLD HC_FORCE_FAIL STUB_NO_CONTAINERS STUB_HEARTBEAT_AGE \
           STUB_PORT_COUNT STUB_LINK_COUNT STUB_HTTP_CODE STUB_QQ_PROC STUB_NO_QQ_PROC \
-          STUB_HEALTH STUB_LOGS_FAIL STUB_RESTART_EXIT STUB_EXEC_EXIT 2>/dev/null || true
+          STUB_QQ_ONLINE STUB_QQ_API_FAIL STUB_HEALTH STUB_LOGS_FAIL STUB_RESTART_EXIT \
+          STUB_EXEC_EXIT 2>/dev/null || true
     LOGFILE="$SB/health.log"
     CALLS="$SB/calls.txt"
+    QQLOG="$SB/qq.log"
     STATEFILE="$SB/state/health_fail_count"
+    ALERTFILE="$SB/state/alert"
+    SKIPFILE="$SB/state/health_skip_count"
 }
 runs() { for _ in $(seq 1 "$1"); do bash "$TARGET"; done; }
 
@@ -197,6 +215,59 @@ fi
 # ---------- T10 语法检查 ----------
 echo "[T10] bash -n 语法检查"
 if bash -n "$TARGET" 2>/dev/null; then ok "语法正确"; else bad "语法错误"; fi
+
+# ---------- T11 重启写 alert ----------
+echo "[T11] 重启写 state/alert"
+setup
+export HC_FORCE_FAIL=1
+runs 3
+unset HC_FORCE_FAIL
+has "$ALERTFILE" "|restart|" "重启事件写入 alert"
+has "$LOGFILE" "ALERT restart" "日志记录 ALERT restart"
+
+# ---------- T12 登录态状态探针异常 → qq-offline，不计失败 ----------
+echo "[T12] 登录态状态探针异常 → qq-offline 且不计失败"
+setup
+export STUB_QQ_API_FAIL=1
+runs 2
+unset STUB_QQ_API_FAIL
+has "$ALERTFILE" "|qq-offline|" "写入 qq-offline"
+has "$LOGFILE" "QQ-OFFLINE state=0" "日志标记 QQ-OFFLINE"
+has "$LOGFILE" "heartbeat probe=11111 link=1 restart=0 qq=0" "探针仍全绿、qq=0"
+[ ! -f "$STATEFILE" ] && ok "未计入失败计数" || bad "被计入失败计数"
+hasnt "$CALLS" "restart" "未触发重启"
+
+# ---------- T13 日志事件扫描 → qq-offline ----------
+echo "[T13] napcat 日志出现离线事件 → qq-offline 告警"
+setup
+echo '09-09 17:37:52 [info] 机器豆 | 账号状态变更为离线' > "$QQLOG"
+bash "$TARGET"
+has "$ALERTFILE" "|qq-offline|" "日志事件写入 qq-offline"
+has "$LOGFILE" "events=1" "记录事件计数"
+
+# ---------- T14 正常轮次不写 alert ----------
+echo "[T14] 正常轮次不产生 alert"
+setup
+bash "$TARGET"
+[ ! -f "$ALERTFILE" ] && ok "无 alert 文件" || bad "不该产生 alert"
+
+# ---------- T15 告警去重（1 小时） ----------
+echo "[T15] 同类告警 1 小时内去重"
+setup
+export STUB_QQ_API_FAIL=1
+runs 4
+unset STUB_QQ_API_FAIL
+eq "alert 行数=1" "$(grep -c '|qq-offline|' "$ALERTFILE" 2>/dev/null)" "1"
+eq "日志 ALERT 行数=1" "$(grep -c 'ALERT qq-offline' "$LOGFILE" 2>/dev/null)" "1"
+
+# ---------- T16 连续 SKIP 达阈值告警 ----------
+echo "[T16] 连续 3 次前置条件缺失 → skip 告警"
+setup
+export STUB_NO_CONTAINERS=1
+runs 3
+unset STUB_NO_CONTAINERS
+has "$ALERTFILE" "|skip|" "写入 skip 告警"
+has "$LOGFILE" "consecutive=3" "记录连续次数"
 
 echo ""
 echo "=== 结果: 通过 $PASS，失败 $FAIL ==="

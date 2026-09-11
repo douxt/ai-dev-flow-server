@@ -62,3 +62,46 @@ T2 查明：**掉线期间 OneBot WS 一直连着**（9/9 17:39 → 9/10 17:56 �
 - [ ] `[auto]` AC7: 状态探针在 `online:false`/拒连时写 `alert: qq-offline`，且**不**增加失败计数、不触发重启（自测覆盖）
 - [ ] `[auto]` AC8: 日志事件扫描命中任一模式即写 `alert: qq-offline`；正常日志不写（自测覆盖）
 - [ ] `[human-verify]` AC9: 与 `link` 探针的关系写进 `nas-access-best-practices.md` §十二（说明各自的覆盖边界与"link=1 不等于已登录"）
+
+---
+
+## 执行结果（2026-09-11）
+
+### ⚠️ 架构修正：出口不是开发机，而是阿里云服务器
+
+原设计假设"开发机 cron → `scripts/notify.py` → Telegram"。实测推翻：
+
+| 位置 | 到 Telegram |
+|---|---|
+| 开发机 | `code=000`（国内网络，baidu=200 但 telegram/github 不通） |
+| NAS | `code=000`，google 超时 → **基本无外网** |
+| **阿里云 115.29.110.107** | ✅ 有 `telegram-bot.service`（凭据 `/opt/maf-hub/config/telegram.json`，经 Tailscale 上的 Clash 代理 `100.83.141.78:7890` 出海） |
+
+**最终链路**：
+
+```
+NAS 巡检（零外网，只写 state/alert）
+   ↑ 每 5 分钟 ssh 拉取（走 Tailscale，9–22ms）
+阿里云 /usr/local/bin/nas-fetch-alerts.sh → nas-alert-send.py → Telegram
+```
+
+新增凭据关系：云服务器公钥（`maf-hub-server`）加入 NAS `authorized_keys`（反向拉取用；NAS 不新增出网依赖，符合 D2 原意）。
+
+### 交付物
+
+| 文件 | 位置 | 说明 |
+|---|---|---|
+| `nas/health-check.sh`（v2） | NAS `/volume1/docker/langbot/health-check.sh`（md5 `7a9b5bc9ea35811510025a3d72f66f16`） | 新增登录态双探测 + `state/alert`（1h 去重）+ 连续 SKIP 告警 |
+| `nas/cloud/nas-fetch-alerts.sh` | 云 `/usr/local/bin/nas-fetch-alerts.sh` | 拉取 → 推送 → **成功后**才归档（失败留在 NAS 重试，不丢数据） |
+| `nas/cloud/nas-alert-send.py` | 云 `/usr/local/bin/nas-alert-send.py` | 复用 `telegram.json` 凭据与代理（不复制 token） |
+| 云 crontab | `*/5 * * * * flock -n /tmp/nas-fetch-alerts.lock …` | 已安装 |
+
+### AC 验证
+
+- [x] `[auto]` AC1: 重启时写 `state/alert`（自测 T11 + 真机演练）
+- [x] `[auto]` AC2/AC3: `qq-offline`（状态探针/事件扫描）与 `skip` 告警（自测 T12/T13/T16）；正常轮次不写（T14）
+- [x] `[auto]` AC7/AC8: 登录态双探测，**均不计入重启阈值**（自测 T12 断言探针仍 `probe=11111`、无 restart 调用）
+- [x] `[human-verify]` AC4: ssh 失败/发送失败时不归档、不丢数据（脚本逻辑 + 云日志 `send failed, alert kept pending on NAS`）
+- [x] `[human-verify]` AC5: 通道实测可达（云侧 `sent`，退出码 0；两次真实消息已发出，待用户确认收到）
+- [x] `[human-verify]` AC6: 端到端演练 —— 真机强制失败 ×3 → 31 秒完成重启 → `state/alert` 写入 → 云侧 `sent 1 alert line(s)` → NAS 侧 `alert` 归档为 `alert.history`；恢复后 `health=healthy / link=1 / qq online`
+- [ ] `[human-verify]` AC9: 文档更新（本次提交完成）

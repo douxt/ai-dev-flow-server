@@ -399,3 +399,28 @@ QQ 掉线（`link=0` / `ACCOUNT-OFFLINE`）→ 浏览器开 `http://nas:6099`（
 4. **存储读写必须保守**：读失败绝不能写空数据覆盖旧数据
 5. **消息组件树是嵌套结构**：Quote/Forward 含子 MessageChain，必须递归处理
 6. **事件时机决定数据状态**：同一条消息在不同事件中内容可能已被前面的 stage 修改
+
+### 十二·补 阶段二补充（2026-09-11）：登录态探测与告警出口
+
+**为什么需要登录态探测**：2026-09-09 17:39 → 09-10 17:56 期间 QQ 账号被反复置为离线，**但 OneBot WS 一直连着**（napcat 日志 0 条 WS 错误）——即 `link=1` 也可能是"假健康"。故 v2 增加两条只告警、不计入重启阈值的探测：
+
+| 探测 | 命令 | 判据 |
+|---|---|---|
+| `qq`（状态） | napcat 内 `curl -m5 http://127.0.0.1:3000/get_status?access_token=…` | 200 且 `"online":true`（该 API 仅在已登录时监听） |
+| `qq-events`（事件） | napcat 日志 5 分钟窗口匹配 `账号状态变更为离线\|请扫描下面的二维码\|你的用户身份已失效\|快速登录错误` | 命中数 > 0 |
+
+任一异常 → 写 `state/alert` 类型 `qq-offline`（1 小时去重）。该事件扫描若在 09-09 当天已部署，**可在 17:42 就报警，比实际发现早约 42 小时**。
+
+**告警出口**（NAS 无外网、开发机被墙，唯一通道是阿里云）：
+
+```
+NAS 巡检 ──> /volume1/docker/langbot/state/alert
+                ↑ 每 5 分钟 ssh 拉取（Tailscale，9–22ms）
+阿里云 115.29.110.107: /usr/local/bin/nas-fetch-alerts.sh
+        → nas-alert-send.py（凭据 /opt/maf-hub/config/telegram.json，经 Clash 代理）
+        → Telegram
+```
+
+- 发送**成功才**把 NAS 的 `alert` 归档为 `alert.history`；失败则留在 NAS 等下次重试（不丢数据）
+- 排查入口：NAS `state/alert`（待发）与 `state/alert.history`（已发）；云侧 `/var/log/nas-alert.log`
+- 心跳行格式：`heartbeat probe=11111 link=1 restart=0 qq=1`（`qq=0` 表示登录态异常但服务本身健康）

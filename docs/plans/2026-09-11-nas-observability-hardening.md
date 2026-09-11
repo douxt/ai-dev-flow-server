@@ -91,3 +91,31 @@ T4 / T6 / T7 / T8（可与主线并行，各自独立）
 |---|---|---|
 | 2026-09-11 11:2x | T0 收尾 | push 9 commit（`origin/main=c7cedd0`）；旧 worktree 删除；`/tmp/base-wt` prune；新建 `nas-observability` |
 | 2026-09-11 11:2x | 阶段二落文 | 本计划 + T1–T8 工单入库 |
+
+---
+
+## 九、执行进展（实时更新）
+
+### D2 修正：告警出口 = 阿里云服务器（2026-09-11 实测后修订）
+
+原决策写"出口集中在开发机（cron 抓取 → notify.py Telegram）"。实测：**开发机与 NAS 均无法访问 Telegram**（国内网络；NAS 基本无外网），唯一有通道的是**阿里云 115.29.110.107**（`telegram-bot.service` + `/opt/maf-hub/config/telegram.json`，经 Tailscale 上 Clash 代理出海）。
+
+最终链路（NAS 仍保持零外网，符合 D2 原意）：
+
+```
+NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里云 ──> Telegram
+```
+
+### T1 完成情况
+
+| 项 | 结果 |
+|---|---|
+| 巡检 v2（登录态双探测 + alert + 去重 + 连续 SKIP 告警） | ✅ 部署（md5 `7a9b5bc9…`），影子运行 `probe=11111 link=1 qq=1` |
+| 云侧抓取/发送脚本 | ✅ 部署 + crontab `*/5` |
+| 端到端演练 | ✅ 11:24:20 触发重启 → 11:24:51 完成（31s）→ 告警写入 → 云侧 `sent 1 alert line(s)` → NAS 归档 |
+| 自测 | ✅ 52 项全绿（新增 T11–T16：alert/去重/登录态/不计阈值/SKIP） |
+| 遗留 | 云服务器公钥已加入 NAS `authorized_keys`（供反向拉取）；`alert.history` 需定期归档（未做轮换，量极小） |
+
+### T2 完成情况
+
+根因查明（QQ 会话失效）＋关键反证（**掉线期间 OneShot WS 仍连着 → 阶段一 `link` 探针有 24h 假健康窗口**）。已据此在 T1 补登录态双探测。详见 `issues/2026-09-11-nas-obs-t2-qq-offline-rca.md`。

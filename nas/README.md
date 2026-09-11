@@ -34,3 +34,17 @@ bash nas/check-drift.sh            # 默认 root@nas；只读，无副作用
 - `scp` 整目录覆盖前先做三向核对（仓库 / NAS 在版 / 容器内生效版）；`docker/langbot/patches/` 同理（见 ADR 010）
 - 部署后运行 `bash nas/check-drift.sh` 确认，并记录对应 git commit
 - 改完巡检类脚本，先跑 `bash tests/integration/health_check_selftest.sh`（零依赖，38 项）
+
+## 2026-09-11 阶段二（T1）更新
+
+| 仓库文件 | 部署位置 | md5 | 说明 |
+|---|---|---|---|
+| `health-check.sh`（v2） | NAS `/volume1/docker/langbot/health-check.sh` | `7a9b5bc9ea35811510025a3d72f66f16` | 五项探针 + 登录态双探测（`qq` 状态探针 / `qq-events` 日志扫描）+ `state/alert`（1h 去重）+ 连续 SKIP 告警 |
+| `cloud/nas-fetch-alerts.sh` | 阿里云 `/usr/local/bin/nas-fetch-alerts.sh` | 部署于 2026-09-11 | 拉取 NAS `state/alert` → Telegram → 成功后归档 |
+| `cloud/nas-alert-send.py` | 阿里云 `/usr/local/bin/nas-alert-send.py` | 同上 | 复用 `/opt/maf-hub/config/telegram.json`（token + Tailscale Clash 代理） |
+
+上表 v1（md5 `8df813471e86be2f4f221ecae9ca20e0`）已备份为 NAS `health-check.sh.bak.20260911-v1`。
+
+**告警链路**：NAS（零外网）写 `state/alert` ← 阿里云 cron `*/5` ssh 拉取（Tailscale）→ Telegram。云服务器公钥（`maf-hub-server`）已加入 NAS `authorized_keys`。
+
+**注意**：`nas/check-drift.sh` 目前只覆盖 NAS 三个文件；云侧两个脚本尚未纳入对账（T5 处理）。
