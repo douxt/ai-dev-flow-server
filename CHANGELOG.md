@@ -485,3 +485,9 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 
 ### 测试
 - `tests/unit/test_git_hooks_role.bats` 8 用例双镜像（含绕过反例、删除/新建语义、worktree 串联、update 刷新链、引号 role、pre-commit 双路径）；夹具自测中自家角色门拦截自家受保护提交=活体生效旁证
+
+### 教训回流（cut-optimizer 记忆转正反哺）
+- `gate-checklists/README.md`：目录约定入册——**只放流程阶段门禁清单**，领域纪律归租户仓 `docs/`+CLAUDE.md 指针（该 README 随 L549 `*.md` glob 部署到用户级，租户可见=预期收益，无既有断言受影响）
+- `templates/issue-template.md` status 注释强化：ready 只能人设、自动化产物停 backlog——"内容正确 ≠ 有审批地位"（seed 票作废事件回流；属会话软纪律，不造机器闸）
+- 新登记 **DEFECT-014**（roadmap）：install update 段 L609-611 把**平台内部 ADR 全集**复制到每个租户 `docs/decisions/`，与租户自有 ADR 编号体系冲突（cut-optimizer 双 ADR-001 现场）——传播设计失当，修法待定
+

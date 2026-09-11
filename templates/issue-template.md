@@ -2,7 +2,7 @@
 type: AFK               # AFK(无人步骤) | HITL(含人工步骤)
 estimate: 0.5d           # ≤1d 宪法要求
 effort: small            # small(<1d) | medium(1-2d) | large(>2d, 禁止ready)
-status: backlog          # backlog → ready(人) → in_progress(自动) → done
+status: backlog          # backlog → ready(人) → in_progress(自动) → done ——ready 只能由人设置；自动化/接入产物一律停在 backlog，"内容正确"不等于"有审批地位"
 blocked_by: []           # 依赖的 ticket ID 列表
 needs_llm: true
 needs_vision: false
