@@ -192,3 +192,9 @@ daily-digest  0 9 ────────────────────�
 - 实测：注入测试告警 → `sent=1 failed=0`、队列清空、历史留痕；日报 `rc=0`；自检 11 项清单 `drift=0`
 - 移除阿里云：两条 cron、三个脚本、云公钥；实测云 → NAS `Permission denied`
 - 代价（用户已确认接受）：NAS 宕机时无通知（缺日报即信号）
+
+### 开发机看门狗出口修正（2026-09-11，随阿里云退役）
+
+`nas/watchdog.sh` 原出口是"ssh 云 → nas-alert-send.py"，云脚本删除后改为**写入 NAS `state/alert`**，
+由 NAS 的 `alert-flush.sh` 投递——全链路只剩 NAS 一个执行者。实测 `WD_FORCE_PROBLEM=1` →
+队列 `…|dev-watchdog|…` → `sent=1 failed=0` → `alert.history` 留痕。

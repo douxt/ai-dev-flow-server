@@ -17,8 +17,7 @@ set -uo pipefail
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAS_HOST=${WD_NAS:-root@nas}
-CLOUD_HOST=${WD_CLOUD:-root@115.29.110.107}
-SENDER=/usr/local/bin/nas-alert-send.py
+ALERT_REMOTE=${WD_ALERT_REMOTE:-/volume1/docker/langbot/state/alert}
 SSH_OPTS=(-nT -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new)
 # 推送用：必须保留 stdin（-n 会把管道内容丢掉），只禁 TTY
 SSH_STDIN_OPTS=(-T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new)
@@ -114,7 +113,9 @@ msg="🐕 NAS 看门狗告警（开发机）
 $body
 时间: $(date '+%F %T')"
 
-if printf '%s' "$msg" | ssh "${SSH_STDIN_OPTS[@]}" "$CLOUD_HOST" "python3 $SENDER" >/dev/null 2>&1; then
+# 出口走 NAS：把消息写进 NAS 的 state/alert，由 NAS 的 alert-flush.sh(*/2) 经网关代理发 Telegram
+if printf '%s|dev-watchdog|%s\n' "$now" "$(printf '%s' "$body" | tr '\n' ' ')" \
+        | ssh "${SSH_STDIN_OPTS[@]}" "$NAS_HOST" "cat >> $ALERT_REMOTE" >/dev/null 2>&1; then
     printf 'sig=%s\nts=%s\n' "$signature" "$now" > "$STATE_FILE"
     log "NOTIFIED: $(printf '%s' "$body" | tr '\n' '; ')"
 else

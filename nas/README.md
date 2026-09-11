@@ -109,3 +109,13 @@ NAS（24/7，唯一运行者）
 **已移除**（阿里云侧）：`nas-fetch-alerts.sh`、`nas-alert-send.py`、`nas-daily-digest.sh`、两条 cron、以及云服务器在 NAS 上的公钥（`maf-hub-server`）——实测云 → NAS 已 `Permission denied`。原脚本保留在 git 历史（`nas/cloud/` 目录已删）。
 
 **已知代价（有意接受）**：NAS 整机宕机时不会有任何通知（缺日报即信号）；开发机看门狗为可选，仅在开机时提供"仓库 main ↔ NAS"的全量视角。
+
+### 开发机看门狗出口修正（同日）
+
+云侧发送脚本删除后，`nas/watchdog.sh` 的出口改为**写入 NAS 的 `state/alert`**（由 NAS 的 `alert-flush.sh` 投递），不再依赖任何外部主机：
+
+```
+开发机 watchdog ──ssh 追加一行──> NAS state/alert ──alert-flush */2──> 网关代理 ──> Telegram
+```
+
+实测：`WD_FORCE_PROBLEM=1` → 队列出现 `…|dev-watchdog|…` → flush `sent=1 failed=0` → `alert.history` 留痕。
