@@ -55,6 +55,14 @@ NAS 在版 3410B / 83 行；仓库 `nas/health-check.sh` 1486B / 46 行；md5 �
 
 旧探针通过 `POST /bots/<uuid>/sync` 发起真实消息 → gate → 检索 → LLM。后果：LLM 用量开销、向聊天归档表写入巡检伪造记录、抢 WS 队列（dev-journal 第 16 坑）、**失败可能是 LLM 抖动而非服务故障，会诱发误重启**。
 
+## 缺陷八：napcat 判据用错端口，且混淆"未登录"与"进程死了"
+
+旧探针查 `http://localhost:3000/get_status`，实测 napcat 的 HTTP 服务**配置在 5700**（`0.0.0.0:5700`），`3000` 从未监听。修好路径后会永久判失败 → 每 10 分钟重启容器一次；而真正需要人工扫码的"账号掉线"却无法被表达。修复：⑤ 改判"QQ 进程存活"（重启项），另设非重启项 WS 链路检测（`napcat` 内 `grep -c 08E8 /proc/net/tcp`），未建连时输出 `ACCOUNT-OFFLINE` 但不计入阈值。
+
+## 附：2026-09-11 关联线上事故（QQ 掉线，需人工处置）
+
+探针上机实测时发现：napcat 反复输出登录二维码（近 6 小时 712 次 / 近 72 小时 1961 次），日志有"账号状态变更为离线"；插件 `silent_gate.log` 最后更新停在 **2026-09-09 16:18:02** → **Bot 已掉线约 2 天**。QQ 进程与容器均存活，WS 到 `langbot:2280` 连接数为 0。登录入口：napcat WebUI `http://<nas>:6099`（token `udimc123`）。该事故本身不属于本工单修复范围（需人工扫码），但它是"未登录类故障重启无效"这一判据设计的直接依据。
+
 ## Acceptance Criteria
 
 - [ ] `[auto]` AC1: 新脚本每轮日志 ≤ 2 行且不含 traceback（零依赖自测断言 + NAS 连续 3 轮观察）
@@ -64,6 +72,7 @@ NAS 在版 3410B / 83 行；仓库 `nas/health-check.sh` 1486B / 46 行；md5 �
 - [ ] `[auto]` AC5: stub 记录的重启参数顺序为 `langbot-plugin langbot` 后 `napcat`，且每条 restart 均带 `timeout`
 - [ ] `[auto]` AC6: 脚本静态断言不含 `/sync`、`/bots`（不再走 LLM pipeline）
 - [ ] `[auto]` AC7: 日志行数上界生效（保留末 500 行）
+- [ ] `[auto]` AC13: WS 掉线（`link=0`）时输出 `ACCOUNT-OFFLINE`、心跳标 `link=0`，且连续多轮**不触发重启**、不计入失败（自测 T7c）；QQ 进程缺失则计入阈值（自测 T7b，`probe=11110`）
 - [ ] `[human-verify]` AC8: NAS 在版脚本与 `git show main:nas/health-check.sh` md5 一致
 - [ ] `[human-verify]` AC9: 部署后 3 个 cron 周期（15 分钟）心跳行连续、无 traceback、无 SKIP
 - [ ] `[human-verify]` AC10: 重启验证后 `healthcheck=healthy`、napcat 无 `ECONNREFUSED`、`silent_init.log` 含 `kb_enabled=True vision_enabled=True`、插件↔langbot 重新注册成功
