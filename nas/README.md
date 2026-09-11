@@ -86,3 +86,26 @@ bash nas/check-drift.sh            # 默认 root@nas；只读，无副作用
 | `nas/watchdog.sh` | 开发机 | 每小时（**可选**） | 仓库 main ↔ NAS 全量比对 + 本地自测；仅在开发机开机时提供额外视角 |
 
 NAS crontab 现有三条自建任务：`*/5 health-check`、`*/15 selfcheck`、`17 */6 deep-smoke`（快照见 `docs/references/nas-crontab-snapshot-20260911.txt`）。
+
+## 2026-09-11 架构定稿：全 NAS 自洽（阿里云已移除）
+
+用户要求"不要把阿里云主机牵扯进来，NAS 自洽更重要"。NAS 经**局域网网关上的 Clash 代理**（`192.168.31.1:7890`）可直连 Telegram（实测 `getMe → ok:true`），因此发送也搬回 NAS。
+
+```
+NAS（24/7，唯一运行者）
+├ health-check   */5   ┐
+├ selfcheck      */15  ├─→ state/alert ─→ alert-flush (*/2) ─→ 网关 Clash 代理 ─→ Telegram
+└ deep-smoke   17 */6  ┘
+  daily-digest   0 9   ─────────────────────────────────────→ Telegram（死者开关）
+凭据：/volume1/docker/langbot/state/telegram.conf（chmod 600，不进仓库；模板 nas/telegram.conf.example）
+```
+
+| 仓库文件 | NAS 路径 | 频率 | 作用 |
+|---|---|---|---|
+| `nas/lib-telegram.sh` | `/volume1/docker/langbot/lib-telegram.sh` | — | 发送库（读 conf + curl 走代理） |
+| `nas/alert-flush.sh` | `/volume1/docker/langbot/alert-flush.sh` | `*/2` | 认领 `state/alert` → 发送 → 归档/失败回队 |
+| `nas/daily-digest.sh` | `/volume1/docker/langbot/daily-digest.sh` | `0 9` | 每日摘要（收不到=有东西坏了） |
+
+**已移除**（阿里云侧）：`nas-fetch-alerts.sh`、`nas-alert-send.py`、`nas-daily-digest.sh`、两条 cron、以及云服务器在 NAS 上的公钥（`maf-hub-server`）——实测云 → NAS 已 `Permission denied`。原脚本保留在 git 历史（`nas/cloud/` 目录已删）。
+
+**已知代价（有意接受）**：NAS 整机宕机时不会有任何通知（缺日报即信号）；开发机看门狗为可选，仅在开机时提供"仓库 main ↔ NAS"的全量视角。

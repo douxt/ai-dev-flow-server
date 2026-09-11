@@ -9,3 +9,5 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/syno/sbin:/usr/syno/bin:/usr/local/sbin:
 10	18	*	*	0	root	/usr/syno/bin/synoschedtask --run id=2
 17 */6 * * * root /volume1/docker/langbot/deep-smoke.sh
 */15 * * * *	root /volume1/docker/langbot/selfcheck.sh
+*/2 * * * *	root /volume1/docker/langbot/alert-flush.sh
+0 9 * * *	root /volume1/docker/langbot/daily-digest.sh

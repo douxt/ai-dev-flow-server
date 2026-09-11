@@ -176,3 +176,19 @@ NAS  deep-smoke  (17 */6)┘                        └─ 每日 09:00 摘要�
 - `nas/manifest.tsv` → `make-manifest.sh`（生成并部署清单）；`check-drift.sh` 改读同一 tsv
 - 云侧新增 `nas-daily-digest.sh`（`0 9 * * *`）
 - 实测：漂移影子检出 ✓ / 正确清单静默 ✓ / 生产 rc=0 ✓ / 日报已发出 ✓
+
+### 架构定稿（2026-09-11，用户要求：不要把阿里云牵扯进来）
+
+NAS 经网关 Clash 代理（`192.168.31.1:7890`，实测 `getMe ok:true`）可直连 Telegram → **发送也搬回 NAS**，阿里云完全退出：
+
+```
+health-check */5 ┐
+selfcheck    */15 ├→ state/alert → alert-flush */2 → 代理 → Telegram
+deep-smoke 17 */6 ┘
+daily-digest  0 9 ─────────────────────────────────→ Telegram（死者开关）
+```
+
+- 新增并部署：`nas/lib-telegram.sh`、`nas/alert-flush.sh`（*/2）、`nas/daily-digest.sh`（0 9）；凭据 `state/telegram.conf`（600，模板入库）
+- 实测：注入测试告警 → `sent=1 failed=0`、队列清空、历史留痕；日报 `rc=0`；自检 11 项清单 `drift=0`
+- 移除阿里云：两条 cron、三个脚本、云公钥；实测云 → NAS `Permission denied`
+- 代价（用户已确认接受）：NAS 宕机时无通知（缺日报即信号）

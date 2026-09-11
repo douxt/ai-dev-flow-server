@@ -112,3 +112,19 @@ NAS 巡检（零外网，只写 state/alert）
 
 - [x] `[human-verify]` AC5 补记：**用户确认 Telegram 已收到消息** → Cloud → Clash 代理（Tailscale `100.83.141.78:7890`）→ Telegram 链路正式可用
 - [x] `[human-verify]` AC9: 文档已更新（`nas-access-best-practices.md` §十二·补、`automated-testing-guide.md`、`skills/nas-ops`）
+
+---
+
+## 架构再修订（2026-09-11，用户要求：NAS 自洽、不牵扯阿里云）
+
+发现 NAS 经**局域网网关上的 Clash 代理**（`192.168.31.1:7890`）可直连 Telegram（`getMe → ok:true`），故发送端也搬回 NAS：
+
+| 环节 | 现状 |
+|---|---|
+| 生产（health-check / selfcheck / deep-smoke） | 写 `state/alert`（不变） |
+| 投递 | **NAS** `alert-flush.sh`（cron `*/2`）→ 网关代理 → Telegram；原子认领队列，失败回队重试 |
+| 每日摘要 | **NAS** `daily-digest.sh`（cron `0 9`）——死者开关 |
+| 凭据 | NAS `state/telegram.conf`（600） |
+| 阿里云 | **已完全移除**：cron 条目、脚本、NAS 上的公钥（实测云→NAS `Permission denied`） |
+
+验证：注入测试告警 → `sent=1 failed=0`、队列清空、`alert.history` 留痕；日报 `rc=0`；自检 `drift=0`（清单 11 项）。

@@ -7,3 +7,6 @@ docker/langbot/plugin-entrypoint.sh|/volume1/docker/langbot/plugin-entrypoint.sh
 nas/deep-smoke.sh|/volume1/docker/langbot/deep-smoke.sh|深度金丝雀包装
 nas/deep-canary.py|/volume1/docker/langbot/tests/deep-canary.py|深度金丝雀本体
 nas/selfcheck.sh|/volume1/docker/langbot/selfcheck.sh|NAS 自检（心跳新鲜度+在版漂移）
+nas/lib-telegram.sh|/volume1/docker/langbot/lib-telegram.sh|Telegram 发送库（NAS）
+nas/alert-flush.sh|/volume1/docker/langbot/alert-flush.sh|告警投递（NAS，*/2）
+nas/daily-digest.sh|/volume1/docker/langbot/daily-digest.sh|每日摘要（NAS，0 9）

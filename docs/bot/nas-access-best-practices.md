@@ -424,3 +424,17 @@ NAS 巡检 ──> /volume1/docker/langbot/state/alert
 - 发送**成功才**把 NAS 的 `alert` 归档为 `alert.history`；失败则留在 NAS 等下次重试（不丢数据）
 - 排查入口：NAS `state/alert`（待发）与 `state/alert.history`（已发）；云侧 `/var/log/nas-alert.log`
 - 心跳行格式：`heartbeat probe=11111 link=1 restart=0 qq=1`（`qq=0` 表示登录态异常但服务本身健康）
+
+### 十二·补2 告警链路定稿（2026-09-11）：全 NAS 自洽
+
+```
+health-check */5 ┐
+selfcheck    */15 ├→ /volume1/docker/langbot/state/alert
+deep-smoke 17 */6 ┘        ↓ alert-flush.sh (*/2)
+                      网关 Clash 代理 (192.168.31.1:7890) → Telegram
+daily-digest.sh (0 9) ─────────────────────────────────────→ Telegram（死者开关）
+```
+
+- NAS 直连 Telegram 不通（无外网/被墙），**必须走网关代理**；凭据在 `state/telegram.conf`（600）
+- 排查：NAS `/tmp/nas_alert_flush.log`、`/tmp/nas_digest.log`、`state/alert`（待发）、`state/alert.history`（已发）
+- 阿里云不再参与任何环节；若长期收不到每日摘要，说明 NAS / 代理 / 巡检三者之一出了问题

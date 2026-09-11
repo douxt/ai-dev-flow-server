@@ -1,0 +1,6 @@
+# NAS 侧 Telegram 出口凭据（模板；真实文件不进仓库）
+# 部署位置：/volume1/docker/langbot/state/telegram.conf   权限 600（root）
+# 代理：局域网网关上的 Clash（NAS 直连 api.telegram.org 不通，必须走代理）
+PROXY=http://Clash:<password>@192.168.31.1:7890
+TOKEN=<bot_token>
+CHAT_ID=<chat_id>
