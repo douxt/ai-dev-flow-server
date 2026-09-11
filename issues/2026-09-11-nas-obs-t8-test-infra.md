@@ -42,3 +42,28 @@ safety: ""
 
 - 风险1: 选 d 会让 bats 覆盖消失 — 缓解: 若选 d，需在 AC 中记录理由与替代保障
 - 回退: `git revert`
+
+---
+
+## 执行结果（2026-09-11）：选定路径 c
+
+**选项 c 落地**：把零依赖自测挂进开发机看门狗（`nas/watchdog.sh` 新增第 0 步），每小时执行一次：
+
+```bash
+selftest_out=$(timeout 300 bash "$REPO_ROOT/tests/integration/health_check_selftest.sh" 2>&1)
+[ $? -ne 0 ] && problems+=("巡检脚本自测失败（N 项断言不通过）")
+```
+
+理由：本机无 docker 镜像/无外网/未装 bats（`tests/run_tests.sh` 与 `run_local.sh` 都跑不了），而零依赖自测**本机与 NAS 都能跑**；挂进看门狗即获得"周期性执行 + 失败通知"两个属性，不需要新基础设施。
+
+bats 薄封装（`tests/integration/test_health_check.bats`）保留：供有网/CI 环境走标准套件，不再是唯一入口。
+
+### AC 验证
+
+- [x] `[decision]` AC1: 路径 = c（零依赖自测挂看门狗）；理由：零新依赖 + 周期执行 + 与告警链路复用
+- [x] `[human-verify]` AC2: **被执行过的证据** —— 2026-09-11 11:45 看门狗运行内含自测通过并写日志 `OK（漂移/心跳/积压 均正常）`（若自测失败会追加一条 problem 并推送）
+- [x] `[human-verify]` AC3: 文档写明本机不可用与替代命令（见 `docs/bot/automated-testing-guide.md` 新增小节）
+
+### 备注
+
+- 全量 bats 套件仍需在有网/CI 环境执行；NAS 上的巡检相关自测可作为兜底（future: 把 selftest 也拷到 NAS 由 cron 跑）

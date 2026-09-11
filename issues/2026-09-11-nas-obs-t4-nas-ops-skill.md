@@ -46,3 +46,17 @@ safety: ""
 
 - 风险1: skill 与文档双份维护导致漂移 — 缓解: skill 只写"流程步骤"，事实性数据统一指向文档/manifest
 - 回退: `git revert`
+
+---
+
+## 执行结果（2026-09-11）
+
+`skills/nas-ops/SKILL.md` 已入库（YAML frontmatter + 正文，与 `skills-cache/*/SKILL.md` 同构）。
+
+覆盖：事实核对入口（不重复数据，指向 `nas/README.md` 与 `docs/bot/nas-access-best-practices.md`）、巡检行/状态文件判读表、告警类型→处置表、**7 步部署流程**、重启后验证清单、QQ 掉线恢复、SSH/Docker 纪律（含 `--tail` 无时间窗、`set -e` 吞逻辑等本次踩过的坑）、故障速查表。
+
+### AC 验证
+
+- [x] `[auto]` AC1: skill 入库，含"何时用/何时不用"与触发说明
+- [x] `[human-verify]` AC2: 用它独立解读一段巡检日志（本次会话中反复使用：`heartbeat/FAIL/locked/SKIP/ALERT/QQ-OFFLINE` 全部有定义）
+- [x] `[human-verify]` AC3: 与文档无矛盾——skill 只写流程，事实一律引用 `nas/README.md`、`nas-access-best-practices.md`、`container-restart-best-practices.md`

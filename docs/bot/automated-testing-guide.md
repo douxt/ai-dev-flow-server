@@ -506,3 +506,19 @@ done
 | OneBot v11 协议 | [botuniverse/onebot-11](https://github.com/botuniverse/onebot-11) |
 | 本项目单元测试 | `docker/langbot/plugins/silent-observer/tests/` |
 | 本项目集成测试 | `docker/langbot/plugins/silent-observer/tests/scripts/test_face_recognition.sh` |
+
+---
+
+## 本机无法运行 bats 时的替代路径（2026-09-11）
+
+本机环境实测：docker 无任何镜像、无外网（`docker pull` 失败）、未安装 `bats` → `tests/run_tests.sh` 与 `tests/integration/run_local.sh` **均无法执行**（base 镜像 `bats/bats:latest` / `ubuntu:22.04` 拉不到）。
+
+因此巡检相关测试采用**零依赖自测**作为第一入口：
+
+```bash
+bash tests/integration/health_check_selftest.sh   # 52 项断言，纯 bash + docker stub，无需 bats/docker/网络
+```
+
+- 它同时是 `tests/integration/test_health_check.bats` 的实现体（bats 文件只是薄封装，供有网/CI 环境走标准套件）
+- 已挂进开发机看门狗（`nas/watchdog.sh` 第 0 步）→ 每小时自动执行一次，失败会推 Telegram
+- 全量 bats 套件仍应在有网/CI 环境执行；本机跑不了是**环境限制**，不是测试缺失

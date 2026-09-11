@@ -35,6 +35,13 @@ log() { echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"; }
 
 problems=()
 
+# ---------- 0) 本地自测（零依赖，T8：保证新增测试真的被周期性执行）----------
+selftest_out=$(timeout 300 bash "$REPO_ROOT/tests/integration/health_check_selftest.sh" 2>&1)
+if [ $? -ne 0 ]; then
+    selftest_bad=$(printf '%s\n' "$selftest_out" | grep -c '❌' || true)
+    problems+=("巡检脚本自测失败（${selftest_bad:-?} 项断言不通过，跑 bash tests/integration/health_check_selftest.sh 看详情）")
+fi
+
 # ---------- 1) 漂移对账 ----------
 drift_out=$(timeout 120 bash "$REPO_ROOT/nas/check-drift.sh" 2>&1)
 if [ $? -ne 0 ]; then

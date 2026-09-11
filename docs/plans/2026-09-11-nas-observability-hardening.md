@@ -139,3 +139,8 @@ NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里�
 - 验证：连续 2 次 `CANARY: OK`；失败路径实测写出 `ALERT deep-smoke-fail`
 - 完整套件修好会话争用后仍保留给"部署后人工验证"
 - 副产品观察：回复中偶见提示词片段（质量问题，另开工单）
+
+### T4 / T8 完成情况（2026-09-11）
+
+- **T4**：`skills/nas-ops/SKILL.md` 入库——巡检判读、7 步部署流程、重启验证清单、QQ 掉线恢复、SSH/Docker 纪律、故障速查；事实数据一律引用 `nas/README.md` 等，不重复。
+- **T8**：选定路径 **c** —— 零依赖自测（52 项）挂进开发机看门狗每小时跑一次（失败推 Telegram）；bats 薄封装保留给 CI；`docs/bot/automated-testing-guide.md` 写明本机不可用与替代命令。证据：11:45 看门狗日志 `OK`（自测在周期执行中通过）。
