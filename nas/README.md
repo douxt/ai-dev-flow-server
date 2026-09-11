@@ -48,3 +48,17 @@ bash nas/check-drift.sh            # 默认 root@nas；只读，无副作用
 **告警链路**：NAS（零外网）写 `state/alert` ← 阿里云 cron `*/5` ssh 拉取（Tailscale）→ Telegram。云服务器公钥（`maf-hub-server`）已加入 NAS `authorized_keys`。
 
 **注意**：`nas/check-drift.sh` 目前只覆盖 NAS 三个文件；云侧两个脚本尚未纳入对账（T5 处理）。
+
+## 2026-09-11 阶段二（T5）更新
+
+| 仓库文件 | 部署位置 | 说明 |
+|---|---|---|
+| `watchdog.sh` | 开发机（cron 每小时） | 漂移对账 + 巡检心跳新鲜度 + 待发告警积压；异常经云服务器推 Telegram；静默 + 6h 去重 |
+
+安装（沙箱不允许写 crontab，需人工执行一次）：
+
+```bash
+( crontab -l 2>/dev/null; echo '0 * * * * /home/dou/dev/ai-dev-flow-server/nas/watchdog.sh' ) | crontab -
+```
+
+自检：`WD_FORCE_PROBLEM=1 bash nas/watchdog.sh`（会真实推一条 Telegram）。

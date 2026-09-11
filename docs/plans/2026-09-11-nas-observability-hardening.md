@@ -119,3 +119,15 @@ NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里�
 ### T2 完成情况
 
 根因查明（QQ 会话失效）＋关键反证（**掉线期间 OneShot WS 仍连着 → 阶段一 `link` 探针有 24h 假健康窗口**）。已据此在 T1 补登录态双探测。详见 `issues/2026-09-11-nas-obs-t2-qq-offline-rca.md`。
+
+### T5 完成情况（2026-09-11）
+
+`nas/watchdog.sh`：漂移对账 + 巡检心跳新鲜度 + 待发告警积压，异常经开发机 → 阿里云 → Telegram；静默 + 6h 去重。
+
+验证：真实漂移演练（改 NAS crontab 注释 → 通知 → 还原 → 静默）；`WD_FORCE_PROBLEM=1` 通知链路自检；重复运行被 SUPPRESSED。
+
+**待用户执行**（沙箱无法写 crontab）：
+
+```bash
+( crontab -l 2>/dev/null; echo '0 * * * * /home/dou/dev/ai-dev-flow-server/nas/watchdog.sh' ) | crontab -
+```
