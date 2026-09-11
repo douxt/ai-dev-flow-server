@@ -1,6 +1,9 @@
 #!/bin/bash
 # Silent Observer 健康巡检 — NAS cron 每 5 分钟执行
-# 调用 test_smoke.py，连续 3 次失败后重启容器，10 分钟防重启风暴锁
+# 双通道检测：
+#   A. LangRAG not found 扫描 → 立即重启（不等累计）
+#   B. 烟雾测试 → 连续 3 次失败后重启
+# 防重启风暴锁：10 分钟内不重复重启
 set -e
 
 DOCKER=/volume1/@appstore/ContainerManager/usr/bin/docker
@@ -21,7 +24,36 @@ if [ -f "$LOCK" ]; then
     fi
 fi
 
-# === 部署并运行冒烟 ===
+# ═══════════════════════════════════════════════════════════════
+# 通道 A：LangRAG "not found" 扫描（5 分钟窗口）
+# ═══════════════════════════════════════════════════════════════
+
+NOT_FOUND_COUNT=$($DOCKER logs langbot-plugin --since 5m 2>&1 | grep -c "Plugin.*not found" || true)
+NOT_FOUND_MAIN=$($DOCKER logs langbot --since 5m 2>&1 | grep -c "Plugin.*not found" || true)
+NOT_FOUND_COUNT=$((NOT_FOUND_COUNT + NOT_FOUND_MAIN))
+
+if [ "$NOT_FOUND_COUNT" -gt 0 ]; then
+    echo "[$(date)] ⚠️ LangRAG not found × ${NOT_FOUND_COUNT}，触发立即重启" >> "$LOG"
+    echo "$now" > "$LOCK"
+    rm -f "$FAIL_COUNT_FILE"
+
+    $DOCKER restart langbot >> "$LOG" 2>&1
+    echo "[$(date)] langbot restarted, waiting 50s for healthy..." >> "$LOG"
+    sleep 50
+
+    $DOCKER restart langbot-plugin >> "$LOG" 2>&1
+    echo "[$(date)] langbot-plugin restarted, waiting 15s..." >> "$LOG"
+    sleep 15
+
+    $DOCKER restart napcat >> "$LOG" 2>&1
+    echo "[$(date)] napcat restarted, recovery complete" >> "$LOG"
+    exit 0
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# 通道 B：烟雾测试（3 次累计失败 → 重启）
+# ═══════════════════════════════════════════════════════════════
+
 scp -q "$PROJECT_DIR/tests/test_smoke.py" /tmp/test_smoke.py 2>/dev/null || true
 $DOCKER cp /tmp/test_smoke.py napcat:/tmp/ 2>/dev/null || true
 timeout 90 $DOCKER exec napcat python3 /tmp/test_smoke.py >> "$LOG" 2>&1
@@ -40,7 +72,12 @@ else
         echo "[$(date)] threshold reached, restarting containers" >> "$LOG"
         echo "$now" > "$LOCK"
         rm -f "$FAIL_COUNT_FILE"
-        $DOCKER restart langbot langbot-plugin napcat
+
+        $DOCKER restart langbot >> "$LOG" 2>&1
+        sleep 50
+        $DOCKER restart langbot-plugin >> "$LOG" 2>&1
+        sleep 15
+        $DOCKER restart napcat >> "$LOG" 2>&1
         echo "[$(date)] restart triggered" >> "$LOG"
     fi
 fi

@@ -1,0 +1,9 @@
+MAILTO=""
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/syno/sbin:/usr/syno/bin:/usr/local/sbin:/usr/local/bin
+#minute	hour	mday	month	wday	who	command
+*/30 * * * * root /usr/local/bin/clean-zombie-ssh.sh
+*/5 * * * * root /volume1/docker/langbot/health-check.sh
+*       *       *       *       *       root    /usr/sbin/powersched
+55	2	*	*	5	root	/usr/syno/bin/synoschedtask --run id=1
+0	0	*	*	*	root	/usr/syno/bin/synoschedtask --run id=4
+10	18	*	*	0	root	/usr/syno/bin/synoschedtask --run id=2
