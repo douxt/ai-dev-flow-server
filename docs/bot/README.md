@@ -27,7 +27,6 @@
 | ⚙️ **终版配置** | [bot.md](bot.md) | NapCat/LangBot 配置、人设、记忆压缩、联网搜索 |
 | 🧬 **进化方向** | [evolution-roadmap.md](evolution-roadmap.md) | 四级进化落地方向、技术选型结论、参考项目清单（配 [evolve.md](evolve.md) 初稿） |
 | 🪞 **反思层调研** | [reflection-layer-research-20260729.md](reflection-layer-research-20260729.md) | Reflexion 模式最佳实践、社区反馈、思路校准、生产部署建议 |
-| 🔬 **调研报告** | [research-agent-memory.md](research-agent-memory.md) | Reflexion/A-Mem/Mem0/Letta/Zep/Judge/self-evolving 全景调研 + 来源 |
 | 🧠 **记忆插件研究** | [memory-plugins-study.md](memory-plugins-study.md) | 5 个开源记忆插件深度分析(机制+坐标+可移植清单+许可证) |
 | ✅ **代码评审** | [code-review-against-official.md](code-review-against-official.md) | 对照官方 SDK/示例的 default.py P0-P2 基线(rubric) |
 | 🧩 **插件开发参考** | [langbot-plugin-dev-reference.md](langbot-plugin-dev-reference.md) | LangBot v4.0+ 插件 API/组件/事件/向量操作速查 |
@@ -35,6 +34,8 @@
 | 💥 **事故报告** | [incident-20260713-docker-hang.md](incident-20260713-docker-hang.md) | Docker 僵尸会话崩守护进程——时间线/根因/修复/预防 |
 | 💥 **MCP 超时事故** | [incident-20260714-mcp-timeout.md](incident-20260714-mcp-timeout.md) | MCP 工具调用超时导致会话锁死 9 小时 |
 | 🔧 **LTM 故障诊断** | [ltm-langrag-restoration-20260729.md](ltm-langrag-restoration-20260729.md) | LTM 不工作根因——LangRAG 被禁用+文件在 bak 目录 |
+| 🛰️ **巡检与告警链路** | [nas-access-best-practices.md](nas-access-best-practices.md) §十二 + [ADR-011](../../docs/decisions/011-nas-observability-architecture.md) | 五条 cron（巡检/自检/投递/金丝雀/日报）、故障三分类与处置、NAS 经网关代理直发 Telegram |
+| 🧰 **运维流程（可复用）** | [../../skills/nas-ops/SKILL.md](../../skills/nas-ops/SKILL.md) | 巡检判读、7 步部署、重启验证清单、QQ 掉线恢复、SSH/Docker 纪律、故障速查 |
 
 ---
 
@@ -48,5 +49,6 @@
 | 开发新功能/改代码 | **代码评审**（先看已知缺陷）→ 开发日志 |
 | 研究 bot 进化/记忆 | 进化方向 → 反思层调研 → 调研报告 → 记忆插件研究 |
 | 运维/部署/容器重启 | 容器运维 → NAS 运维 → 事故报告 |
+| 巡检告警 / 脚本漂移 / 收不到通知 | NAS 运维 §十二 → ADR-011 → skills/nas-ops（速查表） |
 | 改人设/调参数 | 终版配置（bot.md） |
 | 查日志/调 bug | NAS 运维 → 开发日志对应章节 |

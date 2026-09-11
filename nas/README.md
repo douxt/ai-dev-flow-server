@@ -119,3 +119,13 @@ NAS（24/7，唯一运行者）
 ```
 
 实测：`WD_FORCE_PROBLEM=1` → 队列出现 `…|dev-watchdog|…` → flush `sent=1 failed=0` → `alert.history` 留痕。
+
+## 决策与教训（索引）
+
+| 文档 | 内容 |
+|---|---|
+| [ADR-011 NAS 可观测性架构](../docs/decisions/011-nas-observability-architecture.md) | 为什么检测在 NAS、发送经网关代理、告警走文件队列、死者开关、清单式漂移防护 |
+| [memory/nas-observability-lessons-20260911.md](../memory/nas-observability-lessons-20260911.md) | 静默失效四型、探针三原则、执行者位置、工具坑（ssh -n / heredoc tab / git show 空 md5） |
+| [skills/nas-ops/SKILL.md](../skills/nas-ops/SKILL.md) | 可复用运维流程（部署 7 步、重启验证、告警处置、速查） |
+| [docs/plans/2026-09-11-nas-observability-hardening.md](../docs/plans/2026-09-11-nas-observability-hardening.md) | 阶段二计划与逐步执行记录 |
+| [issues/2026-09-11-nas-obs-t1..t9-*.md](../issues/) | 各工单的 AC 与实测证据 |

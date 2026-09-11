@@ -5,7 +5,9 @@ description: NAS（Synology Docker）运维流程——巡检解读、在版脚�
 
 # NAS 运维（nas-ops）
 
-面向"把 NAS 上的服务跑稳、且改动可回退"的操作流程。**事实性数据不在这里重复**，一律指向仓库内的权威文件；本 skill 只写"怎么做、按什么顺序做、什么不能做"。
+面向"把 NAS 上的服务跑稳、且改动可回退"的操作流程。
+
+> 背景与取舍看 [ADR-011](../../docs/decisions/011-nas-observability-architecture.md)；踩坑清单看 [memory/nas-observability-lessons-20260911.md](../../memory/nas-observability-lessons-20260911.md)。**事实性数据不在这里重复**，一律指向仓库内的权威文件；本 skill 只写"怎么做、按什么顺序做、什么不能做"。
 
 ## 何时用 / 何时不用
 

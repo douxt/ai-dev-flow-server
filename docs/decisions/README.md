@@ -19,3 +19,9 @@
 | ADR-002 | [002-testing-strategy.md](002-testing-strategy.md) | 测试策略选核心层单测优先（三层金字塔） | ✅ 已采纳 |
 | ADR-003 | [003-dependency-injection.md](003-dependency-injection.md) | 通过构造函数 DI 使核心逻辑可脱离 LangBot 独立测试 | ✅ 已采纳 |
 | ADR-004 | [004-reject-qq-sillytavern.md](004-reject-qq-sillytavern.md) | 拒绝采用 QQ 酒馆插件（设计目标不匹配 + AGPL + 架构耦合） | ✅ 已采纳 |
+
+## NAS 运维与可观测性
+
+| 编号 | 文件 | 决策 | 状态 |
+|------|------|------|------|
+| ADR-011 | [011-nas-observability-architecture.md](011-nas-observability-architecture.md) | NAS 可观测性架构——检测在 24/7 主机、发送自洽（经网关代理）、告警文件队列 + 死者开关、探针三类分工、清单式漂移防护 | ✅ 已采纳 |
