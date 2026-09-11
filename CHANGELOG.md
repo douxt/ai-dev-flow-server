@@ -491,3 +491,17 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 - `templates/issue-template.md` status 注释强化：ready 只能人设、自动化产物停 backlog——"内容正确 ≠ 有审批地位"（seed 票作废事件回流；属会话软纪律，不造机器闸）
 - 新登记 **DEFECT-014**（roadmap）：install update 段 L609-611 把**平台内部 ADR 全集**复制到每个租户 `docs/decisions/`，与租户自有 ADR 编号体系冲突（cut-optimizer 双 ADR-001 现场）——传播设计失当，修法待定
 
+
+## v3.7 spec 出口门禁 spec-gate（2026-09-11）
+
+> 回应 UMES3 反馈《流程硬阻断缺口：阶段机管"推进"不管"产物质量"》（docs/feedback/spec-gate-hardblock-response-20260911.md 为回执）；4 路代理评审 + 主会话实证修正 8 处后实施。ADR-012。
+
+### 变更
+- `scripts/check_constitution.py` 新增 `--spec` 模式：合规表节/表行分级 ❌（S1-S5 硬、S6-S9 advisory、占位=未自查）、Risks 节、AC 存在性、验证等级 advisory；退出码 0/1/2+（2+=内部错误）；frontmatter 懒导入；顺带修 `10.ac_levels` 恒假比较（裸捕获组 vs 带括号）
+- 新 hook `config-templates/default/hooks/spec-gate.sh`（PostToolUse Edit|Write，matcher 注册进 settings 模板）：warn=stdout additionalContext（exit 0 stderr 模型不可见之正解）、block=exit 2 每次重报+连续 3 次升级报人；基线清单/exclude 人工豁免（mtime 方案经实证否决）；jq/python3/checker 三层降级静默+degraded 留痕；台账按日轮换 session+file 封顶 3
+- `install.sh`：`ensure_spec_gate_state` 生成 `spec-gate-baseline`(create-once)+`spec-gate-mode`(warn)；selftest 双断言（降级 rc0 + 正路径必见 additionalContext，防静默失效假绿）
+- `gate-checklists/spec-checklist.md`：新增"机器校验分层"节
+- 新 `tests/hooks/spec-gate.bats` 22 用例（warn/block/零干扰×5/递归/豁免×3/off/台账/降级×3/checker 冒烟×4/串联）
+
+### 已知限制（回执§实施发现 6 定稿）
+- Bash 写入旁路（`cat>`/`mv`/`tee`）不经 Edit|Write matcher；to-spec 社区 skill 零分叉 → 新 spec 首轮 warn 一次属预期；warn→block 切换由人工按量化判据（心跳非空+≥5 样本+0 误拦）

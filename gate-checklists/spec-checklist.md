@@ -39,3 +39,15 @@ S1-S5 + S10-S13 必须通过。S6-S9 为 advisory 警告。
 | 简单 | spec <50 行 / 单文件改动 | 跳过评审，直接 /to-tickets |
 
 > **独立评审 vs 自查**：自查无法消除上下文盲区——写 spec 和审 spec 是同一个会话，逻辑缺陷会被原样跳过。独立评审是新会话（`--opus`），只读 spec.md + 参考文档，能发现自查遗漏的模糊点和隐含假设。
+
+## 机器校验分层（spec-gate 钩子，v3.7 起）
+
+`docs/specs/**.md` 写入后经 `~/.claude/hooks/spec-gate.sh` → `check_constitution.py --spec` 结构自查：
+
+| 层 | 检查 | 对应 |
+|---|---|---|
+| 硬（warn/block） | 合规表节存在；表行 #1-#5 状态非 ❌ 非空（占位 `✅/❌` 算未填）；Risks 节存在；AC 存在 | S1-S5 |
+| advisory（仅 --json 输出） | Risks <5 条；表行 #6-#11/P/H/VL 未过；验证等级缺失 | S6-S9 |
+| 不校验 | S11 Testing 六段、S12 特征测试、S13 E2E 比例 → 人工/评审 | S10-S13 |
+
+豁免：存量见 `.devflow/spec-gate-baseline`、人工见 `.devflow/spec-gate-exclude`；模式开关 `.devflow/spec-gate-mode`（warn/block/off）。
