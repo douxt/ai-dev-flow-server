@@ -51,3 +51,36 @@ safety: ""
 
 - 风险1: 改 napcat 网络配置导致 WS 断连 → Bot 掉线 — 缓解: 先备份配置、改后立即验证 `link=1` 与消息收发；低活跃时段
 - 回退: 恢复配置备份 + `docker restart napcat`
+
+---
+
+## 调查结果（2026-09-11）
+
+### 事实
+
+| 项 | 实测 |
+|---|---|
+| `onebot11_3228649756.json` | `httpServers: [{enable:true, name:"test-api", url:"0.0.0.0:5700", token:…}]`（mtime 2026-07-14） |
+| 配置里是否出现 3000 | **没有任何配置文件提到 3000**（镜像内仅 `node_modules/mime-db/db.json` 命中，无关） |
+| `napcat_protocol_3228649756.json` | `{"enable": false, …}` → 未启用 |
+| 容器实际监听 | `127.0.0.1:3000`（仅登录后）+ `0.0.0.0:6099`(WebUI)，**5700 无监听** |
+| compose（`/volume1/docker/langbot/docker-compose.yaml:59`） | `ports: 6099:6099, 5700:5700`；`environment: ACCOUNT=3228649756, WSR_ENABLE=true, WS_URLS=["ws://langbot:2280/ws"], WEBUI_TOKEN=…`；volume `./data/napcat/config:/app/napcat/config` |
+| 宿主 `:5700` | docker-proxy 在听 → 容器内无后端 → `Connection reset by peer` |
+| 宿主 `:3000` | **nginx**（另一服务），与 napcat 无关 |
+
+### 结论（漂移成因）
+
+反向 WS 与账号是通过**环境变量**（`WS_URLS` / `ACCOUNT`）配置的，而 OneBot **HTTP 服务**走 JSON 配置。JSON 里的 `"url": "0.0.0.0:5700"` 是旧写法；当前 NapCat 4.18.1 下它没有生效，HTTP 服务实际落在 `127.0.0.1:3000`。也就是说：**配置文件字段与实际运行行为不一致**（不是"文档写错"，是"配置不生效"）。
+
+### 建议（待决策）
+
+- **方案 B（推荐，零风险）**：承认现实并统一记录——文档/脚本一律写"容器内 `127.0.0.1:3000`（登录后才有）"；compose 的 `5700:5700` 保持不动或加注释标注"当前无后端"。不动 napcat 配置 → 不会碰掉线风险。
+- **方案 A（改动配置）**：把 HTTP 服务修成期望形态（需先确认 4.18.1 的正确字段/环境变量写法），改动后重启 napcat 验证 `get_status` 与 `link=1`。**风险**：napcat 配置改动可能触发掉线（T2 已证明掉线要人工扫码），必须留维护窗口且先备份配置。
+
+**推荐 B**：当前没有任何调用方依赖宿主 `:5700`（金丝雀与巡检都走容器内 3000），修配置的收益为零、风险非零。
+
+### AC 状态
+
+- [x] `[human-verify]` AC1: 生效配置来源与证据已给出（env 驱动 WS + JSON 字段不生效 → 实际 3000）
+- [ ] `[human-verify]` AC2: **需你选 A/B**（我按 B 先写文档；选 A 我再排维护窗口）
+- [x] `[human-verify]` AC3: 未改配置 → `get_login_info` / `link=1` 均未受影响（巡检 `probe=11111 link=1 qq=1`）

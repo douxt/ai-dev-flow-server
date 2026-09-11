@@ -149,3 +149,9 @@ NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里�
 
 清单 `nas/INVENTORY.md`：crontab 引用项 100% 覆盖；**发现并回灌** `plugin-entrypoint.sh`（此前未入库）；`entrypoint.sh` 仓库与线上逐字节一致（ADR 010 纪律有效）。
 `nas/check-drift.sh` 扩展 3 → **7 项**，并修掉自身一个 bug（文件不在 main 时误报漂移）。实测 7/7 OK。
+
+### T6 调查完成（2026-09-11，待选 A/B）
+
+漂移成因查明：反向 WS 与账号用**环境变量**配置（compose `WS_URLS`/`ACCOUNT`），而 OneBot HTTP 服务走 JSON；JSON 里 `"url": "0.0.0.0:5700"` 在当前 NapCat 4.18.1 下**不生效**，实际落到容器内 `127.0.0.1:3000`（登录后才监听）。宿主 `:5700` 有 docker-proxy 但无后端（`Connection reset`）；宿主 `:3000` 是 nginx（另一服务）。
+
+推荐 **方案 B**（统一到实际，不改配置）：零调用方依赖 5700，改配置风险非零（napcat 配置改动可能触发掉线，而掉线需人工扫码）。
