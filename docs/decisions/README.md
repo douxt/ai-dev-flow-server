@@ -25,3 +25,4 @@
 | 编号 | 文件 | 决策 | 状态 |
 |------|------|------|------|
 | ADR-011 | [011-nas-observability-architecture.md](011-nas-observability-architecture.md) | NAS 可观测性架构——检测在 24/7 主机、发送自洽（经网关代理）、告警文件队列 + 死者开关、探针三类分工、清单式漂移防护 | ✅ 已采纳 |
+| ADR-012 | [012-dsh-inside-code-server-container.md](012-dsh-inside-code-server-container.md) | DeepSeek Harness 装入 code-server 容器（而非独立容器）——Node 22 钉版、状态根落已挂载卷、socat 保 loopback + tailscale serve 暴露、无应用层认证、沙箱策略交容器边界 | ✅ 已采纳 |

@@ -120,6 +120,22 @@ NAS（24/7，唯一运行者）
 
 实测：`WD_FORCE_PROBLEM=1` → 队列出现 `…|dev-watchdog|…` → flush `sent=1 failed=0` → `alert.history` 留痕。
 
+## 2026-09-11 追加：code-server 镜像定义纳入对账（DSH 入库）
+
+`nas/manifest.tsv` 新增两行 → 对账项 **11 → 13**：
+
+| 仓库文件 | NAS 路径 | 说明 |
+|---|---|---|
+| `docker/code-server/Dockerfile` | `/volume7/docker/codeserver/Dockerfile` | code-server 镜像定义（含 Node 22 层、DSH、socat、两个 supervisord 程序） |
+| `docker/code-server/docker-compose.yml` | `/volume7/docker/codeserver/docker-compose.yml` | 编排（含 `127.0.0.1:3080` 端口、`DSH_HOME`、`DSH_PERMISSION_MODE`） |
+
+**为什么现在才纳入**：这两个文件此前不在对账范围内，实测**仓库镜像已落后 NAS 一个多月**（NAS 上后加的离线安装、openkb、`/data` 权限、阿里云源等都没入库）。本次以 NAS 为准整体回灌后纳入清单，此后漂移可被 `check-drift.sh` 与 NAS 自检发现。
+
+**部署与回滚**：
+- 部署：`scp docker/code-server/{Dockerfile,docker-compose.yml} root@nas:/volume7/docker/codeserver/` → `docker compose build && docker compose up -d`
+- 回滚：镜像 tag `code-server:rollback-dsh-20260911`；文件备份 `*.bak.20260911-dsh`
+- ⚠️ 重建会**同时重启 code-server 与 DSH**（两者同容器），需择时
+
 ## 决策与教训（索引）
 
 | 文档 | 内容 |
@@ -129,3 +145,6 @@ NAS（24/7，唯一运行者）
 | [skills/nas-ops/SKILL.md](../skills/nas-ops/SKILL.md) | 可复用运维流程（部署 7 步、重启验证、告警处置、速查） |
 | [docs/plans/2026-09-11-nas-observability-hardening.md](../docs/plans/2026-09-11-nas-observability-hardening.md) | 阶段二计划与逐步执行记录 |
 | [issues/2026-09-11-nas-obs-t1..t9-*.md](../issues/) | 各工单的 AC 与实测证据 |
+| [ADR-012 DSH 装入 code-server](../docs/decisions/012-dsh-inside-code-server-container.md) | 为什么装在同一容器、状态根落哪个卷、为什么用 socat 保 loopback、沙箱策略取舍 |
+| [docs/bot/dsh-on-nas.md](../docs/bot/dsh-on-nas.md) | DSH 运维手册：访问入口、持久化模型、重建/升级、故障排查、配置种子 |
+| [memory/dsh-on-nas-lessons-20260911.md](../memory/dsh-on-nas-lessons-20260911.md) | 可迁移教训：运行时版本实测到"能启动"、分层验证可达性、被 watch 的持久目录、重建不丢=分层规则+指纹比对 |

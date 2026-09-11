@@ -36,6 +36,7 @@
 | 🔧 **LTM 故障诊断** | [ltm-langrag-restoration-20260729.md](ltm-langrag-restoration-20260729.md) | LTM 不工作根因——LangRAG 被禁用+文件在 bak 目录 |
 | 🛰️ **巡检与告警链路** | [nas-access-best-practices.md](nas-access-best-practices.md) §十二 + [ADR-011](../../docs/decisions/011-nas-observability-architecture.md) | 五条 cron（巡检/自检/投递/金丝雀/日报）、故障三分类与处置、NAS 经网关代理直发 Telegram |
 | 🧰 **运维流程（可复用）** | [../../skills/nas-ops/SKILL.md](../../skills/nas-ops/SKILL.md) | 巡检判读、7 步部署、重启验证清单、QQ 掉线恢复、SSH/Docker 纪律、故障速查 |
+| 🖥️ **DSH on NAS** | [dsh-on-nas.md](dsh-on-nas.md) + [ADR-012](../../docs/decisions/012-dsh-inside-code-server-container.md) | DeepSeek Harness 装在 code-server 容器内：访问入口、三层持久化模型、重建/升级流程、故障排查（含 `no sandbox backend` 与 `--trusted-host` 两个专有坑） |
 
 ---
 
@@ -50,5 +51,6 @@
 | 研究 bot 进化/记忆 | 进化方向 → 反思层调研 → 调研报告 → 记忆插件研究 |
 | 运维/部署/容器重启 | 容器运维 → NAS 运维 → 事故报告 |
 | 巡检告警 / 脚本漂移 / 收不到通知 | NAS 运维 §十二 → ADR-011 → skills/nas-ops（速查表） |
+| 用 DSH（NAS 上的 harness）/ 重建后状态丢失 | [dsh-on-nas.md](dsh-on-nas.md) → [ADR-012](../../docs/decisions/012-dsh-inside-code-server-container.md) |
 | 改人设/调参数 | 终版配置（bot.md） |
 | 查日志/调 bug | NAS 运维 → 开发日志对应章节 |

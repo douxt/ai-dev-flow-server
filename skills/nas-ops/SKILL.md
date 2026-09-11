@@ -7,35 +7,38 @@ description: NAS（Synology Docker）运维流程——巡检解读、在版脚�
 
 面向"把 NAS 上的服务跑稳、且改动可回退"的操作流程。
 
-> 背景与取舍看 [ADR-011](../../docs/decisions/011-nas-observability-architecture.md)；踩坑清单看 [memory/nas-observability-lessons-20260911.md](../../memory/nas-observability-lessons-20260911.md)。**事实性数据不在这里重复**，一律指向仓库内的权威文件；本 skill 只写"怎么做、按什么顺序做、什么不能做"。
+> 背景与取舍看 [ADR-011](../../docs/decisions/011-nas-observability-architecture.md) 与 [ADR-012](../../docs/decisions/012-dsh-inside-code-server-container.md)；踩坑清单看 [memory/nas-observability-lessons-20260911.md](../../memory/nas-observability-lessons-20260911.md) 与 [memory/dsh-on-nas-lessons-20260911.md](../../memory/dsh-on-nas-lessons-20260911.md)。**事实性数据不在这里重复**，一律指向仓库内的权威文件；本 skill 只写"怎么做、按什么顺序做、什么不能做"。
 
 ## 何时用 / 何时不用
 
-- 用：巡检判读、在版脚本部署与对账、容器/QQ 异常排查、告警处置
-- 不用：改插件业务逻辑（走 `.claude/gate-checklists/bot-plugin-review.md` + `docs/bot/silent-observer-dev-journal.md`）；DevFlow 管线自身问题（走 `docs/design/`）
+- 用：巡检判读、在版脚本部署与对账、容器/QQ 异常排查、告警处置、DSH（NAS 上的 harness）运维
+- 不用：改插件业务逻辑（走 `.claude/gate-checklists/bot-plugin-review.md` + `docs/bot/silent-observer-dev-journal.md`）；DevFlow 管线自身问题（走 `docs/design/`）；DSH 的架构取舍与专有故障（走 [docs/bot/dsh-on-nas.md](../../docs/bot/dsh-on-nas.md)）
 
 ## 0. 先确认事实，不要凭记忆
 
 | 要确认的事 | 命令 / 位置 |
 |---|---|
-| 仓库与 NAS 在版是否一致 | `bash nas/check-drift.sh`（8 项 md5 对账） |
+| 仓库与 NAS 在版是否一致 | `bash nas/check-drift.sh`（13 项 md5 对账） |
 | 巡检是否真的在跑 | `ssh root@nas 'tail -1 /tmp/health_check.log'`；或看 NAS 自检 `/tmp/nas_selfcheck.log` |
 | 在版脚本是否被改动 | NAS 自检每 15 分钟对照 `state/expected.md5`（清单来源 `nas/manifest.tsv`） |
-| 告警链路是否活着 | 是否收到阿里云每日 09:00 摘要（收不到 = 链路坏） |
+| 告警链路是否活着 | 是否收到 NAS 每日 09:00 摘要（收不到 = 链路坏） |
+| DSH（NAS 上的 harness）是否在跑 | `$D exec code-server sudo supervisorctl status` → 手册 [docs/bot/dsh-on-nas.md](../../docs/bot/dsh-on-nas.md) |
 | 端口/路径事实 | `docs/bot/nas-access-best-practices.md` §一（napcat 端口）、§十二（巡检） |
 | 脚本清单与 md5 基线 | `nas/README.md`、`nas/INVENTORY.md` |
 | 当前阶段工单 | `issues/2026-09-11-nas-obs-t*.md` |
 
-### 拓扑（检测在 NAS，发送在云）
+### 拓扑（检测与发送都自洽于 NAS）
 
 ```
 NAS  health-check (*/5) ─┐
-NAS  selfcheck   (*/15) ─┼─> state/alert ──云 cron */5 ssh 拉取──> Telegram
-NAS  deep-smoke  (17 */6)┘                          └─ 09:00 每日摘要（死者开关）
-开发机 watchdog（可选，仅开机时）→ 仓库 main ↔ NAS 全量比对 + 本地自测
+NAS  selfcheck   (*/15) ─┼─> state/alert ──alert-flush (*/2)──> 网关 Clash 代理 ──> Telegram
+NAS  deep-smoke (17 */6) ┘
+NAS  daily-digest (0 9) ────────────────────────────────────────────────────────> Telegram（死者开关）
+开发机 watchdog（可选，仅开机时）→ ssh 追加一行到 NAS state/alert
 ```
 
-> 环境事实（2026-09-11 实测）：NAS 基本无外网；开发机无法访问 Telegram；**唯一 Telegram 通道是阿里云 `115.29.110.107`**。所以"检测放 NAS、发送放云"——检测不需要外网，发送必须用云。
+> 环境事实（2026-09-11 实测）：NAS 直连 Telegram/GitHub 不通，但经网关 Clash 代理（`192.168.31.1:7890`）可发 Telegram；且**直连** `api.deepseek.com`（401）与 `registry.npmjs.org`（200）可用。
+> **阿里云已完全退出该链路**（脚本、cron、公钥均已移除）。
 
 ## 1. 巡检解读
 
