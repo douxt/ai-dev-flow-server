@@ -144,3 +144,8 @@ NAS 巡检 ──写──> state/alert ──ssh 拉取(每5min)──> 阿里�
 
 - **T4**：`skills/nas-ops/SKILL.md` 入库——巡检判读、7 步部署流程、重启验证清单、QQ 掉线恢复、SSH/Docker 纪律、故障速查；事实数据一律引用 `nas/README.md` 等，不重复。
 - **T8**：选定路径 **c** —— 零依赖自测（52 项）挂进开发机看门狗每小时跑一次（失败推 Telegram）；bats 薄封装保留给 CI；`docs/bot/automated-testing-guide.md` 写明本机不可用与替代命令。证据：11:45 看门狗日志 `OK`（自测在周期执行中通过）。
+
+### T7 完成情况（2026-09-11）
+
+清单 `nas/INVENTORY.md`：crontab 引用项 100% 覆盖；**发现并回灌** `plugin-entrypoint.sh`（此前未入库）；`entrypoint.sh` 仓库与线上逐字节一致（ADR 010 纪律有效）。
+`nas/check-drift.sh` 扩展 3 → **7 项**，并修掉自身一个 bug（文件不在 main 时误报漂移）。实测 7/7 OK。

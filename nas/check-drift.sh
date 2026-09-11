@@ -17,6 +17,10 @@ PAIRS=(
     "nas/health-check.sh|/volume1/docker/langbot/health-check.sh|巡检脚本"
     "nas/clean-zombie-ssh.sh|/usr/local/bin/clean-zombie-ssh.sh|僵尸清理"
     "docs/references/nas-crontab-snapshot-20260911.txt|/etc/crontab|cron 快照"
+    "docker/langbot/entrypoint.sh|/volume1/docker/langbot/entrypoint.sh|langbot entrypoint(patch 注册)"
+    "docker/langbot/plugin-entrypoint.sh|/volume1/docker/langbot/plugin-entrypoint.sh|插件运行时 entrypoint"
+    "nas/deep-smoke.sh|/volume1/docker/langbot/deep-smoke.sh|深度金丝雀包装"
+    "nas/deep-canary.py|/volume1/docker/langbot/tests/deep-canary.py|深度金丝雀本体"
 )
 
 drift=0
@@ -26,10 +30,15 @@ echo "=== NAS 漂移对账（仓库 main ↔ $NAS）==="
 for entry in "${PAIRS[@]}"; do
     IFS='|' read -r repo_file nas_file desc <<< "$entry"
 
-    local_md5=$(git -C "$REPO_ROOT" show "main:$repo_file" 2>/dev/null | md5sum | awk '{print $1}')
-    if [ -z "${local_md5:-}" ]; then
+    # main 里有就从 main 逐字节取（保留末尾换行）；不在 main 则回退工作区并标注来源
+    src="main"
+    if git -C "$REPO_ROOT" cat-file -e "main:$repo_file" 2>/dev/null; then
+        local_md5=$(git -C "$REPO_ROOT" show "main:$repo_file" | md5sum | awk '{print $1}')
+    else
         local_md5=$(md5sum "$REPO_ROOT/$repo_file" 2>/dev/null | awk '{print $1}')
+        src="worktree"
     fi
+    [ -z "${local_md5:-}" ] && local_md5="(不存在)"
 
     remote_md5=$(timeout 20 ssh "${SSH_OPTS[@]}" "$NAS" \
         "md5sum '$nas_file' 2>/dev/null" | awk '{print $1}')
@@ -43,7 +52,7 @@ for entry in "${PAIRS[@]}"; do
         drift=1
     else
         echo "DRIFT [$desc] $nas_file"
-        echo "        repo=$local_md5  nas=$remote_md5  ($repo_file)"
+        echo "        repo=$local_md5($src)  nas=$remote_md5  ($repo_file)"
         drift=1
     fi
 done
