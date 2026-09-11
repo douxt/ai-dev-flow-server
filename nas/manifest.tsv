@@ -10,3 +10,5 @@ nas/selfcheck.sh|/volume1/docker/langbot/selfcheck.sh|NAS 自检（心跳新鲜�
 nas/lib-telegram.sh|/volume1/docker/langbot/lib-telegram.sh|Telegram 发送库（NAS）
 nas/alert-flush.sh|/volume1/docker/langbot/alert-flush.sh|告警投递（NAS，*/2）
 nas/daily-digest.sh|/volume1/docker/langbot/daily-digest.sh|每日摘要（NAS，0 9）
+docker/code-server/Dockerfile|/volume7/docker/codeserver/Dockerfile|code-server 镜像定义（含 DSH/socat/Node22）
+docker/code-server/docker-compose.yml|/volume7/docker/codeserver/docker-compose.yml|code-server 编排（DSH 端口/环境变量）

@@ -9,18 +9,26 @@ services:
       - TZ=Asia/Shanghai
       - PASSWORD=${CODE_SERVER_PASSWORD}
       - CLASH_PROXY_URL=${CLASH_PROXY_URL}
+      # DSH 状态根（认证/设置/插件/会话）落在这里 —— 位于下方已挂载的 config 卷内，
+      # 所以镜像重建不会丢。默认 ~/.dsh 未挂卷，必须显式指定。
+      - DSH_HOME=/home/coder/.config/dsh
+      # Synology 内核 5.10 无 Landlock 且未开 user namespaces → workspace-write 沙箱没有
+      # 可用后端，bash 工具会 fail-closed 拒绝执行。这个变量是 base bundle 认的部署默认值
+      # （同时决定沙箱模式与审批策略），设成 danger-full-access 后隔离边界由容器承担。
+      - DSH_PERMISSION_MODE=danger-full-access
     volumes:
       - /volume7/docker/codeserver/config:/home/coder/.config
       - /volume7/docker/codeserver/projects:/home/coder/project
       - /volume7/docker/codeserver/config/code-server-data:/home/coder/.local/share/code-server
       - /volume7/docker/codeserver/data:/data
-    sysctls:
-      - fs.inotify.max_user_watches=524288
     ports:
       - '127.0.0.1:8686:8080'
+      # DSH Web：仅发布到 NAS 回环，由 tailscale serve 对外（不暴露到 LAN —— DSH 自身无认证）
+      - '127.0.0.1:3080:3080'
       - '0.0.0.0:25252:8080'
       - '0.0.0.0:9876:9876'
       - '0.0.0.0:8420:8420'
+      - '4000-4010:4000-4010'
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
