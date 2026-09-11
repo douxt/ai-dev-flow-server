@@ -78,3 +78,35 @@ safety: ""
 
 - 看门狗日志/状态默认在 `~/.local/state/`（`WD_STATE_DIR` 可覆盖）
 - 云侧两个脚本（`nas-fetch-alerts.sh` / `nas-alert-send.py`）尚未纳入 `check-drift.sh` 对账范围 → 见 T7/后续
+
+---
+
+## 架构修正（2026-09-11，用户指出开发机常关机）
+
+**问题**：T5 把看门狗放在开发机，而开发机经常关机 → 24/7 覆盖实际不存在。
+
+**修正后的拓扑**（检测在 24/7 的 NAS，发送在唯一有通道的云）：
+
+| 职责 | 位置 | 频率 | 产物 |
+|---|---|---|---|
+| ① 巡检自身是否停跳（`health_check.log` 年龄） | **NAS** `nas/selfcheck.sh` | `*/15` | 写 `state/alert`（`selfcheck-heartbeat`） |
+| ② 在版脚本是否被改动（对照 `state/expected.md5`，8 项） | **NAS** 同上 | `*/15` | 写 `state/alert`（`selfcheck-drift`） |
+| ③ 待发告警积压 | **NAS** 同上（只记日志） | `*/15` | `nas_selfcheck.log` |
+| 传输：把 `state/alert` 推 Telegram | **阿里云** `nas-fetch-alerts.sh` | `*/5` | Telegram |
+| 死者开关：每日摘要（收不到=链路坏） | **阿里云** `nas-daily-digest.sh` | `0 9 * * *` | Telegram |
+| 仓库 `main` ↔ NAS 全量比对 + 自测 | 开发机 `nas/watchdog.sh`（**降级为可选**，仅在开机时补全量视角） | 每小时 | Telegram |
+
+清单单一来源：`nas/manifest.tsv` → `nas/make-manifest.sh` 生成 `expected.md5` 并部署到 NAS；
+`nas/check-drift.sh` 也改读同一份 tsv（消除两处维护）。
+
+### 验证（NAS 实测）
+
+- 影子①：清单里故意写错一条 md5 → `ALERT selfcheck-drift count=1 changed:/volume1/docker/langbot/health-check.sh`（rc=1）
+- 影子②：清单正确 → rc=0、无告警
+- 生产：rc=0，`heartbeat hb_age_s=… drift=0 pending=0 problems=0`，`state/alert` 为空
+- 云日报手动试跑：`digest sent (hb_age=219 sc_age=8 pend=0)`（用户已收到 Telegram）
+
+### 已知限制
+
+- 自检脚本自身也在清单里（8 项），但**清单与脚本同时在 NAS** → 若两者被一致地篡改则无法发现；跨机校验仍以开发机 `check-drift.sh` 为准
+- 云侧两个脚本（`nas-fetch-alerts.sh` / `nas-alert-send.py` / `nas-daily-digest.sh`）目前无仓库对账（云上没有仓库）——其存活由"每日摘要是否收到"间接保证

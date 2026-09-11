@@ -72,3 +72,17 @@ bash nas/check-drift.sh            # 默认 root@nas；只读，无副作用
 | `../docs/references/nas-crontab-snapshot-20260911.txt` | `/etc/crontab` | `b1e7b5e5d84daabee39eed7a0f02ba8e` | 快照已含 deep-smoke 行 |
 
 完整 8 场景套件（`tests/scripts/test_deploy_smoke.py`）**不进 cron**：会话争用（409）使其不适合周期运行，仅部署后人工跑（已修好每场景独立会话 + 重试 + 诊断）。
+
+## 2026-09-11 阶段二（T5 架构修正）：检测在 NAS，发送在云
+
+用户指出开发机常关机 → 把 24/7 检测搬到 NAS，发送仍在阿里云（唯一 Telegram 通道）。
+
+| 组件 | 运行位置 | 频率 | 说明 |
+|---|---|---|---|
+| `nas/selfcheck.sh` | NAS `/volume1/docker/langbot/selfcheck.sh` | `*/15` | 心跳年龄 + 在版漂移（对照 `state/expected.md5`）+ 积压，写 `state/alert` |
+| `nas/manifest.tsv` | 仓库（单一来源） | — | `仓库路径\|NAS 路径\|说明`，供 `make-manifest.sh` 与 `check-drift.sh` 共用 |
+| `nas/make-manifest.sh` | 开发机 | 部署后 | 生成清单；`MM_DEPLOY=1` 直接 scp 到 NAS `state/expected.md5` |
+| `nas/cloud/nas-daily-digest.sh` | 阿里云 `/usr/local/bin/` | `0 9 * * *` | 每日摘要（死者开关） |
+| `nas/watchdog.sh` | 开发机 | 每小时（**可选**） | 仓库 main ↔ NAS 全量比对 + 本地自测；仅在开发机开机时提供额外视角 |
+
+NAS crontab 现有三条自建任务：`*/5 health-check`、`*/15 selfcheck`、`17 */6 deep-smoke`（快照见 `docs/references/nas-crontab-snapshot-20260911.txt`）。

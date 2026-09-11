@@ -12,23 +12,15 @@ NAS=${1:-root@nas}
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SSH_OPTS=(-nT -o BatchMode=yes -o ConnectTimeout=6)
 
-# 仓库路径|NAS 路径|说明
-PAIRS=(
-    "nas/health-check.sh|/volume1/docker/langbot/health-check.sh|巡检脚本"
-    "nas/clean-zombie-ssh.sh|/usr/local/bin/clean-zombie-ssh.sh|僵尸清理"
-    "docs/references/nas-crontab-snapshot-20260911.txt|/etc/crontab|cron 快照"
-    "docker/langbot/entrypoint.sh|/volume1/docker/langbot/entrypoint.sh|langbot entrypoint(patch 注册)"
-    "docker/langbot/plugin-entrypoint.sh|/volume1/docker/langbot/plugin-entrypoint.sh|插件运行时 entrypoint"
-    "nas/deep-smoke.sh|/volume1/docker/langbot/deep-smoke.sh|深度金丝雀包装"
-    "nas/deep-canary.py|/volume1/docker/langbot/tests/deep-canary.py|深度金丝雀本体"
-)
+# 期望清单来自 nas/manifest.tsv（与 make-manifest.sh 同源，避免两处维护）
+MANIFEST_TSV="$REPO_ROOT/nas/manifest.tsv"
 
 drift=0
 checked=0
 
 echo "=== NAS 漂移对账（仓库 main ↔ $NAS）==="
-for entry in "${PAIRS[@]}"; do
-    IFS='|' read -r repo_file nas_file desc <<< "$entry"
+while IFS='|' read -r repo_file nas_file desc; do
+    case "$repo_file" in ''|\#*) continue ;; esac
 
     # main 里有就从 main 逐字节取（保留末尾换行）；不在 main 则回退工作区并标注来源
     src="main"
@@ -55,7 +47,7 @@ for entry in "${PAIRS[@]}"; do
         echo "        repo=$local_md5($src)  nas=$remote_md5  ($repo_file)"
         drift=1
     fi
-done
+done < "$MANIFEST_TSV"
 
 echo "=== 比对 $checked 项，结果：$([ "$drift" -eq 0 ] && echo '全部一致' || echo '存在漂移') ==="
 [ "$drift" -eq 0 ] || echo "处置：把 NAS 在版文件回灌到仓库（nas/README.md 记录了基线流程），或在 README 基线表中更新 md5。"

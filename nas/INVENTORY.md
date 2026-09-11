@@ -13,6 +13,7 @@
 | `/volume1/docker/langbot/tests/deep-canary.py` | `c573119ff20b4d4cd0d48419de78d2c7` | `nas/deep-canary.py` | 金丝雀本体 |
 | `/volume1/docker/langbot/entrypoint.sh` | `3730cebb4f9b70d1fbf14a1ff2de03a9` | `docker/langbot/entrypoint.sh` | patch 幂等注册（ADR 010） |
 | `/volume1/docker/langbot/plugin-entrypoint.sh` | `26e2defd16e8e0e81940ec1aefea3661` | `docker/langbot/plugin-entrypoint.sh` | 等 LangBot 就绪再起插件运行时（**2026-09-11 本次回灌**） |
+| `/volume1/docker/langbot/selfcheck.sh` | `$(md5sum nas/selfcheck.sh | awk '{print $1}')` | `nas/selfcheck.sh` | NAS 自检（`*/15`：心跳年龄 + 在版漂移） |
 | `/usr/local/bin/clean-zombie-ssh.sh` | `9a76f0a48876ab40294789d0aa1ac216` | `nas/clean-zombie-ssh.sh` | 清 `docker exec` 僵尸会话 |
 | `/etc/crontab` | `b1e7b5e5d84daabee39eed7a0f02ba8e` | `docs/references/nas-crontab-snapshot-20260911.txt` | 混合（DSM 条目 + 自建条目） |
 

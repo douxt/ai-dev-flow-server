@@ -1,0 +1,9 @@
+# 仓库路径|NAS 路径|说明
+nas/health-check.sh|/volume1/docker/langbot/health-check.sh|巡检脚本
+nas/clean-zombie-ssh.sh|/usr/local/bin/clean-zombie-ssh.sh|僵尸清理
+docs/references/nas-crontab-snapshot-20260911.txt|/etc/crontab|cron 快照
+docker/langbot/entrypoint.sh|/volume1/docker/langbot/entrypoint.sh|langbot entrypoint(patch 注册)
+docker/langbot/plugin-entrypoint.sh|/volume1/docker/langbot/plugin-entrypoint.sh|插件运行时 entrypoint
+nas/deep-smoke.sh|/volume1/docker/langbot/deep-smoke.sh|深度金丝雀包装
+nas/deep-canary.py|/volume1/docker/langbot/tests/deep-canary.py|深度金丝雀本体
+nas/selfcheck.sh|/volume1/docker/langbot/selfcheck.sh|NAS 自检（心跳新鲜度+在版漂移）
