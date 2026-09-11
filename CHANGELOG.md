@@ -494,7 +494,7 @@ bash uninstall.sh ~/my-project --mode frontend --dry-run  # 先预览
 
 ## v3.7 spec 出口门禁 spec-gate（2026-09-11）
 
-> 回应 UMES3 反馈《流程硬阻断缺口：阶段机管"推进"不管"产物质量"》（docs/feedback/spec-gate-hardblock-response-20260911.md 为回执）；4 路代理评审 + 主会话实证修正 8 处后实施。ADR-012。
+> 回应 UMES3 反馈《流程硬阻断缺口：阶段机管"推进"不管"产物质量"》（docs/feedback/spec-gate-hardblock-response-20260911.md 为回执）；4 路代理评审 + 主会话实证修正 8 处后实施。ADR-013。
 
 ### 变更
 - `scripts/check_constitution.py` 新增 `--spec` 模式：合规表节/表行分级 ❌（S1-S5 硬、S6-S9 advisory、占位=未自查）、Risks 节、AC 存在性、验证等级 advisory；退出码 0/1/2+（2+=内部错误）；frontmatter 懒导入；顺带修 `10.ac_levels` 恒假比较（裸捕获组 vs 带括号）

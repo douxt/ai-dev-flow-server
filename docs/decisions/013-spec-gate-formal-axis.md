@@ -1,4 +1,4 @@
-# ADR-012: spec 出口门禁（spec-gate）归形式正确性轴，warn/block 两段制
+# ADR-013: spec 出口门禁（spec-gate）归形式正确性轴，warn/block 两段制
 
 ## 状态：已采纳
 ## 日期：2026-09-11

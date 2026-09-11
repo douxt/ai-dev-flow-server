@@ -35,7 +35,7 @@
 1. `.devflow/trace.jsonl` 存在 `spec-gate.pass/degraded` 心跳（证明钩子在跑）
 2. ≥5 个不同 spec 文件出现过 warn，人工逐条回放标注 **0 误拦**（to-spec 社区模板首轮的"预期补表 warn"不计误拦）
 3. 满足后向项目 `.devflow/spec-gate-mode` 写 `block`；软停写 `off`
-4. 回滚：jq 摘 settings.local.json 中 spec-gate 条目 + 删钩子文件（命令见 ADR-012）
+4. 回滚：jq 摘 settings.local.json 中 spec-gate 条目 + 删钩子文件（命令见 ADR-013）
 
 ## 口径对账表（终结"13 项/11 项/S1-S13"三套数）
 
