@@ -16,13 +16,24 @@ description: NAS（Synology Docker）运维流程——巡检解读、在版脚�
 
 | 要确认的事 | 命令 / 位置 |
 |---|---|
-| 仓库与 NAS 在版是否一致 | `bash nas/check-drift.sh`（3 项 md5 对账） |
-| 巡检是否真的在跑 | `ssh root@nas 'tail -1 /tmp/health_check.log'` |
+| 仓库与 NAS 在版是否一致 | `bash nas/check-drift.sh`（8 项 md5 对账） |
+| 巡检是否真的在跑 | `ssh root@nas 'tail -1 /tmp/health_check.log'`；或看 NAS 自检 `/tmp/nas_selfcheck.log` |
+| 在版脚本是否被改动 | NAS 自检每 15 分钟对照 `state/expected.md5`（清单来源 `nas/manifest.tsv`） |
+| 告警链路是否活着 | 是否收到阿里云每日 09:00 摘要（收不到 = 链路坏） |
 | 端口/路径事实 | `docs/bot/nas-access-best-practices.md` §一（napcat 端口）、§十二（巡检） |
-| 脚本清单与 md5 基线 | `nas/README.md` |
+| 脚本清单与 md5 基线 | `nas/README.md`、`nas/INVENTORY.md` |
 | 当前阶段工单 | `issues/2026-09-11-nas-obs-t*.md` |
 
-> 环境事实（2026-09-11 实测）：NAS 基本无外网；开发机无法访问 Telegram；**唯一 Telegram 通道是阿里云 `115.29.110.107`**。
+### 拓扑（检测在 NAS，发送在云）
+
+```
+NAS  health-check (*/5) ─┐
+NAS  selfcheck   (*/15) ─┼─> state/alert ──云 cron */5 ssh 拉取──> Telegram
+NAS  deep-smoke  (17 */6)┘                          └─ 09:00 每日摘要（死者开关）
+开发机 watchdog（可选，仅开机时）→ 仓库 main ↔ NAS 全量比对 + 本地自测
+```
+
+> 环境事实（2026-09-11 实测）：NAS 基本无外网；开发机无法访问 Telegram；**唯一 Telegram 通道是阿里云 `115.29.110.107`**。所以"检测放 NAS、发送放云"——检测不需要外网，发送必须用云。
 
 ## 1. 巡检解读
 
@@ -52,6 +63,8 @@ description: NAS（Synology Docker）运维流程——巡检解读、在版脚�
 | `restart` | 巡检触发了重启 | 按 §4 验证清单确认恢复 |
 | `skip` | 前置条件连续缺失 3 次 | 查 docker 二进制与三个容器是否存在 |
 | `deep-smoke-fail` | 6 小时金丝雀失败（LLM/检索链路） | 看 `/tmp/deep_smoke.log`；LLM 抖动可忽略一次，连续失败需查 |
+| `selfcheck-heartbeat` | **巡检自身停跳**（NAS 自检发现 `health_check.log` 超过 20 分钟没写） | 查 cron 行、`flock` 卡死、脚本 md5；这是"看门狗的看门狗" |
+| `selfcheck-drift` | 在版脚本与 `state/expected.md5` 不一致（有人改了 NAS 文件或清单过期） | `bash nas/check-drift.sh` 定位；确认是"改了没入库"还是"清单没重生成"（重部署后跑 `MM_DEPLOY=1 bash nas/make-manifest.sh`） |
 
 告警链路：NAS 写 `state/alert` → 阿里云 cron `*/5` 拉取 → Telegram。排查：云侧 `/var/log/nas-alert.log`；开发机看门狗 `~/.local/state/nas-watchdog.log`。
 
