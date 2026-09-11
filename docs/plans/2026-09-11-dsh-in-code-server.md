@@ -17,6 +17,7 @@
 | AC5 | **重建镜像 + 重建容器后状态不丢** | ✅ 12 项指纹逐项一致（详见表下） |
 | AC6 | 既有服务无回归 | ✅ `code-server` healthy、密码登录 302、扩展数不变；`claude 2.1.226` 在 Node 22 下正常；archon/bgutil-pot/youtube-kb 全部 RUNNING |
 | AC7 | 镜像定义入库 + 漂移可发现 | ✅ 两个文件进 `nas/manifest.tsv`，`check-drift.sh` 13/13 OK |
+| AC8 | **WebSocket 升级穿透整链**（GUI 流式对话依赖） | ✅ Node 内置 WS 客户端连 `wss://nas.tail152b92.ts.net:3080/api/events.mux` → **WS OPEN**；NAS 本机经 relay 侧得 `HTTP/1.1 101 Switching Protocols`。恶意 Origin 仍被 403 拦 |
 
 ### AC5 指纹对照（重建前 → 重建后）
 
