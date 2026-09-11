@@ -6,6 +6,10 @@
   python3 check_constitution.py <ticket_file> --json    # JSON 输出
   python3 check_constitution.py --batch <issues_dir>    # 批量扫描目录
   python3 check_constitution.py --batch <dir> --json    # 批量 + JSON
+  python3 check_constitution.py --spec <spec.md> [--json]  # Spec 结构自查（spec-gate 钩子调用）
+
+退出码: 0=通过(含 advisory) / 1=有硬性缺项 / 2=内部错误(文件不存在、不可读)——
+调用方(钩子)必须区分 1 与 2：2 不得解读为"缺项"，应降级放行。
 
 v3.0 新增:
   - 安全红线扫描 (auth/payment/crypto/delete/permission)
@@ -18,13 +22,20 @@ v3.0 新增:
 import sys, os, re, json
 from collections import defaultdict
 
-try:
-    import frontmatter
-except ImportError:
-    print(json.dumps({"file": sys.argv[1] if len(sys.argv) > 1 else "", "passed": 0, "failed": 1,
-        "checks": [{"rule": "0.deps", "severity": "fail",
-                     "desc": "缺少 python-frontmatter 依赖，请 pip install python-frontmatter"}]}))
-    sys.exit(1)
+frontmatter = None
+
+def _require_frontmatter():
+    """ticket 模式懒导入——--spec 模式不依赖 frontmatter，缺包不应拖垮 spec 检查"""
+    global frontmatter
+    if frontmatter is None:
+        try:
+            import frontmatter as _fm
+            frontmatter = _fm
+        except ImportError:
+            print(json.dumps({"file": sys.argv[1] if len(sys.argv) > 1 else "", "passed": 0, "failed": 1,
+                "checks": [{"rule": "0.deps", "severity": "fail",
+                             "desc": "缺少 python-frontmatter 依赖，请 pip install python-frontmatter"}]}))
+            sys.exit(1)
 
 try:
     import yaml
@@ -52,6 +63,7 @@ SAFETY_KEYWORDS = {
 
 
 def load_issue(path):
+    _require_frontmatter()
     with open(path) as f:
         return frontmatter.load(f)
 
@@ -108,7 +120,7 @@ def detect_blocked_by_cycle(issues_dir, issue_file, blocked_ids, visited=None):
 
 def scan_ac_levels(content):
     """检测 AC 是否标注验证级别"""
-    ac_matches = re.findall(r'-\s*\[.\]\s*(?:\[(auto|human-verify|decision)\])?\s*(AC\d*):', content)
+    ac_matches = re.findall(r'-\s*\[.\]\s*(?:\[(auto|human-verify|decision)\])?\s*(?:AC\d*):', content)
     if not ac_matches:
         # 尝试另一种格式
         ac_matches = re.findall(r'\[(auto|human-verify|decision)\]', content)
@@ -249,8 +261,8 @@ def run(issue_path, issues_dir=None, json_out=False, workspace=None):
     # 10. AC 验证级别标注
     ac_levels = scan_ac_levels(content)
     if ac_levels:
-        unique_levels = set(ac_levels)
-        if "[auto]" in unique_levels:
+        unique_levels = {lv for lv in ac_levels if lv}
+        if "auto" in unique_levels:  # 修复：scan 返回裸捕获组且 AC 号改非捕获组，原 "[auto]" in 比较恒假
             add("10.ac_levels", "pass",
                 f"AC 已标注验证级别: {', '.join(sorted(unique_levels))}")
         else:
@@ -440,13 +452,138 @@ def run_batch(issues_dir, json_out=False, workspace=None):
     return 0 if total_failed == 0 else 1
 
 
+# ── Spec 模式（spec-gate 钩子调用；形式正确性轴，见 ADR spec-gate）──
+# 口径映射（17 行合规表 ↔ spec-checklist）：表行 #1-#5 → S1-S5（硬）；
+# #6/#8-#11 → 宪法内检查项；#7/P/H/VL → S6-S9（advisory，checklist L27）。
+SPEC_TABLE_HARD_ROWS = {"1", "2", "3", "4", "5"}  # 合规表中 ❌ 即硬性失败的行号
+UNSELECTED = ("✅/❌", "✔/✘")  # 模板占位视为未自查
+
+
+def _extract_section(content, heading_re):
+    m = re.search(heading_re, content, re.M)
+    if not m:
+        return None
+    rest = content[m.end():]
+    nxt = re.search(r'^##\s', rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def run_spec(spec_path, json_out=False):
+    """Spec 结构自查：硬项失败 exit 1；内部错误 exit 2（钩子降级依据）"""
+    if not os.path.exists(spec_path):
+        print(json.dumps({"mode": "spec", "file": spec_path, "error": "文件不存在"}, ensure_ascii=False))
+        return 2
+    try:
+        with open(spec_path, encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        print(json.dumps({"mode": "spec", "file": spec_path, "error": str(e)}, ensure_ascii=False))
+        return 2
+
+    fails, advisories = [], []
+
+    def hard(rule, desc):
+        fails.append({"rule": rule, "severity": "fail", "desc": desc})
+
+    # 1. 合规表节存在
+    table_sec = _extract_section(content, r'^##+\s*Spec\s*质量宪法合规表')
+    if table_sec is None:
+        hard("spec.compliance_table", "缺「## Spec 质量宪法合规表」节——宪法自查未做")
+    else:
+        # 2. 表内状态列（第 3 列）判定，仅认合规表节内的表格行
+        seen_rows = set()
+        for line in table_sec.splitlines():
+            s = line.strip()
+            if not (s.startswith("|") and s.count("|") >= 3):
+                continue
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            rid = cells[0]
+            if not re.fullmatch(r'(?:[1-9]|1[0-1]|P1-P4|H1-H3|VL)', rid):
+                continue
+            seen_rows.add(rid)
+            status = cells[2] if len(cells) > 2 else ""
+            unfilled = any(u in status for u in UNSELECTED) or not status
+            failed = unfilled or "❌" in status
+            if not failed:
+                continue
+            if rid in SPEC_TABLE_HARD_ROWS:
+                tag = "未填写" if unfilled else "为 ❌"
+                hard(f"spec.table_row_{rid}", f"合规表 #{rid} 状态{tag}（对应 S{rid} 必过项）")
+            else:
+                advisories.append(f"合规表 #{rid} 未通过/未填写（advisory 项）")
+
+    # 3. Risks 节
+    risks_sec = _extract_section(content, r'^##+[^\n]*Risks[^\n]*$')
+    if risks_sec is None:
+        hard("spec.risks_section", "缺 Risks 节")
+    else:
+        n = len(re.findall(r'^\s*[-*]\s+\S', risks_sec, re.M))
+        n += len([l for l in risks_sec.splitlines()
+                  if l.strip().startswith("|") and not re.match(r'^\s*\|[\s:|-]+\|\s*$', l)])
+        n -= 1 if "|" in risks_sec else 0  # 表头行
+        if n < 5:
+            advisories.append(f"Risks 条目 {n} 条 <5（S2 定量要求，advisory）")
+
+    # 4. AC 存在（仅存在性，不消费 scan_ac_levels 捕获组）
+    if not (scan_ac_levels(content)
+            or re.search(r'接受条件|Acceptance Criteria|\bAC\d*\s*[:：]', content)):
+        hard("spec.ac_presence", "未检测到 AC/接受条件（S3）")
+
+    # 5. 验证等级标注（S9，advisory）
+    if not re.search(r'\[(auto|human-verify|decision)\]', content):
+        advisories.append("未标注验证等级 [auto]/[human-verify]/[decision]（S9，advisory）")
+
+    # trace 心跳
+    d = os.path.dirname(os.path.abspath(spec_path))
+    root = None
+    for _ in range(5):
+        if os.path.isdir(os.path.join(d, ".devflow")):
+            root = d
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    if root:
+        try:
+            entry = json.dumps({"event": "constitution.spec",
+                                "ts": __import__('datetime').datetime.now().isoformat(),
+                                "file": os.path.relpath(spec_path, root),
+                                "failed": len(fails), "advisories": len(advisories)}, ensure_ascii=False)
+            with open(os.path.join(root, ".devflow", "trace.jsonl"), 'a') as tf:
+                tf.write(entry + "\n")
+        except Exception:
+            pass
+
+    rc = 1 if fails else 0
+    if json_out:
+        print(json.dumps({"mode": "spec", "file": spec_path,
+                          "passed": rc == 0, "failed": len(fails),
+                          "checks": fails, "advisories": advisories}, ensure_ascii=False))
+    else:
+        print(f"📋 SPEC {spec_path} — {'✅ 通过' if rc == 0 else '❌ 缺项'}")
+        for c in fails:
+            print(f"  ❌ [{c['rule']}] {c['desc']}")
+        for a in advisories:
+            print(f"  ⚠️  {a}")
+    return rc
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("用法: python3 check_constitution.py <ticket_file> [--json]")
         print("       python3 check_constitution.py --batch <issues_dir> [--json]")
+        print("       python3 check_constitution.py --spec <spec.md> [--json]")
         sys.exit(1)
 
     json_out = "--json" in sys.argv
+
+    if "--spec" in sys.argv:
+        spec_idx = sys.argv.index("--spec")
+        if spec_idx + 1 >= len(sys.argv):
+            print("❌ --spec 需要指定 spec 文件路径")
+            sys.exit(2)
+        sys.exit(run_spec(sys.argv[spec_idx + 1], json_out))
 
     if "--batch" in sys.argv:
         batch_idx = sys.argv.index("--batch")
