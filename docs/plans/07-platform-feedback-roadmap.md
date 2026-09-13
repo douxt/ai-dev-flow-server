@@ -2,7 +2,7 @@
 
 > 全局长期方案——平台级租户反馈的唯一持久归口，不被任务级计划覆盖。
 > 配套：测试质量路线图 [06-testing-quality-roadmap.md](06-testing-quality-roadmap.md)（测试门禁专属，本文件管平台其余反馈）。
-> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 两份 L4 调研入线，见阶段四）
+> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 三份 L4 调研入线，见阶段四）
 
 ## 文档定位
 
@@ -90,7 +90,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 
 ## 阶段四：门禁改造对照实验（FEEDBACK-007 的决策前置）
 
-> 输入：[agent-gate-tdd-vs-outcome-survey.md](../references/agent-gate-tdd-vs-outcome-survey.md)（证据面 L4）+ [agent-ab-experiment-design-survey.md](../references/agent-ab-experiment-design-survey.md)(方法面 L4）。
+> 输入：[agent-gate-tdd-vs-outcome-survey.md](../references/agent-gate-tdd-vs-outcome-survey.md)（证据面 L4）+ [agent-ab-experiment-design-survey.md](../references/agent-ab-experiment-design-survey.md)（方法面 L4）+ [agent-tdd-gate-community-pulse-survey.md](../references/agent-tdd-gate-community-pulse-survey.md)（社区动向面 L4——含 E1 协议修正：B 臂改为"宣称修正"形态、g0 异步窄域化、强制层下沉 git hooks）。
 > 结论先行：外部证据方向可信但不可外推到本模型+本门禁形态；能测 ≥2pp 效应，1pp 级不可判定；推断单位=ticket，主检验=BCa 分层 bootstrap（朴素检验 p 值可膨胀 10–1000×）。
 
 ### E0：决策门（半天，人工）
