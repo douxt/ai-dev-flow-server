@@ -8,3 +8,4 @@
 - [nas-observability-lessons-20260911](memory/nas-observability-lessons-20260911.md) — NAS 可观测性重建教训：静默失效四型 / 探针设计三原则 / 执行者放 24/7 主机 / 文件队列+死者开关 / 工具坑（ssh -n 吞 stdin、heredoc 吞 tab、git show 空 md5、前台 sleep）
 - [query-langbot-prompt-and-config](memory/query-langbot-prompt-and-config.md) — 快速查询 LangBot 系统提示词、Pipeline 配置、插件配置的方法
 - [dsh-on-nas-lessons-20260911](memory/dsh-on-nas-lessons-20260911.md) — DSH 装进 NAS code-server 容器的教训：运行时版本要实测到"能启动" / "能访问"要分层验证（含必须被拒绝的对照） / 持久目录会被 watch / 隔离不可用时显式放弃并记录 / "重建不丢"是分层规则 + 指纹比对
+- [dsh-upgrade-0.1.5-20260913](memory/dsh-upgrade-0.1.5-20260913.md) — DSH rc.7→0.1.5-rc.2 升级教训：升级前先查上游是否动了我们依赖的行为 / 两版 schema 互斥时顺序唯一 / 验收用时间窗+差分而非旧基线 / 记录过的坑仍会踩（下沉到脚本） / 判回归先找同版本对照机 / 事实源与仓库两侧改动要用同一语义（sed 漏了注释行 = 一条真 DRIFT）/ 别把一次观察写成机制结论（token 每设备一次性，cookie 30 天且不随重启失效）/ docker exec 缺 -i 会静默生成空文件

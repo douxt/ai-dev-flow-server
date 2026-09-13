@@ -1,6 +1,6 @@
 # DSH on NAS —— 运维手册
 
-> 2026-09-11 起生效 | 决策依据：[ADR-012](../decisions/012-dsh-inside-code-server-container.md) | 计划与验收：[plans/2026-09-11-dsh-in-code-server.md](../plans/2026-09-11-dsh-in-code-server.md)
+> 2026-09-11 起生效（2026-09-13 升级至 0.1.5-rc.2 后更新）| 决策依据：[ADR-012](../decisions/012-dsh-inside-code-server-container.md) | 计划与验收：[plans/2026-09-11-dsh-in-code-server.md](../plans/2026-09-11-dsh-in-code-server.md)
 
 DeepSeek Harness 的 Web 实例跑在 NAS 的 **code-server 容器内**（supervisord 程序 `dsh` + `dsh-relay`），
 经 Tailscale 访问。**不是独立容器**——理由见 ADR-012 的 D1。
@@ -9,15 +9,16 @@ DeepSeek Harness 的 Web 实例跑在 NAS 的 **code-server 容器内**（superv
 
 | 方式 | 地址 | 说明 |
 |---|---|---|
-| **正常入口** | `https://nas.tail152b92.ts.net:3080` | tailnet only，公信 CA 证书，与 code-server 的 8686 并列 |
+| **正常入口** | `https://nas.tail152b92.ts.net:3080` | tailnet only，公信 CA 证书，与 code-server 的 8686 并列。**每台设备首次访问**要带一次 token 换 cookie（§四），此后 30 天内裸地址即可 |
+| 不带 token 直接开 | ✗ `401 dsh web authentication required` | 0.1.5-rc.2 起的默认行为，**不是故障**（开发机同版本一致） |
 | 直连 tailnet IP | ✗ 不通（实测超时） | serve 只认 SNI 名，与既有 8686 行为一致 |
-| LAN | ✗ **无入口**（有意为之） | 端口只发布到 NAS 回环；DSH 自身无认证，LAN 暴露等于开放 RCE |
+| LAN | ✗ **无入口**（有意为之） | 端口只发布到 NAS 回环；DSH 无账号体系，LAN 暴露等于开放 RCE |
 | 容器内回环 | `http://127.0.0.1:3080`（NAS 上） | 运维自测用；经 docker-proxy → 容器 socat → DSH |
 
 ## 二、链路与端口
 
 ```
-浏览器 https://nas.tail152b92.ts.net:3080
+浏览器 https://nas.tail152b92.ts.net:3080/?token=…
   → NAS tailscaled serve（tailnet only，证书由 Tailscale 签发）
   → NAS 127.0.0.1:3080（compose 端口发布，仅回环）
   → 容器 0.0.0.0:3080  socat（裸 TCP 转发 → WebSocket/SSE 天然可用）
@@ -35,7 +36,7 @@ DeepSeek Harness 的 Web 实例跑在 NAS 的 **code-server 容器内**（superv
 
 | 层 | 内容 | 落点 | 重建后 |
 |---|---|---|---|
-| 程序 | Node 22.22.2、`@deepseek-ai/dsh@0.1.0-rc.7`、pnpm、socat | 镜像（Dockerfile） | 随镜像重建，版本可控 |
+| 程序 | Node 22.22.2、`@deepseek-ai/dsh@0.1.5-rc.2`、pnpm、socat | 镜像（Dockerfile） | 随镜像重建，版本可控 |
 | **状态** | `.credentials.yaml`（API key）、`settings.yaml`、`AGENTS.md`、`.agent-presets/`、`profiles/**`（**插件**）、`sessions/`、`storages/` | `DSH_HOME=/home/coder/.config/dsh` → 卷 `/volume7/docker/codeserver/config/dsh` | **不丢** |
 | 包缓存 | pnpm content-addressable store | `/home/coder/.config/.pnpm-store/v11`（同卷） | 不丢 |
 | 既有凭据 | code-server `PASSWORD`（`.env`）、`gh`/`ssh`/`gitconfig` | 现有 config 卷 | 不丢 |
@@ -52,7 +53,7 @@ D=/volume1/@appstore/ContainerManager/usr/bin/docker     # NAS 上的 docker
 # 服务状态（五个程序：archon / bgutil-pot / dsh / dsh-relay / youtube-kb）
 $D exec code-server sudo supervisorctl status
 
-# 健康检查：容器内回环 → 容器 relay
+# 健康检查：容器内回环 → 容器 relay（升级后无 token 会返回 401，属正常）
 $D exec code-server bash -lc 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3081/'
 
 # 日志（supervisorctl tail 比翻 /var/log 更省事）
@@ -69,6 +70,20 @@ $D exec code-server sudo supervisorctl restart dsh
 curl -s -o /dev/null -w '%{http_code}\n' https://nas.tail152b92.ts.net:3080/
 ```
 
+**取当前可用的带 token 入口 URL**（开发机上跑，见 `nas/dsh-url.sh`）：
+
+```bash
+bash nas/dsh-url.sh            # 直接输出一条可点开的 https URL
+```
+
+> **token 只在"这台设备第一次登录"时必需**。它是 `dsh web` 的**进程级随机**值，只出现在 supervisor 的 stdout 里，每次重启/重建都会变。
+>
+> 用它打开一次会签发 cookie（`HttpOnly; SameSite=Strict`，绑定 `host:port`，**有效期 30 天** = `cookieMaxAgeDays` 默认值），
+> 此后裸地址直接可进。**cookie 不随 dsh 重启或容器重建失效** —— 校验只用签名密钥（`initializeSecret` 持久化在
+> `$DSH_HOME/.credentials.yaml`，属卷内状态），与进程级 token 无关。2026-09-13 实测：重启前拿到的 cookie，重启后仍 `200`。
+>
+> 需要重新取 token 的情形只有：换设备/换浏览器、清了 cookie、隐私窗口、超过 30 天、或凭据文件被重置。
+
 ## 五、重建 / 升级流程
 
 **重建（改 Dockerfile 或 compose 后）**：
@@ -80,16 +95,35 @@ cd <repo>/docker/code-server && scp Dockerfile docker-compose.yml root@nas:/volu
 ssh root@nas 'D=/volume1/@appstore/ContainerManager/usr/bin/docker; cd /volume7/docker/codeserver && $D compose build && $D compose up -d'
 # 3. 验证（对照 AC5 清单）
 bash nas/check-drift.sh                       # 13/13 OK
-#    容器内：supervisorctl status 五个 RUNNING；node -v=22.22.2；dsh --version=0.1.0-rc.7
-#    tailnet 设备：首页 200；跑一轮对话（含一次 bash 工具调用）
+#    容器内：supervisorctl status 五个 RUNNING；node -v=22.22.2；dsh --version=0.1.5-rc.2
+#    tailnet 设备：取带 token 的 URL 打开；跑一轮对话（含一次 bash 工具调用）
 ```
 
-**升级 DSH 版本**：改 Dockerfile 里 `npm install -g @deepseek-ai/dsh@<version>` 一行 → 走上面的重建流程。
-状态在卷里，升级不动数据；**先确认新版本仍支持当前 Node 主版本**。
+**升级 DSH 版本**（2026-09-13 实做：`0.1.0-rc.7` → `0.1.5-rc.2`）：
 
-**回滚**：镜像有 `code-server:rollback-dsh-20260911`；
-或 `docker compose down && docker tag code-server:rollback-dsh-20260911 codeserver-code-server:latest && docker compose up -d`。
-备份文件：NAS `/volume7/docker/codeserver/{Dockerfile,docker-compose.yml}.bak.20260911-dsh`。
+1. **备份**（放 `DSH_HOME` 之外）：`Dockerfile` → `Dockerfile.bak.<date>-dsh-upgrade`；
+   preset → `/volume7/docker/codeserver/agent.cordis.yml.bak.<date>`。
+2. 改 Dockerfile 里 `npm install -g @deepseek-ai/dsh@<version>` 一行——**NAS 与仓库两份都要改**，否则 `check-drift.sh` 报 DRIFT。
+3. **先核对该版本的破坏性变更**（release notes 的「其他变更」段落比功能列表更该逐条读）：
+   - **0.1.5｜persona 字段改名**：`@deepseek-ai/dsh-persona` 的 `config.text`（string 必填）→ `prefix`（必填），`text` 被复用为 boolean。
+     两版 schema **互不兼容** ⇒ **不能提前改 preset**（rc.7 只认 `text`），必须"**先重建升级 → 再改这一行**"：
+     `.agent-presets/standard-lite/agent.cordis.yml` 里 `    text: >-` → `    prefix: >-`（**刷浏览器即生效，不用再重启**）。
+     忘了改的症状：新会话建不了、老会话 resume 失败、前端狂刷 `commands/list`。
+   - **0.1.5｜web 鉴权**：新增 `BrowserAuth`，launch token 进程级随机；`dsh web --help` 与 `settings.yaml` **均无关闭/固定项**。
+     影响：升级后裸 URL 一律 `401`，需按 §四 取带 token 的 URL。
+4. **Node 主版本**：确认新版本仍支持容器内 Node（现 22.22.2；rc.2 要求 ≥20.18，实测 OK）。
+5. 走上面的重建流程。容器内 `registry.npmjs.org` 实测可达（`200`），**npm 依赖无需预下载**（Node tarball 仍是本地 COPY）。
+6. 验证不丢：**别看两天前的基线**，看"本次改动动了什么"——
+   `find $DSH_HOME -newermt '<升级时刻>'`（应只有 preset 与 `profiles/` 插件重算）、
+   `sessions/` 与 `storages/` 计数、`diff` 备份与在版文件（Dockerfile 与 preset 各应只差 1 行）。
+
+**回滚**：
+
+- 本次升级前的镜像已 tag：`codeserver-code-server:rollback-pre-dsh-upgrade-20260913`（id `1d04a9e38800`，含 rc.7）；
+  更早的还有 `code-server:rollback-dsh-20260911`。
+- 方式：`docker tag <回滚镜像> codeserver-code-server:latest && docker compose up -d`，
+  并把 preset 的 `prefix:` 改回 `text:`（rc.7 只认 `text`，否则 preset 挂不上）。
+- 备份文件：NAS `/volume7/docker/codeserver/{Dockerfile.bak.20260913-dsh-upgrade,agent.cordis.yml.bak.20260913}`。
 
 ## 六、配置种子（首次或需要重放时）
 
@@ -119,6 +153,8 @@ ssh root@nas "find $CD ! -user 1000 -o ! -group 1000; find $CD ! -perm -u+r"
 
 | 症状 | 原因 | 处置 |
 |---|---|---|
+| 首页/接口一律 `401 dsh web authentication required` | 0.1.5-rc.2 起的 web 鉴权（token 随重启变，非配置问题） | `bash nas/dsh-url.sh` 取新 URL 打开；**不要去查网络/模型** |
+| 升级后新会话建不了、老会话 resume 失败、前端狂刷 `commands/list` | preset 仍写 `text:`，而 0.1.5 的 persona 要 `prefix` ⇒ preset 挂载失败、没有 agent | 改 preset 那一个字段 + 刷浏览器（见 §五 第 3 步） |
 | 页面能打开，但发消息无反应 / `/api` 403 | Host 不在 `trustedHosts`（tailnet 名变了，或漏了 `--trusted-host`） | 改 Dockerfile 里 `--trusted-host <名>` → 重建 |
 | bash 工具报 `no sandbox backend is usable on this host` | `DSH_PERMISSION_MODE` 未生效 | 检查 compose `environment` 与 `dsh.conf` 的 `environment=` |
 | `dsh` 反复重启，日志有 `EACCES … watch` | `DSH_HOME` 内有非 coder 可读文件 | 用上面的自检找到并移出 `DSH_HOME` |
@@ -129,7 +165,8 @@ ssh root@nas "find $CD ! -user 1000 -o ! -group 1000; find $CD ! -perm -u+r"
 
 ## 八、已知限制
 
-- **DSH 无认证/TLS**：安全边界 = Tailscale 身份 + tailnet ACL。任何能上 tailnet 的设备都能操作这个 agent（含 shell）
+- **鉴权强度有限**：0.1.5-rc.2 的 web 鉴权只是"一次性启动 token + 30 天签名 cookie"，**不是账号体系**——token 就在同机 supervisor 日志里，能进容器/能读日志者等于有权限。真正的边界仍是 Tailscale 身份 + tailnet ACL，以及端口不发布到 LAN。
 - **生命周期耦合**：改 code-server 的 Dockerfile 重建会同时重启 DSH
 - **agent 权限面**：以 coder 身份在容器内可读写 code-server 的配置卷、`gh`/`ssh` 凭据、`/data`
 - **未纳入巡检**：DSH 不在 `nas/health-check.sh` 覆盖内（那套服务的是 langbot 栈）；漂移对账只覆盖镜像定义文件
+- **升级需人工取 token**：上游暂无关闭/固定 web 鉴权开关（2026-09-13 实查 `dsh web --help`、`settings.yaml` schema、安装包内 `noAuth/skipAuth` 均属第三方依赖噪声）
