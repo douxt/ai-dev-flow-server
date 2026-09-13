@@ -65,3 +65,58 @@ teardown() { rm -rf "$TEST_TMP"; }
   [[ "$output" == *"关2失败"* ]]
   [ ! -f "$TEST_TMP/exams3/"*/exam.yaml ] || false
 }
+
+@test "声明过滤：票 test_files 未列的测试文件被剔出隐藏卷" {
+  R2=$TEST_TMP/r2; mkdir -p "$R2/tests"
+  git -C "$R2" init -q; git -C "$R2" config user.email t@t; git -C "$R2" config user.name t
+  git -C "$R2" config core.hooksPath .git/hooks
+  printf 'VALUE = 0\n' > "$R2/app.py"
+  printf -- '---\ntest_files: ["tests/test_a.py"]\n---\n# t9\n把 VALUE 修正为 1\n' > "$R2/ticket.md"
+  git -C "$R2" add -A && git -C "$R2" commit -qm base
+  printf 'VALUE = 1\n' > "$R2/app.py"
+  printf 'from app import VALUE\nassert VALUE == 1\n' > "$R2/tests/test_a.py"
+  printf 'from app import VALUE\nassert VALUE in (0, 1)\n' > "$R2/tests/test_other.py"
+  git -C "$R2" add -A && git -C "$R2" commit -qm fix
+  F=$(git -C "$R2" rev-parse HEAD)
+  run $EXAM --repo "$R2" --ticket "$R2/ticket.md" --fix-commits "$F..$F" \
+      --test-cmd "PYTHONPATH=. python3 tests/test_a.py" --out "$TEST_TMP/e-d"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"声明过滤剔除"*test_other.py* ]]
+  [ ! -f "$TEST_TMP/e-d/"*/hidden/tests/test_other.py ]
+  [ -f "$TEST_TMP/e-d/"*/hidden/tests/test_a.py ]
+}
+
+@test "--ticket-at：题面取历史无附注版，当前票版仅供声明过滤" {
+  R2=$TEST_TMP/r3; mkdir -p "$R2/tests"
+  git -C "$R2" init -q; git -C "$R2" config user.email t@t; git -C "$R2" config user.name t
+  git -C "$R2" config core.hooksPath .git/hooks
+  printf 'VALUE = 0\n' > "$R2/app.py"
+  printf 'test_files: ["tests/test_a.py"]\n# t9\n把 VALUE 修正为 1\n' > "$R2/ticket.md"
+  git -C "$R2" add -A && git -C "$R2" commit -qm base
+  printf 'VALUE = 1\n' > "$R2/app.py"
+  printf 'from app import VALUE\nassert VALUE == 1\n' > "$R2/tests/test_a.py"
+  git -C "$R2" add -A && git -C "$R2" commit -qm fix
+  FIX=$(git -C "$R2" rev-parse HEAD)
+  printf 'test_files: ["tests/test_a.py"]\n# t9\n把 VALUE 修正为 1\n\n## 实现期附注\n修法是改成 `VALUE = 1` 字面量\n' > "$R2/ticket.md"
+  git -C "$R2" add -A && git -C "$R2" commit -qm leaky-note
+  run $EXAM --repo "$R2" --ticket "$R2/ticket.md" --fix-commits "$FIX..$FIX" \
+      --ticket-at "$FIX" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" --out "$TEST_TMP/e-t2"
+  [ "$status" -eq 0 ]
+  grep -q "实现期附注" "$TEST_TMP/e-t2/"*/prompt.md && return 1   # 题面必须是 fix 时点的无附注版
+  grep -q "ticket-at: $FIX" "$TEST_TMP/e-t2/"*/exam.yaml
+  grep -q "status: sealed" "$TEST_TMP/e-t2/"*/exam.yaml   # 无附注版不命中 LEAK_RE
+  # 对照：不传 --ticket-at 时当前票版含泄题词 → needs-review
+  run $EXAM --repo "$R2" --ticket "$R2/ticket.md" --fix-commits "$FIX..$FIX" \
+      --test-cmd "PYTHONPATH=. python3 tests/test_a.py" --exam-id alt --out "$TEST_TMP/e-t3"
+  grep -q "status: needs-review" "$TEST_TMP/e-t3/alt/exam.yaml"
+}
+
+@test "--deselect 记入 test-cmd 与 exam.yaml 溯源行" {
+  base=$(cat "$TEST_TMP/base.sha"); fix=$(cat "$TEST_TMP/fix.sha")
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" --fix-commits "$fix..$fix" \
+      --deselect "tests/test_a.py::nope" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --out "$TEST_TMP/e-x"
+  [ "$status" -eq 0 ]   # toy 测试忽略额外 argv，F2P 不受影响
+  grep -q -- "--deselect tests/test_a.py::nope" "$TEST_TMP/e-x/"*/exam.yaml
+  grep -q "deselect: tests/test_a.py::nope" "$TEST_TMP/e-x/"*/exam.yaml
+}

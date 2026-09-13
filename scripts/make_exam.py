@@ -74,6 +74,12 @@ def main():
     ap.add_argument('--out', required=True, help='产出目录 exams/<exam-id>/')
     ap.add_argument('--split', default='report', choices=['dev', 'report', 'holdback'])
     ap.add_argument('--exam-id', default=None)
+    ap.add_argument('--ticket-at', default=None,
+                    help='题面取该 commit 的票历史版本（防实现期附注泄题；声明过滤仍以票当前版为准）')
+    ap.add_argument('--drop-tests', action='append', default=[],
+                    help='整文件剔除出隐藏卷（可重复），理由须入 amendment')
+    ap.add_argument('--deselect', action='append', default=[],
+                    help='pytest --deselect 断言级剔除（path::test，可重复）')
     a = ap.parse_args()
 
     repo = Path(a.repo).resolve()
@@ -96,6 +102,32 @@ def main():
     if not test_files:
         sys.exit('❌ 关2失败：修复未附带测试文件，无法构成隐藏卷')
 
+    # 声明过滤：隐藏卷 ⊆ 票头 test_files（修复区间跨票夹带别人测试=DEFECT-015 同族洞）
+    dropped = list(a.drop_tests)
+    decl = re.search(r'test_files:\s*\[([^\]]*)\]', Path(a.ticket).read_text())
+    if decl:
+        declared = {x.strip().strip('"\'') for x in decl.group(1).split(',') if x.strip()}
+        stray = [f for f in test_files if f not in declared]
+        if stray:
+            print(f'· 声明过滤剔除（票 test_files 未列）: {stray}')
+            dropped += stray
+        test_files = [f for f in test_files if f in declared]
+    else:
+        print('⚠️ 票头无 test_files 声明，跳过声明过滤（审卷段将按 alignment 判据兜底）')
+    if a.drop_tests:
+        test_files = [f for f in test_files if f not in a.drop_tests]
+    if not test_files:
+        sys.exit('❌ 过滤后隐藏卷为空')
+    # 被剔文件若在基线已存在：checkout 里旧版会被本票实现连带打破（原修复曾被迫 align 它），
+    # 判分须 --ignore 之——其失败与本票验收行为无关，属相邻票整备
+    stale = [f for f in dropped
+             if f in need_git(repo, 'ls-tree', '-r', '--name-only', base).splitlines()]
+    if stale:
+        print(f'· 判分忽略基线旧版（被剔但基线存在）: {stale}')
+    test_cmd = (a.test_cmd
+                + ''.join(f' --ignore {f}' for f in stale)
+                + ''.join(f' --deselect {d}' for d in a.deselect))
+
     checkout, hidden = out / 'checkout', out / 'hidden'
     print(f'· 关1 历史剥离: baseline={base[:8]} → 无历史快照')
     snapshot_baseline(repo, base, checkout)
@@ -105,7 +137,7 @@ def main():
     tmp_a = tempfile.mkdtemp(prefix='f2p-a-')
     snap_a = Path(tmp_a) / 'c'
     shutil.copytree(checkout, snap_a)
-    rc_fail = proof(snap_a, hidden, a.test_cmd)
+    rc_fail = proof(snap_a, hidden, test_cmd)
     tmp_b = tempfile.mkdtemp(prefix='f2p-b-')
     snap_b = Path(tmp_b) / 'c'
     shutil.copytree(checkout, snap_b)
@@ -117,14 +149,22 @@ def main():
                        shell=True, capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f'❌ 原修复 patch 不可应用（依赖了历史里的其他改动？）: {r.stderr[:300]}')
-    rc_pass = proof(snap_b, hidden, a.test_cmd)
+    rc_pass = proof(snap_b, hidden, test_cmd)
     shutil.rmtree(tmp_a, ignore_errors=True); shutil.rmtree(tmp_b, ignore_errors=True)
     if rc_fail == 0:
         sys.exit('❌ 关2失败：隐藏卷在基线上就通过（题目太弱或测错东西），弃题')
     if rc_pass != 0:
         sys.exit(f'❌ 关2失败：原修复未让隐藏卷通过（rc={rc_pass}），测的可能是实现细节而非可推导行为')
 
-    prompt = Path(a.ticket).read_text()
+    if a.ticket_at:
+        rel = os.path.relpath(Path(a.ticket).resolve(), repo)
+        pr = git(repo, 'show', f'{a.ticket_at}:{rel}')
+        if pr.returncode != 0:
+            sys.exit(f'❌ --ticket-at 版本无此票: {a.ticket_at}:{rel}')
+        prompt = pr.stdout
+        print(f'· 题面取历史版: {a.ticket_at}:{rel}（当前版仅用于 test_files 声明过滤）')
+    else:
+        prompt = Path(a.ticket).read_text()
     leaks = LEAK_RE.findall(prompt)
     out_join = 'sealed' if not leaks else 'needs-review'
     print(f'· 关3 题面审查: {"命中泄题模式 " + str(leaks) if leaks else "正则无命中"}（仍需人工推导审查）')
@@ -133,8 +173,14 @@ def main():
     meta = [
         f'# exam {exam_id}', f'exam-id: {exam_id}', f'repo: {repo}',
         f'baseline-commit: {base}', f'fix-commits: {a.fix_commits}',
-        f'test-cmd: {a.test_cmd}', f'split: {a.split}', f'status: {out_join}',
+        f'test-cmd: {test_cmd}', f'split: {a.split}', f'status: {out_join}',
         f'fail-to-pass: baseline_rc={rc_fail} fixed_rc={rc_pass}',
+    ]
+    if a.ticket_at: meta.append(f'ticket-at: {a.ticket_at}')
+    if a.drop_tests: meta.append('drop-tests: ' + ' '.join(a.drop_tests))
+    if a.deselect: meta.append('deselect: ' + ' '.join(a.deselect))
+    if stale: meta.append('ignore-stale: ' + ' '.join(stale))
+    meta = meta + [
         'derivation-review: pending',
         'prompt-sha256: ' + hashlib.sha256(prompt.encode()).hexdigest(),
         'hidden-sha256:',
