@@ -41,7 +41,8 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 | DEFECT-019 | UMES3 二轮 §5.2 | 正文模板 `CLAUDE.md:39` 写 `S1-S12` 而 spec-checklist 实含 S1–S13（S13 于 851f7f1 引入当天正文更新即漏）——**根因：清单文件与描述它的文档之间无机械一致性校验**。修法：selftest 或 bats 加断言"清单实际编号 ⊆ 文档声明编号"（防再漏，比逐处修字更根本） | ⏳ 待排（小改+bats） |
 | DEFECT-020 | 三轮核实（我方回执二自身再纠错） | **正文模板 `config-templates/default/CLAUDE.md` 是死通道**：穷举 install 全流程，项目级 `.claude/CLAUDE.md` 正文区**无任何写入点**（update 只 sed 重拼 marker 段、fresh 只幂等追加），用户级落点又被 claude-config symlink 守卫 skip——193 行模板全机无有效分发目标，各租户正文区皆为历史快照。影响：①DEFECT-019 的"S1-S12 笔误"实际从未伤害过任何租户（没人收到它）②新租户拿不到正文模板任何更新。修法待定：正文化为只读参考文档（承认死通道）或增"项目级正文区可选项刷新"通道（破坏 fresh-only 承诺，慎） | ⏳ 待排（先定方向） |
 | FEEDBACK-006 | UMES3 交接单 P1-1（判定修正后仍成立半条） | 流程注入的 89 行 base.append 含过程性内容（完整路径图/阶段机/关键路径表），Anthropic 建议 CLAUDE.md 只留事实——瘦身下沉为 skill/指针。与 DEFECT-018 同文件同案 | ⏳ 待排 |
-| FEEDBACK-007 | UMES3 交接单 P1-3 + 两轮 L4 调研 | **TDD 必经 → 结果导向**决策项。证据状态：方向四份独立同向（Böckeler/agentic-dev-team/arXiv 2602/TDAD：强制 test-first 无质量收益、结构维度负收益、成本+；deepseek 系高写测试组强制边际收益最低），但强度不足以单方拍板（greenfield/单模型/小样本/形态不同构，且门禁效应仅 2pp 级者测不出）。**更锐利的框架**：机制隔离实证"收益来自 refactor 步而非 test-first 序"——我们的门禁恰只管顺序不管 refactor。决策前置 = 阶段四本机对照实验 | 🔴 **待用户决策 + 待 E1 实验** |
+| FEEDBACK-007 | UMES3 交接单 P1-3 + 两轮 L4 调研 | **TDD 必经 → 结果导向**决策项。证据状态：方向四份独立同向（Böckeler/agentic-dev-team/arXiv 2602/TDAD：强制 test-first 无质量收益、结构维度负收益、成本+；deepseek 系高写测试组强制边际收益最低），但强度不足以单方拍板（greenfield/单模型/小样本/形态不同构，且门禁效应仅 2pp 级者测不出）。**更锐利的框架**：机制隔离实证"收益来自 refactor 步而非 test-first 序"——我们的门禁恰只管顺序不管 refactor。决策前置 = 阶段四本机对照实验 | ✅ **E0 已拍板 C（2026-09-13 用户）**，待 E1（协议=e1-experiment-protocol-design-survey §4.2，主终点=奖励黑客缺口） |
+| DEFECT-021 | E0 后 model 引用审计（09-13） | `~/.claude/review-providers.json` 两行指向 9/14 静默路由名：`model: deepseek-v4-pro`（当日起实返 V4.1-Flash、按 flash 计价）+ `pack_model: deepseek-v4-flash`（退役名临时路由）——**评审链基准将无声漂移**。租户 config.yaml 与 shell 零命中（模型 pin 集中于用户级 env，单点风险面）；token-plan qwen 三档名较稳但通道别名行为未验证 | ✅ 已处置（09-13 用户批准）：model/pack_model 双行显式 `deepseek-v4.1-flash` + `_note` 登记 V4.1-Pro 发布时重估触发器；备份 .bak.20260913 |
 
 ## 已处理反馈
 
@@ -100,7 +101,10 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 
 用户在三选项上拍板框架：**A** 保留强制 TDD（修 015 走 worktree 本地化+事件日志）/ **B** 直接换结果门禁（g0 升必过，015 随门禁退役）/ **C** 先实验后决策（默认推荐）。选 C 则继续 E1–E3；选 A/B 则 E2 仍要做（g0 升门禁是两条路的公共资产），E1/E3 作废登记理由。
 
-### E1：H1 两臂最小对照（~1 天墙钟，AFK 可分夜跑）
+### E1：三臂对照（预注册协议已落盘 = docs/plans/2026-09-13-e1-protocol-preregistration.md）
+
+> **执行状态（2026-09-13）**：✅ 决策 C 落账 ｜ ✅ make_exam 造卷器（c9eb134）｜ ✅ DEFECT-021 处置 ｜ ✅ t2/t3 双卷 sealed（台账 cut-optimizer/experiments/e1/，含 HANDOFF，哈希复核一致）｜ ⏳ **run-driver**（三臂开关挂载+Williams 排程+台账+claude -p 无头 runner）｜ ⏳ **pilot** t2/t3×9 格（反推 token-plan 配额速率）｜ ⏳ **用户审卷**（两卷 derivation-review=pending）｜ ⏳ 主段 3-4 夜 ｜ ⏳ 平台 main 远端重推（等 DSH 会话历史稳定）
+
 
 - **假说 H1**：RED  commit 前置对①隐藏验收通过率②g0 kill rate 无显著影响，但显著增加 token/墙钟。
 - **设计**：6–8 真实 ticket × {A=现状门禁, B=关 stage 前置} × 3 重复（KTH 功效公式代入 σ1.5–1.8pp：2pp 效应需 7–13 独立观测/臂）。配对按 ticket 内比较。
