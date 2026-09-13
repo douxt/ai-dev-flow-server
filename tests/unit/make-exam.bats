@@ -1,0 +1,68 @@
+#!/usr/bin/env bats
+# make_exam.py 三道关单测（toy 仓，python3 直跑无需 pytest）
+
+setup() {
+  TEST_TMP="$(mktemp -d)"
+  REPO="$TEST_TMP/repo"
+  mkdir -p "$REPO"
+  git -C "$REPO" init -q
+  git -C "$REPO" config user.email t@t && git -C "$REPO" config user.name t
+  git -C "$REPO" config core.hooksPath .git/hooks   # 脱全局钩子，否则 fixture commit 被 v3.6 全局串联拦截
+  printf 'VALUE = 0\n' > "$REPO/app.py"
+  printf '# t9 修复计数错误\n把 VALUE 修正为 1\n' > "$REPO/ticket.md"
+  git -C "$REPO" add -A && git -C "$REPO" commit -qm base
+  echo "$(git -C "$REPO" rev-parse HEAD)" > "$TEST_TMP/base.sha"
+  printf 'VALUE = 1\n' > "$REPO/app.py"
+  mkdir "$REPO/tests"; printf 'from app import VALUE\nassert VALUE == 1\n' > "$REPO/tests/test_a.py"
+  git -C "$REPO" add -A && git -C "$REPO" commit -qm fix
+  echo "$(git -C "$REPO" rev-parse HEAD)" > "$TEST_TMP/fix.sha"
+  EXAM="python3 $BATS_TEST_DIRNAME/../../scripts/make_exam.py"
+}
+
+teardown() { rm -rf "$TEST_TMP"; }
+
+@test "关2 fail-to-pass 通过则封卷成功（clean 题面 → sealed）" {
+  base=$(cat "$TEST_TMP/base.sha"); fix=$(cat "$TEST_TMP/fix.sha")
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" \
+      --fix-commits "$fix..$fix" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --out "$TEST_TMP/exams"
+  [ "$status" -eq 0 ]
+  grep -q "status: sealed" "$TEST_TMP/exams/"*/exam.yaml
+  [ -f "$TEST_TMP/exams/"*/hidden/tests/test_a.py ]
+}
+
+@test "关1 历史剥离：快照仓只有一个提交且无 remote" {
+  base=$(cat "$TEST_TMP/base.sha"); fix=$(cat "$TEST_TMP/fix.sha")
+  $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" \
+      --fix-commits "$fix..$fix" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --out "$TEST_TMP/exams"
+  [ "$(git -C "$TEST_TMP/exams/"*/checkout rev-list --count HEAD)" = "1" ]
+  run git -C "$TEST_TMP/exams/"*/checkout remote
+  [ -z "$output" ]
+  run git -C "$TEST_TMP/exams/"*/checkout log --oneline --all
+  [[ ! "$output" == *fix* ]]
+}
+
+@test "关3 泄题题面命中正则 → needs-review 不封口" {
+  base=$(cat "$TEST_TMP/base.sha"); fix=$(cat "$TEST_TMP/fix.sha")
+  printf '# t9\n修复方案是把 VALUE 改成 `1`，patch 如下\n' > "$REPO/ticket2.md"
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket2.md" \
+      --fix-commits "$fix..$fix" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --out "$TEST_TMP/exams2"
+  [ "$status" -eq 0 ]
+  grep -q "status: needs-review" "$TEST_TMP/exams2/"*/exam.yaml
+}
+
+@test "假题被拒：隐藏卷基线即通过 → 非零退出且不出卷" {
+  base=$(cat "$TEST_TMP/base.sha")
+  git -C "$REPO" add -A >/dev/null
+  printf 'from app import VALUE\nassert VALUE in (0, 1)\n' > "$REPO/tests/test_a.py"
+  git -C "$REPO" commit -qm weakfix
+  fix=$(git -C "$REPO" rev-parse HEAD)
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" \
+      --fix-commits "$fix..$fix" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --out "$TEST_TMP/exams3"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"关2失败"* ]]
+  [ ! -f "$TEST_TMP/exams3/"*/exam.yaml ] || false
+}
