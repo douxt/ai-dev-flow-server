@@ -5,6 +5,10 @@ CoHarden MPE 宽松率 + SWE-benchify N-run flake quarantine）。
 人工闸改判：人只裁决 flagged 项并签字，derivation-review 字段仍由人改写，本脚本不碰 exam.yaml。
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+
+
+def log(msg):
+    print(f'[review {time.strftime("%H:%M:%S")}] {msg}', file=sys.stderr, flush=True)
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -32,14 +36,14 @@ def longest_common_run(a, b):
 def toks(s):
     return re.findall(r'\S+', s)
 
-def head_cc(claude_bin, model, prompt, workdir):
+def head_cc(claude_bin, model, prompt, workdir, max_turns=5, timeout=900):
     """无头单问（隔离 CC 环境，同 run_driver 姿势）；返回 stdout"""
     env = dict(os.environ); env.update(provider_env(model))
     cc_home = Path(tempfile.mkdtemp(prefix='review-cc-'))
     env['CLAUDE_CONFIG_DIR'] = str(cc_home)
     r = subprocess.run([claude_bin, '-p', prompt, '--output-format', 'json',
-                        '--dangerously-skip-permissions', '--max-turns', '5'],
-                       cwd=workdir, env=env, capture_output=True, text=True, timeout=900)
+                        '--dangerously-skip-permissions', '--max-turns', str(max_turns)],
+                       cwd=workdir, env=env, capture_output=True, text=True, timeout=timeout)
     shutil.rmtree(cc_home, ignore_errors=True)
     try:
         return json.loads(r.stdout).get('result', '')
@@ -103,10 +107,11 @@ def s3_mutants(exam_dir, repo, meta, claude_bin, model, workdir):
                   for p in Path(exam_dir, 'hidden').rglob('*') if p.is_file()}
     prompt = (f'{MUTANT_PROTOCOL}\n你是基准质检员。下面是一个真实修复 patch 与它的隐藏验收测试。'
               f'为每个算子各造 1 个"看似合理但未真正修复问题"的变体 patch——目标是能骗过隐藏测试。\n'
+              f'纯文本转换任务：禁止读取文件或调用任何工具，直接根据下文输出。\n'
               f'算子: {", ".join(OPS)}\n只输出 JSON：{{"mutants":[{{"op":"...","rationale":"...","patch":"<git diff 文本>"}}]}}\n'
               f'## 修复 patch\n{patch}\n## 隐藏测试\n'
               + '\n'.join(f'### {k}\n{v}' for k, v in hidden_txt.items()))
-    raw = head_cc(claude_bin, model, prompt, workdir)
+    raw = head_cc(claude_bin, model, prompt, workdir, max_turns=2, timeout=1200)
     try:
         mutants = extract_json(raw).get('mutants', [])
     except (ValueError, json.JSONDecodeError):
@@ -141,18 +146,22 @@ def s4_judge(exam_dir, meta, s3, claude_bin, model, workdir):
         f'### {p.relative_to(Path(exam_dir) / "hidden")}\n{p.read_text()}'
         for p in sorted(Path(exam_dir, 'hidden').rglob('*')) if p.is_file())
     surv = json.dumps(s3.get('survivors', []), ensure_ascii=False)
-    judge_in = (f'{JUDGE_PROTOCOL}\n你是考卷质检评审。只输出 JSON，逐判据 verdict=PASS/FAIL + evidence。\n'
+    judge_in = (f'{JUDGE_PROTOCOL}\n你是考卷质检评审。逐判据输出 verdict=PASS/FAIL + evidence，'
+                f'最终回复只含一个 JSON 对象。\n'
+                f'背景：这是"真实工单→agent 解题→隐藏测试判分"的考卷。被测 agent 能同时看到'
+                f'题面与工作仓（基线快照在 ./repo-baseline/，含 docs/契约/代码——可读取取证）。'
+                f'判"可推导"的口径 = 题面 + 基线仓内已有文档；题面引用了仓内契约且契约明载，则算可推导。\n'
                 f'判据:\n'
                 f'1 leak: 只读题面能否复述出具体实现/修法（FAIL=泄题）\n'
-                f'2 alignment: 双向可追溯——每条测试断言可追溯到题面要求；每条题面要求有测试覆盖；'
-                f'测试不得引入题面外的新需求\n'
-                f'3 overconstraint: 测试只许覆盖①题面明示行为契约②仓库承重惯例③无可辩驳最佳实践，'
+                f'2 alignment: 双向可追溯——每条测试断言可追溯到题面或基线仓内被题面引用的文档要求；'
+                f'每条题面要求有测试覆盖；测试不得引入二者之外的新需求\n'
+                f'3 overconstraint: 测试只许覆盖①上述可推导行为契约②仓库承重惯例③无可辩驳最佳实践，'
                 f'超出即 gotcha（FAIL）\n'
-                f'4 survivors: 对每个未违反题面的存活变体判 violates_prompt true/false\n'
+                f'4 survivors: 对每个存活变体判 violates_prompt true/false（结合题面+仓内文档）\n'
                 f'格式 {{"leak":{{"verdict":"","evidence":""}},"alignment":{{...}},'
                 f'"overconstraint":{{...}},"survivors":[{{"op":"","violates_prompt":bool,"evidence":""}}]}}\n'
                 f'## 题面\n{prompt_md}\n## 隐藏卷\n{hidden_txt}\n## 存活变体(骗过了隐藏卷的错误修复)\n{surv}')
-    raw = head_cc(claude_bin, model, judge_in, workdir)
+    raw = head_cc(claude_bin, model, judge_in, workdir, max_turns=30, timeout=1800)
     return extract_json(raw)
 
 def main():
@@ -171,11 +180,30 @@ def main():
     # judge/mutant agent 工作目录=中立空临时目录——--dangerously-skip-permissions 下不给它任何源仓写面
     workdir = tempfile.mkdtemp(prefix='review-work-')
     try:
+        log('S1 静态泄题…')
         r1 = s1_static(exam_dir, repo, meta)
+        log(f"S1 done: max_run={r1['max_common_token_run']} flag={r1['flag']}")
+        log('S2 flake N=3（真实测试套件逐遍重跑）…')
         r2 = s2_flake(exam_dir, repo, meta)
-        r3 = {'skipped': True} if a.skip_mutants else s3_mutants(exam_dir, repo, meta,
-                                                                 a.claude_bin, a.mutant_model, workdir)
-        r4 = s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model, workdir)
+        log(f"S2 done: stable={r2['stable']}")
+        if a.skip_mutants:
+            r3 = {'skipped': True}
+        else:
+            log('S3 变异生成+执行…')
+            try:
+                r3 = s3_mutants(exam_dir, repo, meta, a.claude_bin, a.mutant_model, workdir)
+            except Exception as e:
+                r3 = {'error': f'S3 异常: {e}', 'admitted': 0, 'survivors': [], 'laxity': None}
+            log(f"S3 done: admitted={r3.get('admitted')} survivors={len(r3.get('survivors', []))} {r3.get('error') or ''}")
+        log('S4 judge（带仓基线可见性）…')
+        shutil.copytree(exam_dir / 'checkout', Path(workdir) / 'repo-baseline', dirs_exist_ok=True)
+        try:
+            r4 = s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model, workdir)
+        except Exception as e:
+            r4 = {'error': str(e), 'leak': {'verdict': 'FAIL', 'evidence': 'judge 未出结论，保守记 FAIL'},
+                  'alignment': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'},
+                  'overconstraint': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'}}
+        log('S4 done')
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -194,6 +222,7 @@ def main():
         'flags': flags,
         's1-static': r1, 's2-flake': r2, 's3-mutants': r3, 's4-judge': r4,
         'models': {'judge': a.judge_model, 'mutant': a.mutant_model},
+        'judge-repo-visibility': 'repo-baseline(考卷 checkout 副本)',
         'prompt-sha256': meta.get('prompt-sha256'),
         'note': '本包只生成证据；derivation-review 由人裁决后手改 exam.yaml'}
     out = exam_dir / 'review'
