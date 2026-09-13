@@ -107,7 +107,10 @@ def score_repo(repo, exam_dir, test_cmd):
 
 def provider_env(model):
     """token-plan 通道 env：只注入 ANTHROPIC_*，认证走环境变量（协议 §6 冻结通道）"""
-    cfg = json.loads(Path(os.path.expanduser('~/.claude/review-providers.json')).read_text())
+    prov = Path(os.path.expanduser('~/.claude/review-providers.json'))
+    if not prov.exists():   # 容器/无凭证环境（stub 测试）：降级空 env，调用方自备认证
+        return {}
+    cfg = json.loads(prov.read_text())
     p = cfg['providers']['ali']
     tok = Path(os.path.expanduser(p['token_file'])).read_text().strip()
     return {'ANTHROPIC_BASE_URL': p['base_url'], 'ANTHROPIC_AUTH_TOKEN': tok,
