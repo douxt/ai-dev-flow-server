@@ -65,7 +65,7 @@
 
 - 扩展与 CLI **共享同一套 `~/.codex/` 配置**，但注意双份现实：扩展跑在哪侧，哪侧的 `~/.codex` 才生效。官方支持开关 `chatgpt.runCodexInWindowsSubsystemForLinux = true`（VSCode settings.json）→ 扩展的 Codex 运行时进 WSL，读 **WSL 内** `~/.codex/config.toml`——与 CLI 完全统一，配置一次全端生效。
 - 扩展自定义模型选择器有历史 bug（#6963/#4558/#27695，桌面端 #19694/#15138）：`/model` 列表可能不显示自定义模型。**绕过法**：`config.toml` 写死 `model = "..."`，实际请求即按它走（去站方日志验证真实 model_id，勿信"你是哪个模型"）。
-- 网络路径：AiHubMix/Fenno 这类站域名**大陆可直连，WSL 内无需任何代理**——这正是中转站方案对 WSL 用户的最大红利。只有走 ChatGPT OAuth 登录或 OpenRouter 才需要代理链；届时的已验证解法：`.wslconfig` 开 `networkingMode=mirrored`（Win11 22H2+），或 VSCode `http.proxy` 指 Windows 宿主 Clash（7897）——注意 User 栏与 Remote[WSL] 栏不能同时设不同代理，冲突即无限 Reconnecting（#8814 官方定性为网络配置问题并关闭）。
+- 网络路径：**"中转站域名大陆必可直连"是软文口径，不成立**。本机实测（2026-09-13，WSL 不走代理 + AliDNS）：`aihubmix.com`/`yunwu.ai` DNS 污染（解析到 Facebook 段）直连失败；`api.fenno.ai`、`api.rcouyi.com` 直连 200 可用；`openrouter.ai` 首页可达（模型调用另受账号风控）。直连性随运营商/线路/时间漂移，**选型前必须自测**：`curl -4 --noproxy '*' -m 6 https://<站域名>`。要代理时的已验证解法：`.wslconfig` 开 `networkingMode=mirrored`（Win11 22H2+），或 VSCode `http.proxy` 指 Windows 宿主 Clash（7897）——注意 User 栏与 Remote[WSL] 栏不能同时设不同代理，冲突即无限 Reconnecting（#8814 官方定性为网络配置问题并关闭）。
 - 验证链：WSL 内 `curl -s <站>/v1/responses -H "Authorization: Bearer $KEY" ...` 200 → `codex "reply only yes"` → VSCode 新会话（改配置后须 Reload Window 或全退重启，扩展不热加载 config）。
 
 ## 5. 缺口裁决表（L4）
@@ -86,8 +86,9 @@ R4 后未闭合 2 条（G3/G4）<3，且均为"小额试用即可自证"性质�
 
 | 场景 | 推荐 | 理由 |
 |---|---|---|
-| **主力（默认推荐）** | **AiHubMix** | 官方 Codex 教程最全、Responses 原生、≈官方价−10% 按量付费不逼囤款、公司化多年 |
-| 低价试水 | Fenno（api.fenno.ai） | 独立验真 82/100 通过 + 阮一峰背书，但**只用 $1.99/9.9 元档验证，月上限控制在损失可接受额** |
+| **主力（默认推荐，需代理）** | **AiHubMix** | 官方 Codex 教程最全、Responses 原生、≈官方价−10% 按量付费不逼囤款、公司化多年。⚠️ 本机实测域名 DNS 污染，须挂代理 |
+| **免代理首选** | **Fenno（api.fenno.ai）** | 本机实测直连 200；配置同样走 Responses；仍守小额充值纪律 |
+| 低价试水 | （即上行 Fenno） | 独立验真 82/100 通过，但**只用 $1.99/9.9 元档验证，月上限控制在损失可接受额**——境外主体+个人背书，禁大额 |
 | 企业/报销 | CloseAI | 注册主体 + 发票，合规叙事最好 |
 | 有海外账单主体 | OpenRouter | 模型最全 + failover + Stripe 背书，费用透明（5.5% 手续费） |
 | 已有 ChatGPT Plus/Pro | 自建 **Sub2API/new-api**（VPS 上转 `/v1/responses`） | 零充值风险、订阅额度复用；自担账号封禁风险，教程生态成熟（linux.do、awesome 目录） |
@@ -100,7 +101,7 @@ R4 后未闭合 2 条（G3/G4）<3，且均为"小额试用即可自证"性质�
 3. 从 WSL 开 VSCode：`code .`（左下角确认 `WSL:` 绿标）。
 4. WSL 内 `~/.codex/config.toml` 按 §4 模板配 AiHubMix（根键写在 `[model_providers.*]` 表之前——TOML 硬规则）；`~/.bashrc` 里 `export AIHUBMIX_API_KEY=...`。
 5. 全退 VSCode 重开 → 侧边栏 Codex 图标（不出现就命令面板 `Codex: Open Codex Sidebar`）→ 发一条任务 → **AiHubMix 控制台日志页核对 model_id**（唯一可信验证点）。
-6. 网络：以上全程无需代理；若某站域名被墙，第一反应是换站而非配代理链——中转的初衷就是免翻墙。
+6. 网络：先 `curl -4 --noproxy '*' https://<站域名>` 实测直连——各站域名可达性不同且随时间漂移（本机实测 aihubmix 不可直连、fenno 可）。不可直连且你常年开 Clash 时，WSL 内 `export https_proxy=http://<宿主IP>:7897` 即可；不想依赖代理则优先选实测可直连的站。
 7. 安全纪律：小额充值、敏感仓不用、留第二站 key、月度跑一次验真。
 
 ## 7. 来源列表
