@@ -2,7 +2,7 @@
 
 > 全局长期方案——平台级租户反馈的唯一持久归口，不被任务级计划覆盖。
 > 配套：测试质量路线图 [06-testing-quality-roadmap.md](06-testing-quality-roadmap.md)（测试门禁专属，本文件管平台其余反馈）。
-> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 六份 L4 调研入线，见阶段四）
+> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 七份 L4 调研入线，见阶段四）
 
 ## 文档定位
 
@@ -91,7 +91,8 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 ## 阶段四：门禁改造对照实验（FEEDBACK-007 的决策前置）
 
 > 输入：[agent-gate-tdd-vs-outcome-survey.md](../references/agent-gate-tdd-vs-outcome-survey.md)（证据面 L4）+ [agent-ab-experiment-design-survey.md](../references/agent-ab-experiment-design-survey.md)（方法面 L4）+ [agent-tdd-gate-community-pulse-survey.md](../references/agent-tdd-gate-community-pulse-survey.md)（社区动向面 L4——含 E1 协议修正：B 臂改为"宣称修正"形态、g0 异步窄域化、强制层下沉 git hooks）
-> + [model-scale-harness-tdd-survey.md](../references/model-scale-harness-tdd-survey.md)（模型规模×harness L4）：**五条模型无关规律**（逆缩放/规则预算乘法/结构外置>指令内联/验证可替代性/harness 漂移主效应），E0 修正——判死的是 prompt 层流程指令，粗粒度 hook 层 RED 门禁反被增援；**E1 改三臂**（现状/去 prompt 指令留 hook/全去换 g0）× 双模型档，并先跑 hook 遵从基线审计、实验期冻结 harness 版本。FEEDBACK-006 从"体验"改判"机制"（CLAUDE.md 瘦身=门禁有效性前置）
+> + [model-scale-harness-tdd-survey.md](../references/model-scale-harness-tdd-survey.md)（模型规模×harness L4）：**五条模型无关规律**（逆缩放/规则预算乘法/结构外置>指令内联/验证可替代性/harness 漂移主效应），E0 修正——判死的是 prompt 层流程指令，粗粒度 hook 层 RED 门禁反被增援；**E1 改三臂**（现状/去 prompt 指令留 hook/全去换 g0）× 双模型档，并先跑 hook 遵从基线审计、实验期冻结 harness 版本。
+> + [e1-experiment-protocol-design-survey.md](../references/e1-experiment-protocol-design-survey.md)（实验工程协议 L4）：E1 主终点改为**奖励黑客缺口**（SpecBench：可见卷人人满分、小模型缺口更大、随规模 +27pp/10×——"门禁是否教应试"成为第一可测问题）；出题三道关（历史剥离 worktree/fail-to-pass 入场券/可推导规则）+ flaky 三连防线 + 缓存四类分账（行为货币）+ Williams 排程混跑 + **救援需求量探针**（值守效度代理，自研标注）；序贯降级为预算工具（聚类小样本无理论保证）。协议与考卷三用：E1 裁决/换代回归/晋升台账。FEEDBACK-006 从"体验"改判"机制"（CLAUDE.md 瘦身=门禁有效性前置）
 > + [flash-model-generation-harness-impact-survey.md](../references/flash-model-generation-harness-impact-survey.md)（模型换代冲击面 L4）：换代爆炸半径三层=协议面→默认面→能力面（V4.1-Flash / Qwen3.8-Next 官方一手）；社区已命名应对模式 **Scaffold Ablation on Model Upgrade**（组件贴假设标签→逐个摘除跑 eval→policy/安全类豁免）。**紧急项独立于 E0**：9/14 起 `deepseek-v4-pro` 静默路由至 V4.1-Flash——需全租户 model 引用审计 + 用 E1 固定子集在 V4.1-Flash 上跑一轮影子评估（即换代回归套件首次实战，DEFECT-011 正解）。
 > 结论先行：外部证据方向可信但不可外推到本模型+本门禁形态；能测 ≥2pp 效应，1pp 级不可判定；推断单位=ticket，主检验=BCa 分层 bootstrap（朴素检验 p 值可膨胀 10–1000×）。
 
@@ -124,6 +125,7 @@ E0 决策落 ADR；E1 报告含 CI 区间且如实标注"不可判定"区段；E
 
 | 日期 | 版本 | 内容 |
 |------|------|------|
+| 2026-09-13 | v1.7 | 阶段四输入补至七份：E1 工程协议加固（主终点=奖励黑客缺口、出题三道关、值守效度救援探针、缓存分账与 Williams 排程）；E1 预算微调 4 夜/$45/人审 1h |
 | 2026-09-13 | v1.6 | 阶段四输入补至六份：集成设计面调研——rules manifest+策略编译器自建蓝图（六层）+反模式清单；G4 确认"按能力档激活集"为社区空位（自建机会）|
 | 2026-09-13 | v1.5 | 阶段四输入补至五份 L4：新增模型规模面（五条通用规律，E1 改三臂×双档+遵从基线审计+harness 冻结）与换代冲击面（Scaffold Ablation 模式、三层爆炸半径）；**新紧急项（独立于 E0）**：9/14 `deepseek-v4-pro` 静默路由至 V4.1-Flash → 全租户 model 引用审计 + V4.1-Flash 影子评估（换代回归套件首战，DEFECT-011 正解） |
 | 2026-09-12 | v1.4 | UMES3 v3.2 交接单三轮往来闭环：新登 DEFECT-015~020 + FEEDBACK-006/007；新增阶段三·五（往来记录）与阶段四（门禁改造对照实验 E0–E3，输入=两份 L4 调研）；我方两处漏判认账转化为 018/020 |
