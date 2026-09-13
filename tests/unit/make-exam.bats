@@ -55,9 +55,8 @@ teardown() { rm -rf "$TEST_TMP"; }
 
 @test "假题被拒：隐藏卷基线即通过 → 非零退出且不出卷" {
   base=$(cat "$TEST_TMP/base.sha")
-  git -C "$REPO" add -A >/dev/null
   printf 'from app import VALUE\nassert VALUE in (0, 1)\n' > "$REPO/tests/test_a.py"
-  git -C "$REPO" commit -qm weakfix
+  git -C "$REPO" add -A && git -C "$REPO" commit -qm weakfix
   fix=$(git -C "$REPO" rev-parse HEAD)
   run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" \
       --fix-commits "$fix..$fix" --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
