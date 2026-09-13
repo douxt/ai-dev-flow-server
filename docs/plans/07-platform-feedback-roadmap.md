@@ -2,7 +2,7 @@
 
 > 全局长期方案——平台级租户反馈的唯一持久归口，不被任务级计划覆盖。
 > 配套：测试质量路线图 [06-testing-quality-roadmap.md](06-testing-quality-roadmap.md)（测试门禁专属，本文件管平台其余反馈）。
-> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 三份 L4 调研入线，见阶段四）
+> 上次更新：2026-09-12（UMES3 三轮交接单往来 + 四份 L4 调研入线，见阶段四）
 
 ## 文档定位
 
@@ -90,7 +90,8 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 
 ## 阶段四：门禁改造对照实验（FEEDBACK-007 的决策前置）
 
-> 输入：[agent-gate-tdd-vs-outcome-survey.md](../references/agent-gate-tdd-vs-outcome-survey.md)（证据面 L4）+ [agent-ab-experiment-design-survey.md](../references/agent-ab-experiment-design-survey.md)（方法面 L4）+ [agent-tdd-gate-community-pulse-survey.md](../references/agent-tdd-gate-community-pulse-survey.md)（社区动向面 L4——含 E1 协议修正：B 臂改为"宣称修正"形态、g0 异步窄域化、强制层下沉 git hooks）。
+> 输入：[agent-gate-tdd-vs-outcome-survey.md](../references/agent-gate-tdd-vs-outcome-survey.md)（证据面 L4）+ [agent-ab-experiment-design-survey.md](../references/agent-ab-experiment-design-survey.md)（方法面 L4）+ [agent-tdd-gate-community-pulse-survey.md](../references/agent-tdd-gate-community-pulse-survey.md)（社区动向面 L4——含 E1 协议修正：B 臂改为"宣称修正"形态、g0 异步窄域化、强制层下沉 git hooks）
+> + [model-scale-harness-tdd-survey.md](../references/model-scale-harness-tdd-survey.md)（模型规模×harness L4）：**五条模型无关规律**（逆缩放/规则预算乘法/结构外置>指令内联/验证可替代性/harness 漂移主效应），E0 修正——判死的是 prompt 层流程指令，粗粒度 hook 层 RED 门禁反被增援；**E1 改三臂**（现状/去 prompt 指令留 hook/全去换 g0）× 双模型档，并先跑 hook 遵从基线审计、实验期冻结 harness 版本。FEEDBACK-006 从"体验"改判"机制"（CLAUDE.md 瘦身=门禁有效性前置）。
 > 结论先行：外部证据方向可信但不可外推到本模型+本门禁形态；能测 ≥2pp 效应，1pp 级不可判定；推断单位=ticket，主检验=BCa 分层 bootstrap（朴素检验 p 值可膨胀 10–1000×）。
 
 ### E0：决策门（半天，人工）
