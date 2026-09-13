@@ -103,7 +103,7 @@ DevFlow 平台改进反馈的**唯一持久路线图**。租户反馈（`docs/de
 
 ### E1：三臂对照（预注册协议已落盘 = docs/plans/2026-09-13-e1-protocol-preregistration.md）
 
-> **执行状态（2026-09-13）**：✅ 决策 C 落账 ｜ ✅ make_exam 造卷器（f689c95）｜ ✅ DEFECT-021 处置 ｜ ✅ t2/t3 双卷 sealed（台账 cut-optimizer/experiments/e1/，含 HANDOFF，哈希复核一致）｜ ✅ **run-driver**（b733e42：三臂沙箱挂载+g0/shim+判分三分+台账+Williams；CLAUDE_CONFIG_DIR 隔离宿主钩子；偏差声明 5 条见 scripts/e1/README.md 跑期内冻结；stub-E2E 全链通+双镜像 bats 10/10；顺带修 make-exam.bats #10 潜伏 bug）｜ ✅ **main 远端重推**（DSH 会话历史稳定后变基：49b40ef 为其远端提交 7423048 的严格子集，rebase --skip 去重，四枚 E1 提交重放推送，SHA 以变基后为准）｜ ⏳ **用户审卷**（两卷 derivation-review=pending，**pilot 前置闸**：不过审不烧配额）｜ ⏳ **pilot** t2/t3×9 格（反推 token-plan 配额速率）｜ ⏳ 主段 3-4 夜
+> **执行状态（2026-09-13）**：✅ 决策 C 落账 ｜ ✅ make_exam 造卷器（f689c95）｜ ✅ DEFECT-021 处置 ｜ ✅ t2/t3 双卷 sealed（台账 cut-optimizer/experiments/e1/，含 HANDOFF，哈希复核一致）｜ ✅ **run-driver**（b733e42：三臂沙箱挂载+g0/shim+判分三分+台账+Williams；CLAUDE_CONFIG_DIR 隔离宿主钩子；偏差声明 5 条见 scripts/e1/README.md 跑期内冻结；stub-E2E 全链通+双镜像 bats 10/10；顺带修 make-exam.bats #10 潜伏 bug）｜ ✅ **main 远端重推**（DSH 会话历史稳定后变基：49b40ef 为其远端提交 7423048 的严格子集，rebase --skip 去重，四枚 E1 提交重放推送，SHA 以变基后为准）｜ ✅ **审卷自动化**（L4 调研 6606560 → review_exam.py 四段器 888a353+0fc1e77；实审战果：t3 附注泄题实锤/t2 夹带 rate_limit+接口钉死——用户拍板 J1J2aJ3，Amendment-001 落盘，make_exam 获声明过滤/--ticket-at/剔除溯源 796d47f，重封 **t2v2/t3r**）｜ ⏳ **重审包出→用户签字**（derivation-review approved，pilot 前置闸）｜ ⏳ **pilot** t2v2/t3r×9 格（反推 token-plan 配额速率）｜ ⏳ 主段 3-4 夜
 
 
 - **假说 H1**：RED  commit 前置对①隐藏验收通过率②g0 kill rate 无显著影响，但显著增加 token/墙钟。
