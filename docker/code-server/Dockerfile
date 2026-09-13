@@ -108,9 +108,9 @@ RUN echo "88fd1ce767091fd8d4a99fdb2356e98c819f93f3b1f8663853a2dee9b438068a  /tmp
     rm /tmp/node.tar.xz && \
     node -v && npm -v
 
-# DeepSeek Harness：版本与开发机一致（0.1.0-rc.7）。升级 = 改这一行 + 重建。
+# DeepSeek Harness：版本与开发机一致（0.1.5-rc.2）。升级 = 改这一行 + 重建。
 # pnpm：`dsh plugin` 与设置页安装插件依赖它（base 镜像没有）。
-RUN npm install -g @deepseek-ai/dsh@0.1.0-rc.7 pnpm@11 && dsh --version
+RUN npm install -g @deepseek-ai/dsh@0.1.5-rc.2 pnpm@11 && dsh --version
 
 # socat：容器内 TCP 转发。DSH 的 --host 只接受 127.0.0.1|0.0.0.0，且 0.0.0.0 被 CLI
 #   明确拒绝（"would expose remote code execution to the network"）——所以不绕过它：
