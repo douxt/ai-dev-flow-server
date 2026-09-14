@@ -19,6 +19,8 @@ ARMS = {
     'B': dict(prompt='claude-md-facts.md', stage_gate=True, g0=False),
     'C': dict(prompt='claude-md-facts.md', stage_gate=False, g0=True),
 }
+# 沙箱上下文卫生：与本票解题无关的存档树（不属隐藏卷、不进判分、只灌 context）
+SANDBOX_NOISE = ('research',)
 
 def exam_meta(exam_dir):
     meta = {}
@@ -52,6 +54,13 @@ def build_sandbox(exam_dir, arm, out, run_id):
     # 隔离硬化：清掉 checkout 继承的生产 agent 配置/钩子，避免冲平三臂差异
     for pth in ('.claude', '.devflow/scripts', '.devflow/templates'):
         tgt = repo / pth
+        if tgt.is_dir():
+            shutil.rmtree(tgt)
+        elif tgt.exists():
+            tgt.unlink()
+    # 上下文卫生：剔除与本票解题无关的调研存档树（撑大 context/拖慢/含 429 抓取噪声），不动封卷哈希
+    for noise in SANDBOX_NOISE:
+        tgt = repo / noise
         if tgt.is_dir():
             shutil.rmtree(tgt)
         elif tgt.exists():

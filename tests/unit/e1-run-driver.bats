@@ -115,3 +115,12 @@ teardown() { rm -rf "$T"; }
   grep -q "隐藏证据" "$T/rh/repo/CLAUDE.md"
   [ -f "$T/rh/repo/.claude/hooks/g0-enforce.sh" ]             # 臂钩子正常挂载
 }
+
+@test "上下文卫生：沙箱剔除 research/ 但保留解题源码" {
+  mkdir -p "$E/checkout/research/temp"; printf '{"status":429}\n' > "$E/checkout/research/temp/engine.json"
+  mkdir -p "$E/checkout/optimizer"; printf 'def solve(): pass\n' > "$E/checkout/optimizer/bfd.py"
+  python3 "$W/scripts/e1/run_driver.py" sandbox --exam "$E" --arm A --out "$T/rn" >/dev/null
+  [ ! -d "$T/rn/repo/research" ]                       # 调研存档被剔
+  [ -f "$T/rn/repo/optimizer/bfd.py" ]                # 解题源码保留
+  [ -f "$T/rn/repo/app.py" ]
+}
