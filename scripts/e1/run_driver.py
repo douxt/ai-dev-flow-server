@@ -146,10 +146,13 @@ def do_run(args):
                            text=True, timeout=args.timeout)
         try:
             j = json.loads(r.stdout)
-            usage = j.get('usage', {})
-            session_id = j.get('session_id')
-            result_brief = str(j.get('result', ''))[:600]
-            if j.get('is_error'): status = 'agent-error'
+            if not isinstance(j, dict):            # 真实 solve 偶发返回非对象(截断/裸 bool)
+                status = 'bad-json'; result_brief = repr(j)[:400]
+            else:
+                usage = j.get('usage', {}) or {}
+                session_id = j.get('session_id')
+                result_brief = str(j.get('result', ''))[:600]
+                if j.get('is_error'): status = 'agent-error'
         except json.JSONDecodeError:
             status = 'bad-json'
             result_brief = r.stdout[-600:]
