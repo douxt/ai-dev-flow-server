@@ -69,3 +69,24 @@ def test_random_conservation_and_bounds_via_api(lengths, cap, kerf):
     assert r["bars_used"] * cap == placed + offcut_total + r["waste_length"]
     # AC2 证书界链：下界 ≤ 实排根数
     assert r["lower_bound"] <= r["bars_used"]
+
+
+def test_ncut_accounting_discriminator():
+    """[出卷方补题] 救回被剔 test_bounds 的唯一判别封条：n 口刀损记账(票附注1/契约 L56 用户定案)。
+
+    2998×2/cap6000/kerf3.2：n 口 Σlen+n·kerf = 5996+6.4 = 6002.4 > 6000 → 不可并 → 2 根；
+    2996×2/cap6000/kerf3.2：5992+6.4 = 5998.4 ≤ 6000 → 可并 → 1 根。
+    (n−1) 口口径或基线桩(不计 kerf)会把 2998×2 误判 1 根 → 本断言专杀之。
+    只经 POST /optimize 响应 bars_used，不触 optimizer 内部符号。
+    """
+    client = make_client()
+
+    def bars(lengths, cap, kerf):
+        r = _post(client, [{
+            "group": "g", "stock": [{"length": cap, "quantity": 100}],
+            "parts": [{"length": l, "quantity": 1} for l in lengths],
+        }], kerf).json()["results"][0]
+        return r["bars_used"]
+
+    assert bars([2998, 2998], 6000, 3.2) == 2   # n 口：两根并不下
+    assert bars([2996, 2996], 6000, 3.2) == 1   # 可并：判别对照
