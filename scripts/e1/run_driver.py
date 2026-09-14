@@ -137,6 +137,24 @@ def provider_env(model):
 def sha256_file(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
+def parse_claude_json(out):
+    """claude -p --output-format json 在真·多轮 run 下结果 JSON 前后可能夹日志，
+    整串 loads 失败 → 截取最外层 {...} 跨度再解析。失败返回 None。"""
+    out = out.strip()
+    try:
+        j = json.loads(out)
+        return j if isinstance(j, dict) else None
+    except json.JSONDecodeError:
+        pass
+    i, j = out.find('{'), out.rfind('}')
+    if 0 <= i < j:
+        try:
+            obj = json.loads(out[i:j+1])
+            return obj if isinstance(obj, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
 def do_run(args):
     run_dir = Path(args.runs_root) / args.run_id
     meta = build_sandbox(args.exam, args.arm, run_dir, args.run_id)
@@ -147,24 +165,22 @@ def do_run(args):
     env['CLAUDE_CONFIG_DIR'] = str(cc_home)
     prompt = Path(meta.get('prompt_file', Path(args.exam) / 'prompt.md')).read_text()
     t0 = time.time()
-    cmd = [args.claude_bin, '-p', prompt, '--output-format', 'json',
+    # prompt 走 stdin 而非位置参数：票面以 `---`(YAML frontmatter) 开头，
+    # claude 会把 '-' 起始的 arg 误当命令行选项 (unknown option)
+    cmd = [args.claude_bin, '-p', '--output-format', 'json',
            '--dangerously-skip-permissions', '--max-turns', str(args.max_turns)]
     status, usage, session_id, result_brief = 'ok', {}, None, ''
     try:
-        r = subprocess.run(cmd, cwd=repo, env=env, capture_output=True,
+        r = subprocess.run(cmd, cwd=repo, env=env, input=prompt, capture_output=True,
                            text=True, timeout=args.timeout)
-        try:
-            j = json.loads(r.stdout)
-            if not isinstance(j, dict):            # 真实 solve 偶发返回非对象(截断/裸 bool)
-                status = 'bad-json'; result_brief = repr(j)[:400]
-            else:
-                usage = j.get('usage', {}) or {}
-                session_id = j.get('session_id')
-                result_brief = str(j.get('result', ''))[:600]
-                if j.get('is_error'): status = 'agent-error'
-        except json.JSONDecodeError:
-            status = 'bad-json'
-            result_brief = r.stdout[-600:]
+        j = parse_claude_json(r.stdout)
+        if j is None:
+            status = 'bad-json'; result_brief = r.stdout[-600:]
+        else:
+            usage = j.get('usage', {}) or {}
+            session_id = j.get('session_id')
+            result_brief = str(j.get('result', ''))[:600]
+            if j.get('is_error'): status = 'agent-error'
     except subprocess.TimeoutExpired:
         status = 'timeout'
     wall = round(time.time() - t0, 1)
