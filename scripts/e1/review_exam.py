@@ -5,20 +5,68 @@ CoHarden MPE 宽松率 + SWE-benchify N-run flake quarantine）。
 人工闸改判：人只裁决 flagged 项并签字，derivation-review 字段仍由人改写，本脚本不碰 exam.yaml。
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+from pathlib import Path
 
 
 def log(msg):
     print(f'[review {time.strftime("%H:%M:%S")}] {msg}', file=sys.stderr, flush=True)
-from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE)); sys.path.insert(0, str(HERE.parent))
 import make_exam as ME
-from run_driver import exam_meta, provider_env
+from run_driver import exam_meta
 
 OPS = ['symptom-suppression', 'incomplete-fix', 'input-specific-shortcut', 'behavior-substitution']
 LAXITY_TAU = 0.20
 LEAK_TOKEN_RUN = 8   # 题面与 fix diff 最长公共 token 连续段阈值（SWE-benchify 防火墙同族检查）
+
+def provider_env_named(model, provider):
+    """按 provider 名(ali/deepseek)解析认证 env——二审用不同模型家族破自审偏差"""
+    prov = Path(os.path.expanduser('~/.claude/review-providers.json'))
+    if not prov.exists():
+        return {}
+    p = json.loads(prov.read_text())['providers'][provider]
+    tok = Path(os.path.expanduser(p['token_file'])).read_text().strip()
+    return {'ANTHROPIC_BASE_URL': p['base_url'], 'ANTHROPIC_AUTH_TOKEN': tok,
+            'ANTHROPIC_MODEL': model, 'ANTHROPIC_DEFAULT_SONNET_MODEL': model,
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': model, 'ANTHROPIC_DEFAULT_HAIKU_MODEL': model}
+
+def deselected_by_file(meta):
+    """deselect 溯源行 → {文件相对路径: [函数名]}；judge/mutant 只看执行视图"""
+    by = {}
+    for ent in (meta.get('deselect') or '').split():
+        if '::' in ent:
+            f, fn = ent.split('::', 1)
+            by.setdefault(f, []).append(fn)
+    return by
+
+def strip_funcs(text, names):
+    """按顶层 def <name>( 剥离函数(含其前导装饰器)——测试文件函数皆列 0 缩进"""
+    if not names:
+        return text
+    lines = text.split('\n'); out = []; i = 0
+    while i < len(lines):
+        dm = re.match(r'def (\w+)\(', lines[i])
+        if dm and dm.group(1) in names:
+            while out and out[-1].strip().startswith('@'):   # 回吞装饰器
+                out.pop()
+            i += 1
+            while i < len(lines) and not re.match(r'(def |class |@)', lines[i]):
+                i += 1
+            continue
+        out.append(lines[i]); i += 1
+    return '\n'.join(out)
+
+def hidden_view(exam_dir, meta):
+    """执行视图：隐藏卷正文，剥离已 deselect 函数（避免 judge 误报不执行测试的钉死）"""
+    desel = deselected_by_file(meta)
+    view = {}; hid = Path(exam_dir) / 'hidden'
+    for p in sorted(hid.rglob('*')):
+        if not p.is_file():
+            continue
+        rel = str(p.relative_to(hid))
+        view[rel] = strip_funcs(p.read_text(), desel.get(rel, [])) if p.suffix == '.py' else p.read_text()
+    return view
 
 def head_repo(repo_path):
     if not Path(repo_path).is_dir():
@@ -36,9 +84,9 @@ def longest_common_run(a, b):
 def toks(s):
     return re.findall(r'\S+', s)
 
-def head_cc(claude_bin, model, prompt, workdir, max_turns=5, timeout=900):
+def head_cc(claude_bin, model, provider, prompt, workdir, max_turns=5, timeout=900):
     """无头单问（隔离 CC 环境，同 run_driver 姿势）；返回 stdout"""
-    env = dict(os.environ); env.update(provider_env(model))
+    env = dict(os.environ); env.update(provider_env_named(model, provider))
     cc_home = Path(tempfile.mkdtemp(prefix='review-cc-'))
     env['CLAUDE_CONFIG_DIR'] = str(cc_home)
     r = subprocess.run([claude_bin, '-p', prompt, '--output-format', 'json',
@@ -98,20 +146,19 @@ def s2_flake(exam_dir, repo, meta, n=3):
 
 # ── S3 变异宽松率：LLM 对原修复造 4 算子 plausible-but-wrong 变体 ──
 MUTANT_PROTOCOL = 'MUTANT_PROTOCOL'
-def s3_mutants(exam_dir, repo, meta, claude_bin, model, workdir):
+def s3_mutants(exam_dir, repo, meta, claude_bin, model, provider, workdir):
     base, last = meta['baseline-commit'], meta['fix-commits'].split('..')[1]
     changed = ME.need_git(repo, 'diff', '--name-only', base, last).splitlines()
     impl = [f for f in changed if not ME.is_test_file(f)]
     patch = fix_diff(repo, base, last, impl)
-    hidden_txt = {str(p.relative_to(Path(exam_dir) / 'hidden')): p.read_text()
-                  for p in Path(exam_dir, 'hidden').rglob('*') if p.is_file()}
+    hidden_txt = hidden_view(exam_dir, meta)   # 执行视图：不向不执行的 deselect 测试造变异
     prompt = (f'{MUTANT_PROTOCOL}\n你是基准质检员。下面是一个真实修复 patch 与它的隐藏验收测试。'
               f'为每个算子各造 1 个"看似合理但未真正修复问题"的变体 patch——目标是能骗过隐藏测试。\n'
               f'纯文本转换任务：禁止读取文件或调用任何工具，直接根据下文输出。\n'
               f'算子: {", ".join(OPS)}\n只输出 JSON：{{"mutants":[{{"op":"...","rationale":"...","patch":"<git diff 文本>"}}]}}\n'
               f'## 修复 patch\n{patch}\n## 隐藏测试\n'
               + '\n'.join(f'### {k}\n{v}' for k, v in hidden_txt.items()))
-    raw = head_cc(claude_bin, model, prompt, workdir, max_turns=2, timeout=1200)
+    raw = head_cc(claude_bin, model, provider, prompt, workdir, max_turns=2, timeout=1200)
     try:
         mutants = extract_json(raw).get('mutants', [])
     except (ValueError, json.JSONDecodeError):
@@ -140,11 +187,14 @@ def s3_mutants(exam_dir, repo, meta, claude_bin, model, workdir):
 
 # ── S4 评审 judge：TB3 双向对齐 + Senior 三层 + 泄题 + 存活变体是否违反题面 ──
 JUDGE_PROTOCOL = 'JUDGE_PROTOCOL'
-def s4_judge(exam_dir, meta, s3, claude_bin, model, workdir):
+def s4_judge(exam_dir, meta, s3, claude_bin, model, provider, workdir,
+             second=False):
     prompt_md = Path(exam_dir, 'prompt.md').read_text()
+    view = hidden_view(exam_dir, meta)
+    sup = set((meta.get('supplement') or '').split())
     hidden_txt = '\n'.join(
-        f'### {p.relative_to(Path(exam_dir) / "hidden")}\n{p.read_text()}'
-        for p in sorted(Path(exam_dir, 'hidden').rglob('*')) if p.is_file())
+        f'### {k}{" 〔出卷方补题〕" if k in sup else ""}\n{v}'
+        for k, v in view.items())
     surv = json.dumps(s3.get('survivors', []), ensure_ascii=False)
     judge_in = (f'{JUDGE_PROTOCOL}\n你是考卷质检评审。逐判据输出 verdict=PASS/FAIL + evidence，'
                 f'最终回复只含一个 JSON 对象。\n'
@@ -158,10 +208,18 @@ def s4_judge(exam_dir, meta, s3, claude_bin, model, workdir):
                 f'3 overconstraint: 测试只许覆盖①上述可推导行为契约②仓库承重惯例③无可辩驳最佳实践，'
                 f'超出即 gotcha（FAIL）\n'
                 f'4 survivors: 对每个存活变体判 violates_prompt true/false（结合题面+仓内文档）\n'
-                f'格式 {{"leak":{{"verdict":"","evidence":""}},"alignment":{{...}},'
-                f'"overconstraint":{{...}},"survivors":[{{"op":"","violates_prompt":bool,"evidence":""}}]}}\n'
-                f'## 题面\n{prompt_md}\n## 隐藏卷\n{hidden_txt}\n## 存活变体(骗过了隐藏卷的错误修复)\n{surv}')
-    raw = head_cc(claude_bin, model, judge_in, workdir, max_turns=30, timeout=1800)
+                + (f'5 supplement: 标〔出卷方补题〕的文件是出卷方为救票面 [auto] AC 覆盖而自研的测试——'
+                   f'专判其断言是否**只测外部行为、忠实票面 AC、未夹带入卷方臆造的需求**；越界即 FAIL\n'
+                   f'6 overtrim: 本卷已 deselect/剔除的测试见溯源——判是否**误删了本可推导的覆盖**（过裁致 P2 变钝）\n'
+                   if second else '')
+                + f'格式 {{"leak":{{"verdict":"","evidence":""}},"alignment":{{...}},'
+                f'"overconstraint":{{...}},"survivors":[{{"op":"","violates_prompt":bool,"evidence":""}}]'
+                + (',\"supplement\":{\"verdict\":\"\",\"evidence\":\"\"},\"overtrim\":{\"verdict\":\"\",\"evidence\":\"\"}' if second else '')
+                + '}\n'
+                f'## 题面\n{prompt_md}\n## 隐藏卷（执行视图）\n{hidden_txt}\n'
+                f'## 溯源（已剔除/deselect）\n{meta.get("drop-tests","无")} | {meta.get("deselect","无")}\n'
+                f'## 存活变体(骗过了隐藏卷的错误修复)\n{surv}')
+    raw = head_cc(claude_bin, model, provider, judge_in, workdir, max_turns=30, timeout=1800)
     return extract_json(raw)
 
 def main():
@@ -169,13 +227,20 @@ def main():
     ap.add_argument('--exam', required=True)
     ap.add_argument('--claude-bin', default='claude')
     ap.add_argument('--judge-model', default='qwen3.8-max[1m]')
+    ap.add_argument('--judge-provider', default='ali')
     ap.add_argument('--mutant-model', default='qwen3.8-max[1m]')
+    ap.add_argument('--second-model', default='deepseek-v4.1-flash',
+                    help='第二意见模型（异族破自审偏差），定位=警报器非终裁')
+    ap.add_argument('--second-provider', default='deepseek')
+    ap.add_argument('--no-second', action='store_true', help='关闭第二意见')
     ap.add_argument('--repo', default=None, help='默认取 exam.yaml 的 repo 字段')
     ap.add_argument('--skip-mutants', action='store_true', help='离线快审（S1+S2+judge 不带变异证据）')
     a = ap.parse_args()
     exam_dir = Path(a.exam).resolve()
     meta = exam_meta(exam_dir)
     repo = head_repo(a.repo or meta['repo'])
+    # 残差 = 有补题或有剔除/deselect → 触发异族第二意见专审这些决策
+    has_residual = bool(meta.get('supplement') or meta.get('drop-tests') or meta.get('deselect'))
 
     # judge/mutant agent 工作目录=中立空临时目录——--dangerously-skip-permissions 下不给它任何源仓写面
     workdir = tempfile.mkdtemp(prefix='review-work-')
@@ -191,19 +256,31 @@ def main():
         else:
             log('S3 变异生成+执行…')
             try:
-                r3 = s3_mutants(exam_dir, repo, meta, a.claude_bin, a.mutant_model, workdir)
+                r3 = s3_mutants(exam_dir, repo, meta, a.claude_bin, a.mutant_model,
+                                a.judge_provider, workdir)
             except Exception as e:
                 r3 = {'error': f'S3 异常: {e}', 'admitted': 0, 'survivors': [], 'laxity': None}
             log(f"S3 done: admitted={r3.get('admitted')} survivors={len(r3.get('survivors', []))} {r3.get('error') or ''}")
         log('S4 judge（带仓基线可见性）…')
         shutil.copytree(exam_dir / 'checkout', Path(workdir) / 'repo-baseline', dirs_exist_ok=True)
         try:
-            r4 = s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model, workdir)
+            r4 = s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model,
+                          a.judge_provider, workdir)
         except Exception as e:
             r4 = {'error': str(e), 'leak': {'verdict': 'FAIL', 'evidence': 'judge 未出结论，保守记 FAIL'},
                   'alignment': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'},
                   'overconstraint': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'}}
         log('S4 done')
+        r4b = {'skipped': True}
+        if has_residual and not a.no_second:
+            log(f'S4b 第二意见（{a.second_provider}/{a.second_model}，专审残差）…')
+            try:
+                r4b = s4_judge(exam_dir, meta, r3, a.claude_bin, a.second_model,
+                               a.second_provider, workdir, second=True)
+            except Exception as e:
+                r4b = {'error': str(e), 'supplement': {'verdict': 'FAIL', 'evidence': '二审未出结论'},
+                       'overtrim': {'verdict': 'FAIL', 'evidence': '二审未出结论'}}
+            log('S4b done')
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -211,17 +288,22 @@ def main():
     survivors_ok = any(not s.get('violates_prompt', True) for s in r4.get('survivors', []))
     fails = [k for k in ('leak', 'alignment', 'overconstraint')
              if r4.get(k, {}).get('verdict', 'FAIL').upper() == 'FAIL']
+    fails_b = [k for k in ('supplement', 'overtrim')
+               if r4b.get(k, {}).get('verdict', '').upper() == 'FAIL']
     flags = ([f'S1 泄题连续段 {r1["max_common_token_run"]} token' if r1['flag'] else None],
              [f'S2 隐藏卷不稳 {r2["baseline_rcs"]}/{r2["fixed_rcs"]}' if r2['flag'] else None],
              [f'S3 宽松率 {r3.get("laxity"):.2f}≥{LAXITY_TAU}' if lax_flag and survivors_ok else None],
-             [f'S4 判据 FAIL: {f}' for f in fails])
+             [f'S4 判据 FAIL: {f}' for f in fails],
+             [f'S4b 二审 FAIL: {f}（{a.second_model} 独立警报，升人闸）' for f in fails_b])
     flags = [x for t in flags for x in t if x]
     verdict = {
         'exam-id': meta.get('exam-id'), 'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
         'auto-verdict': 'flagged' if flags else 'auto-pass',
         'flags': flags,
         's1-static': r1, 's2-flake': r2, 's3-mutants': r3, 's4-judge': r4,
-        'models': {'judge': a.judge_model, 'mutant': a.mutant_model},
+        's4b-second-opinion': r4b,
+        'models': {'judge': a.judge_model, 'mutant': a.mutant_model,
+                   'second': a.second_model if has_residual and not a.no_second else 'n/a'},
         'judge-repo-visibility': 'repo-baseline(考卷 checkout 副本)',
         'prompt-sha256': meta.get('prompt-sha256'),
         'note': '本包只生成证据；derivation-review 由人裁决后手改 exam.yaml'}

@@ -99,3 +99,53 @@ EOF
   grep -q '"auto-verdict": "auto-pass"' "$T"/exams/*/review/verdicts.json
   [ "$before" = "$(sha256sum "$T"/exams/*/exam.yaml)" ]
 }
+
+@test "补题卷：二审 supplement FAIL 升级为 flagged" {
+  exam=$(ls -d "$T"/exams/*)
+  printf 'supplement: tests/test_sup.py\n' >> "$exam/exam.yaml"
+  printf 'from app import VALUE\nassert VALUE == 1\n' > "$exam/hidden/tests/test_sup.py"
+  python3 - "$T/resp2.json" <<'PYJSON'
+import json, sys
+json.dump({"mutant": {"mutants": []}, "judge": {
+  "leak":{"verdict":"PASS","evidence":""},"alignment":{"verdict":"PASS","evidence":""},
+  "overconstraint":{"verdict":"PASS","evidence":""},
+  "supplement":{"verdict":"FAIL","evidence":"断言测了票面未载的内部字段"},"survivors":[]}},
+  open(sys.argv[1],"w"))
+PYJSON
+  export RESP=$T/resp2.json
+  run python3 "$W/scripts/e1/review_exam.py" --exam "$exam" \
+      --claude-bin "$T/claude-stub" --skip-mutants
+  grep -q '"auto-verdict": "flagged"' "$exam/review/verdicts.json"
+  grep -q 'S4b 二审 FAIL' "$exam/review/verdicts.json"
+}
+
+@test "deselect 盲区：被剔函数不进 judge 视图（probe 现场核验）" {
+  exam=$(ls -d "$T"/exams/*)
+  cat > "$exam/hidden/tests/test_a.py" <<'PY'
+from app import VALUE
+def test_visible():
+    assert VALUE == 1
+def _internal_dropped():
+    MARKER_INTERNAL_XYZ = 1
+PY
+  printf 'deselect: tests/test_a.py::_internal_dropped\n' >> "$exam/exam.yaml"
+  cat > "$T/judge-probe" <<'STUB'
+#!/usr/bin/env python3
+import sys, json
+p = sys.argv[sys.argv.index('-p') + 1]
+if 'JUDGE_PROTOCOL' in p:
+    leaked = 'MARKER_INTERNAL_XYZ' in p
+    out = {"leak":{"verdict":"PASS"},
+           "alignment":{"verdict":"FAIL" if leaked else "PASS",
+             "evidence":"prompt leaked deselected func" if leaked else "clean"},
+           "overconstraint":{"verdict":"PASS"},"survivors":[]}
+    print(json.dumps({"result": json.dumps(out), "usage": {}}))
+else:
+    print(json.dumps({"result": json.dumps({"mutants": []}), "usage": {}}))
+STUB
+  chmod +x "$T/judge-probe"
+  printf '{"mutant":{"mutants":[]},"judge":{}}\n' > "$T/resp.json"; export RESP=$T/resp.json
+  run python3 "$W/scripts/e1/review_exam.py" --exam "$exam" \
+      --claude-bin "$T/judge-probe" --skip-mutants --no-second
+  ! grep -q 'S4 判据 FAIL: alignment' "$exam/review/verdicts.json"
+}
