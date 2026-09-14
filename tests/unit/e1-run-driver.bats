@@ -102,3 +102,16 @@ teardown() { rm -rf "$T"; }
     [ "$(echo "$output" | grep -c "$t-$a-r")" = "3" ]
   done; done
 }
+
+@test "隔离硬化：checkout 继承的生产 .claude/hooks + AGENTS.md 被清/按臂覆写" {
+  # 预置生产污染到考卷 checkout
+  mkdir -p "$E/checkout/.claude/hooks"
+  echo '#!/bin/sh' > "$E/checkout/.claude/hooks/production-gate.sh"
+  printf 'PRODUCTION TDD INSTRUCTIONS\n' > "$E/checkout/AGENTS.md"
+  printf 'x\n' > "$E/checkout/CLAUDE.md"
+  python3 "$W/scripts/e1/run_driver.py" sandbox --exam "$E" --arm C --out "$T/rh" >/dev/null
+  [ ! -f "$T/rh/repo/.claude/hooks/production-gate.sh" ]      # 生产钩子被清
+  grep -q "隐藏证据" "$T/rh/repo/AGENTS.md"                    # AGENTS 按臂覆写
+  grep -q "隐藏证据" "$T/rh/repo/CLAUDE.md"
+  [ -f "$T/rh/repo/.claude/hooks/g0-enforce.sh" ]             # 臂钩子正常挂载
+}

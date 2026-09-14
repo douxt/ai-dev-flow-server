@@ -49,6 +49,13 @@ def build_sandbox(exam_dir, arm, out, run_id):
         sys.exit(f'❌ {out} 已存在（run 沙箱不可覆盖）')
     repo = out / 'repo'
     shutil.copytree(exam_dir / 'checkout', repo)
+    # 隔离硬化：清掉 checkout 继承的生产 agent 配置/钩子，避免冲平三臂差异
+    for pth in ('.claude', '.devflow/scripts', '.devflow/templates'):
+        tgt = repo / pth
+        if tgt.is_dir():
+            shutil.rmtree(tgt)
+        elif tgt.exists():
+            tgt.unlink()
     # 臂挂载
     hooks_dir = repo / '.claude' / 'hooks'
     hooks_dir.mkdir(parents=True)
@@ -77,6 +84,7 @@ def build_sandbox(exam_dir, arm, out, run_id):
     if post: settings['hooks']['PostToolUse'] = post
     (repo / '.claude' / 'settings.json').write_text(json.dumps(settings, indent=2))
     shutil.copy(HERE / 'arm_assets' / spec['prompt'], repo / 'CLAUDE.md')
+    shutil.copy(HERE / 'arm_assets' / spec['prompt'], repo / 'AGENTS.md')  # 防继承生产门禁说明
     # stage 起点（三臂常量，C 臂无消费者仅为环境等值）
     (repo / '.devflow').mkdir(exist_ok=True)
     (repo / '.devflow' / 'stage').write_text('tickets:reviewed\n')
