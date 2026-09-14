@@ -229,8 +229,8 @@ def main():
     ap.add_argument('--judge-model', default='qwen3.8-max[1m]')
     ap.add_argument('--judge-provider', default='ali')
     ap.add_argument('--mutant-model', default='qwen3.8-max[1m]')
-    ap.add_argument('--second-model', default='deepseek-v4.1-flash',
-                    help='第二意见模型（异族破自审偏差），定位=警报器非终裁')
+    ap.add_argument('--second-model', default='deepseek-flash',
+                    help='第二意见模型（异族破自审偏差），定位=警报器非终裁；deepseek 原生端点仅认 deepseek-flash/deepseek-v4-pro')
     ap.add_argument('--second-provider', default='deepseek')
     ap.add_argument('--no-second', action='store_true', help='关闭第二意见')
     ap.add_argument('--repo', default=None, help='默认取 exam.yaml 的 repo 字段')
@@ -288,12 +288,16 @@ def main():
     survivors_ok = any(not s.get('violates_prompt', True) for s in r4.get('survivors', []))
     fails = [k for k in ('leak', 'alignment', 'overconstraint')
              if r4.get(k, {}).get('verdict', 'FAIL').upper() == 'FAIL']
-    fails_b = [k for k in ('supplement', 'overtrim')
-               if r4b.get(k, {}).get('verdict', '').upper() == 'FAIL']
+    s4b_call_failed = bool(r4b.get('error'))
+    fails_b = ([] if s4b_call_failed else
+               [k for k in ('supplement', 'overtrim')
+                if r4b.get(k, {}).get('verdict', '').upper() == 'FAIL'])
     flags = ([f'S1 泄题连续段 {r1["max_common_token_run"]} token' if r1['flag'] else None],
              [f'S2 隐藏卷不稳 {r2["baseline_rcs"]}/{r2["fixed_rcs"]}' if r2['flag'] else None],
              [f'S3 宽松率 {r3.get("laxity"):.2f}≥{LAXITY_TAU}' if lax_flag and survivors_ok else None],
              [f'S4 判据 FAIL: {f}' for f in fails],
+             ([f'S4b 二审调用失败: {r4b.get("error")}（未获独立意见，保守升人闸）']
+              if s4b_call_failed and not r4b.get('skipped') else []),
              [f'S4b 二审 FAIL: {f}（{a.second_model} 独立警报，升人闸）' for f in fails_b])
     flags = [x for t in flags for x in t if x]
     verdict = {
