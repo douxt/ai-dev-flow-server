@@ -80,6 +80,9 @@ def main():
                     help='整文件剔除出隐藏卷（可重复），理由须入 amendment')
     ap.add_argument('--deselect', action='append', default=[],
                     help='pytest --deselect 断言级剔除（path::test，可重复）')
+    ap.add_argument('--supplement', action='append', default=[],
+                    help='补题 dest=srcpath（可重复）：出卷方为救票面 [auto] AC 覆盖自研的测试，'
+                         '须过同一 fail-to-pass 关，记入 supplement 溯源行供审卷器反查')
     a = ap.parse_args()
 
     repo = Path(a.repo).resolve()
@@ -133,6 +136,17 @@ def main():
     snapshot_baseline(repo, base, checkout)
     collect_hidden(repo, a.fix_commits, test_files, hidden)
 
+    supp_dest = []
+    for spec in a.supplement:
+        dest, _, src = spec.partition('=')
+        if not (dest and src and Path(src).is_file()):
+            sys.exit(f'❌ --supplement 需 dest=srcpath 且 src 存在: {spec}')
+        dst = hidden / dest
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dst)
+        supp_dest.append(dest)
+        print(f'· 补题入卷: {dest}（须过 fail-to-pass）')
+
     print('· 关2 fail-to-pass：两验证 run（本地执行，零 API）')
     tmp_a = tempfile.mkdtemp(prefix='f2p-a-')
     snap_a = Path(tmp_a) / 'c'
@@ -180,6 +194,7 @@ def main():
     if a.drop_tests: meta.append('drop-tests: ' + ' '.join(a.drop_tests))
     if a.deselect: meta.append('deselect: ' + ' '.join(a.deselect))
     if stale: meta.append('ignore-stale: ' + ' '.join(stale))
+    if supp_dest: meta.append('supplement: ' + ' '.join(supp_dest))
     meta = meta + [
         'derivation-review: pending',
         'prompt-sha256: ' + hashlib.sha256(prompt.encode()).hexdigest(),

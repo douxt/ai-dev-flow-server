@@ -120,3 +120,27 @@ teardown() { rm -rf "$TEST_TMP"; }
   grep -q -- "--deselect tests/test_a.py::nope" "$TEST_TMP/e-x/"*/exam.yaml
   grep -q "deselect: tests/test_a.py::nope" "$TEST_TMP/e-x/"*/exam.yaml
 }
+
+@test "--supplement 补题入卷并进哈希（过 fail-to-pass 关）" {
+  base=$(cat "$TEST_TMP/base.sha"); fix=$(cat "$TEST_TMP/fix.sha")
+  printf 'from app import VALUE\nassert VALUE == 1\n' > "$TEST_TMP/sup.py"
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" --fix-commits "$fix..$fix" \
+      --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --supplement "tests/test_sup.py=$TEST_TMP/sup.py" --out "$TEST_TMP/e-s"
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_TMP/e-s/"*/hidden/tests/test_sup.py ]
+  grep -q "supplement: tests/test_sup.py" "$TEST_TMP/e-s/"*/exam.yaml
+  # 补题须进 hidden-sha256 清单
+  grep -q "tests/test_sup.py" "$TEST_TMP/e-s/"*/exam.yaml
+}
+
+@test "--supplement 坏补题（基线即过）不阻断封卷但 F2P 仍由原卷保证" {
+  # 补题恒真 assert True：基线也过，但 test_a 在基线挂 → rc_fail!=0 仍成立 → 封卷成功
+  fix=$(cat "$TEST_TMP/fix.sha")
+  printf 'assert True\n' > "$TEST_TMP/taut.py"
+  run $EXAM --repo "$REPO" --ticket "$REPO/ticket.md" --fix-commits "$fix..$fix" \
+      --test-cmd "PYTHONPATH=. python3 tests/test_a.py" \
+      --supplement "tests/test_taut.py=$TEST_TMP/taut.py" --out "$TEST_TMP/e-s2"
+  [ "$status" -eq 0 ]
+  grep -q "supplement: tests/test_taut.py" "$TEST_TMP/e-s2/"*/exam.yaml
+}
