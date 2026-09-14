@@ -2,7 +2,7 @@
 """E1 pilot/主段 编排器：读 pilot-plan.json，逐格串行调 run_driver.run，跳过已完成 run_id(断点续跑)。
 用法: python3 pilot_runner.py --plan <json> --exam-root <e1 dir> --runs-root <runs dir> [--model ..] [--max-turns ..]
 """
-import argparse, json, subprocess, sys, time
+import argparse, json, shutil, subprocess, sys, time
 from pathlib import Path
 
 def done_ids(ledger):
@@ -31,6 +31,11 @@ def main():
         if not (exam / 'exam.yaml').exists():
             print(f'[{i}/{len(todo)}] 跳过缺卷 {p["ticket"]}', file=sys.stderr); continue
         print(f'[{i}/{len(todo)}] {p["run_id"]} 开始 {time.strftime("%H:%M:%S")}', file=sys.stderr, flush=True)
+        # 孤儿自愈：run_dir 存在但台账无此 run_id = 上次跑到一半被杀/崩 → 清掉重跑
+        # （否则 build_sandbox 见目录存在会拒绝，该格永远卡死）
+        orphan = Path(a.runs_root) / p['run_id']
+        if orphan.exists():
+            shutil.rmtree(orphan); print(f'  清理孤儿半成品 {p["run_id"]}', file=sys.stderr, flush=True)
         r = subprocess.run(['python3', str(driver), 'run', '--exam', str(exam),
                             '--arm', p['arm'], '--model', a.model, '--runs-root', a.runs_root,
                             '--run-id', p['run_id'], '--max-turns', str(a.max_turns),
