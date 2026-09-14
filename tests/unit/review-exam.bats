@@ -87,7 +87,7 @@ EOF
   grep -q '"auto-verdict": "flagged"' "$T"/exams/*/review/verdicts.json
   grep -q '"laxity": 0.25' "$T"/exams/*/review/verdicts.json
   grep -q 'S3 宽松率' "$T"/exams/*/review/verdicts.json
-  grep -q 'S4 判据 FAIL: alignment' "$T"/exams/*/review/verdicts.json
+  grep -q 'S4 共识废: alignment' "$T"/exams/*/review/verdicts.json
 }
 
 @test "干净卷四段全绿 → auto-pass，且 exam.yaml 未被触碰" {
@@ -96,7 +96,7 @@ EOF
   run python3 "$W/scripts/e1/review_exam.py" --exam $(ls -d "$T"/exams/*) \
       --claude-bin "$T/claude-stub"
   [ "$status" -eq 0 ]
-  grep -q '"auto-verdict": "auto-pass"' "$T"/exams/*/review/verdicts.json
+  grep -q '"auto-verdict": "auto-pass-need-human-sign"' "$T"/exams/*/review/verdicts.json
   [ "$before" = "$(sha256sum "$T"/exams/*/exam.yaml)" ]
 }
 
@@ -116,7 +116,7 @@ PYJSON
   run python3 "$W/scripts/e1/review_exam.py" --exam "$exam" \
       --claude-bin "$T/claude-stub" --skip-mutants
   grep -q '"auto-verdict": "flagged"' "$exam/review/verdicts.json"
-  grep -q 'S4b 二审 FAIL' "$exam/review/verdicts.json"
+  grep -q 'S4 共识废: supplement' "$exam/review/verdicts.json"
 }
 
 @test "deselect 盲区：被剔函数不进 judge 视图（probe 现场核验）" {
@@ -147,5 +147,29 @@ STUB
   printf '{"mutant":{"mutants":[]},"judge":{}}\n' > "$T/resp.json"; export RESP=$T/resp.json
   run python3 "$W/scripts/e1/review_exam.py" --exam "$exam" \
       --claude-bin "$T/judge-probe" --skip-mutants --no-second
-  ! grep -q 'S4 判据 FAIL: alignment' "$exam/review/verdicts.json"
+  ! grep -q 'S4 共识废: alignment' "$exam/review/verdicts.json"
+}
+
+@test "三态仲裁·分歧：主审 PASS 二审 FAIL → 升人（非共识废非共识绿）" {
+  exam=$(ls -d "$T"/exams/*)
+  cat > "$T/probe2" <<'STUB'
+#!/usr/bin/env python3
+import sys, os, json
+p = sys.argv[sys.argv.index('-p') + 1]
+model = sys.argv[sys.argv.index('--model')+1] if '--model' in sys.argv else ''
+if 'JUDGE_PROTOCOL' in p:
+    # 主审(非 deepseek)判 PASS；二审(deepseek)判 leak FAIL → 分歧
+    v = "FAIL" if 'deepseek' in model else "PASS"
+    out = {"leak":{"verdict":v,"evidence":""},
+           "alignment":{"verdict":"PASS"},"overconstraint":{"verdict":"PASS"},"survivors":[]}
+    print(json.dumps({"result": json.dumps(out), "usage": {}}))
+else:
+    print(json.dumps({"result": json.dumps({"mutants": []}), "usage": {}}))
+STUB
+  chmod +x "$T/probe2"
+  printf '{"mutant":{"mutants":[]},"judge":{}}\n' > "$T/resp.json"; export RESP=$T/resp.json
+  run python3 "$W/scripts/e1/review_exam.py" --exam "$exam" \
+      --claude-bin "$T/probe2" --skip-mutants
+  python3 -c "import json,sys; v=json.load(open('$exam/review/verdicts.json')); a=v['arbitration']; sys.exit(0 if a['leak']=='disagreement' and 'auto-pass-need' not in v['auto-verdict'] else 1)"
+  grep -q 'S4 分歧: leak' "$exam/review/verdicts.json"
 }

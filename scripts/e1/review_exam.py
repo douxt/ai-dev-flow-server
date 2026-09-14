@@ -89,7 +89,8 @@ def head_cc(claude_bin, model, provider, prompt, workdir, max_turns=5, timeout=9
     env = dict(os.environ); env.update(provider_env_named(model, provider))
     cc_home = Path(tempfile.mkdtemp(prefix='review-cc-'))
     env['CLAUDE_CONFIG_DIR'] = str(cc_home)
-    r = subprocess.run([claude_bin, '-p', prompt, '--output-format', 'json',
+    r = subprocess.run([claude_bin, '-p', prompt, '--model', model,
+                        '--output-format', 'json',
                         '--dangerously-skip-permissions', '--max-turns', str(max_turns)],
                        cwd=workdir, env=env, capture_output=True, text=True, timeout=timeout)
     shutil.rmtree(cc_home, ignore_errors=True)
@@ -222,6 +223,36 @@ def s4_judge(exam_dir, meta, s3, claude_bin, model, provider, workdir,
     raw = head_cc(claude_bin, model, provider, judge_in, workdir, max_turns=30, timeout=1800)
     return extract_json(raw)
 
+def _judge_error(err, has_residual):
+    d = {'error': err}
+    for k in ('leak', 'alignment', 'overconstraint'):
+        d[k] = {'verdict': 'FAIL', 'evidence': 'judge 未出结论，保守记 FAIL'}
+    if has_residual:
+        for k in ('supplement', 'overtrim'):
+            d[k] = {'verdict': 'FAIL', 'evidence': 'judge 未出结论'}
+    return d
+
+def arbitrate(r4, r4b, criteria, no_second=False):
+    """三态：both-PASS→共识绿；both-FAIL→共识废；split→分歧升人。任一审无结论=分歧(保守)。"""
+    def verdict_of(r, k):
+        v = r.get(k, {}).get('verdict', '')
+        return v.upper() if v else 'NONE'
+    out = {}
+    for k in criteria:
+        if no_second or r4b.get('skipped'):        # 无二审：退化为单审
+            out[k] = 'pass' if verdict_of(r4, k) == 'PASS' else 'need-human'
+            continue
+        a, b = verdict_of(r4, k), verdict_of(r4b, k)
+        if a == b == 'PASS':
+            out[k] = 'pass'
+        elif a == b == 'FAIL':
+            out[k] = 'consensus-fail'
+        elif 'NONE' in (a, b):
+            out[k] = 'need-human'                  # 有审未出结论 → 保守分歧
+        else:
+            out[k] = 'disagreement'                # 一 PASS 一 FAIL → 交人裁
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--exam', required=True)
@@ -229,8 +260,8 @@ def main():
     ap.add_argument('--judge-model', default='qwen3.8-max[1m]')
     ap.add_argument('--judge-provider', default='ali')
     ap.add_argument('--mutant-model', default='qwen3.8-max[1m]')
-    ap.add_argument('--second-model', default='deepseek-flash',
-                    help='第二意见模型（异族破自审偏差），定位=警报器非终裁；deepseek 原生端点仅认 deepseek-flash/deepseek-v4-pro')
+    ap.add_argument('--second-model', default='deepseek-v4-pro',
+                    help='第二全审模型（异族破自审偏差，共识承重故用 pro）；deepseek 原生端点仅认 deepseek-flash/deepseek-v4-pro')
     ap.add_argument('--second-provider', default='deepseek')
     ap.add_argument('--no-second', action='store_true', help='关闭第二意见')
     ap.add_argument('--repo', default=None, help='默认取 exam.yaml 的 repo 字段')
@@ -261,53 +292,56 @@ def main():
             except Exception as e:
                 r3 = {'error': f'S3 异常: {e}', 'admitted': 0, 'survivors': [], 'laxity': None}
             log(f"S3 done: admitted={r3.get('admitted')} survivors={len(r3.get('survivors', []))} {r3.get('error') or ''}")
-        log('S4 judge（带仓基线可见性）…')
+        # S4 并行双全审：qwen 主 + deepseek(-pro) 二，各自完整三判据、独立会话并发
         shutil.copytree(exam_dir / 'checkout', Path(workdir) / 'repo-baseline', dirs_exist_ok=True)
-        try:
-            r4 = s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model,
-                          a.judge_provider, workdir)
-        except Exception as e:
-            r4 = {'error': str(e), 'leak': {'verdict': 'FAIL', 'evidence': 'judge 未出结论，保守记 FAIL'},
-                  'alignment': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'},
-                  'overconstraint': {'verdict': 'FAIL', 'evidence': 'judge 未出结论'}}
-        log('S4 done')
-        r4b = {'skipped': True}
-        if has_residual and not a.no_second:
-            log(f'S4b 第二意见（{a.second_provider}/{a.second_model}，专审残差）…')
+        from concurrent.futures import ThreadPoolExecutor
+        crit_kw = dict(second=has_residual)
+
+        def _primary():
             try:
-                r4b = s4_judge(exam_dir, meta, r3, a.claude_bin, a.second_model,
-                               a.second_provider, workdir, second=True)
+                return s4_judge(exam_dir, meta, r3, a.claude_bin, a.judge_model,
+                                a.judge_provider, workdir, **crit_kw)
             except Exception as e:
-                r4b = {'error': str(e), 'supplement': {'verdict': 'FAIL', 'evidence': '二审未出结论'},
-                       'overtrim': {'verdict': 'FAIL', 'evidence': '二审未出结论'}}
-            log('S4b done')
+                return _judge_error(str(e), has_residual)
+
+        def _second():
+            if a.no_second:
+                return {'skipped': True}
+            try:
+                return s4_judge(exam_dir, meta, r3, a.claude_bin, a.second_model,
+                                a.second_provider, workdir, **crit_kw)
+            except Exception as e:
+                return _judge_error(str(e), has_residual)
+
+        log('S4 并行双全审（主=ali/qwen，二=deepseek，各自完整判据）…')
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fp, fs = ex.submit(_primary), ex.submit(_second)
+            r4, r4b = fp.result(), fs.result()
+        log('S4 双审完成')
+        criteria = ['leak', 'alignment', 'overconstraint'] + (['supplement', 'overtrim'] if has_residual else [])
+        arb = arbitrate(r4, r4b, criteria, no_second=a.no_second)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
     lax_flag = (r3.get('laxity') is not None and r3['laxity'] >= LAXITY_TAU)
     survivors_ok = any(not s.get('violates_prompt', True) for s in r4.get('survivors', []))
-    fails = [k for k in ('leak', 'alignment', 'overconstraint')
-             if r4.get(k, {}).get('verdict', 'FAIL').upper() == 'FAIL']
-    s4b_call_failed = bool(r4b.get('error'))
-    fails_b = ([] if s4b_call_failed else
-               [k for k in ('supplement', 'overtrim')
-                if r4b.get(k, {}).get('verdict', '').upper() == 'FAIL'])
-    flags = ([f'S1 泄题连续段 {r1["max_common_token_run"]} token' if r1['flag'] else None],
-             [f'S2 隐藏卷不稳 {r2["baseline_rcs"]}/{r2["fixed_rcs"]}' if r2['flag'] else None],
-             [f'S3 宽松率 {r3.get("laxity"):.2f}≥{LAXITY_TAU}' if lax_flag and survivors_ok else None],
-             [f'S4 判据 FAIL: {f}' for f in fails],
-             ([f'S4b 二审调用失败: {r4b.get("error")}（未获独立意见，保守升人闸）']
-              if s4b_call_failed and not r4b.get('skipped') else []),
-             [f'S4b 二审 FAIL: {f}（{a.second_model} 独立警报，升人闸）' for f in fails_b])
-    flags = [x for t in flags for x in t if x]
+    flags = ([] if not r1['flag'] else [f'S1 泄题连续段 {r1["max_common_token_run"]} token'])
+    flags += ([] if not r2['flag'] else [f'S2 隐藏卷不稳 {r2["baseline_rcs"]}/{r2["fixed_rcs"]}'])
+    flags += ([] if not (lax_flag and survivors_ok) else [f'S3 宽松率 {r3["laxity"]:.2f}≥{LAXITY_TAU}'])
+    flags += [f'S4 共识废: {k}（双 judge 一致 FAIL，建议判废重造）'
+              for k, s in arb.items() if s == 'consensus-fail']
+    flags += [f'S4 分歧: {k}（主={r4.get(k,{}).get("verdict")} 二={r4b.get(k,{}).get("verdict")}，交你裁）'
+              for k, s in arb.items() if s in ('disagreement', 'need-human')]
     verdict = {
         'exam-id': meta.get('exam-id'), 'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
-        'auto-verdict': 'flagged' if flags else 'auto-pass',
-        'flags': flags,
+        'auto-verdict': ('flagged' if flags else
+                         'auto-pass-need-human-sign' if not a.no_second else 'single-judge-pass'),
+        'flags': flags, 'arbitration': arb,
         's1-static': r1, 's2-flake': r2, 's3-mutants': r3, 's4-judge': r4,
         's4b-second-opinion': r4b,
-        'models': {'judge': a.judge_model, 'mutant': a.mutant_model,
-                   'second': a.second_model if has_residual and not a.no_second else 'n/a'},
+        'models': {'judge': f'{a.judge_provider}/{a.judge_model}',
+                   'second': 'n/a' if a.no_second else f'{a.second_provider}/{a.second_model}',
+                   'mutant': a.mutant_model},
         'judge-repo-visibility': 'repo-baseline(考卷 checkout 副本)',
         'prompt-sha256': meta.get('prompt-sha256'),
         'note': '本包只生成证据；derivation-review 由人裁决后手改 exam.yaml'}
@@ -315,7 +349,8 @@ def main():
     out.mkdir(exist_ok=True)
     (out / 'verdicts.json').write_text(json.dumps(verdict, ensure_ascii=False, indent=2))
     (out / 'judge-trace.log').write_text('')  # 预留：真实 head_cc 轨迹回捞时补
-    print(f"{'🚩 flagged' if flags else '✅ auto-pass'}: {out/'verdicts.json'}")
+    icon = '✅ 共识绿(待你扫一眼签字)' if not flags and not a.no_second else ('🚩 flagged' if flags else '✅ pass')
+    print(f"{icon}: {out/'verdicts.json'}")
     for f in flags:
         print('  -', f)
 
