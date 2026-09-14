@@ -173,3 +173,15 @@ STUB
   python3 -c "import json,sys; v=json.load(open('$exam/review/verdicts.json')); a=v['arbitration']; sys.exit(0 if a['leak']=='disagreement' and 'auto-pass-need' not in v['auto-verdict'] else 1)"
   grep -q 'S4 分歧: leak' "$exam/review/verdicts.json"
 }
+
+@test "置信守卫：arbitrate 在双审均 PASS 但自一致<τ 时降 need-human" {
+  run python3 -c "
+import sys; sys.path.insert(0,'$W/scripts/e1'); sys.path.insert(0,'$W/scripts')
+import review_exam as R
+r={'overconstraint':{'verdict':'PASS'},'leak':{'verdict':'PASS'},'alignment':{'verdict':'PASS'}}
+crit=['leak','alignment','overconstraint']
+# 两审首判均 PASS，但二审 overconstraint 自一致 0.5 < τ0.67
+arb=R.arbitrate(r, dict(r), crit, conf=({k:1.0 for k in crit},{k:(1.0 if k!='overconstraint' else 0.5) for k in crit}))
+sys.exit(0 if arb['overconstraint']=='need-human' and arb['leak']=='pass' else 1)"
+  [ "$status" -eq 0 ]
+}

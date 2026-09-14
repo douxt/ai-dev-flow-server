@@ -19,6 +19,7 @@ from run_driver import exam_meta
 OPS = ['symptom-suppression', 'incomplete-fix', 'input-specific-shortcut', 'behavior-substitution']
 LAXITY_TAU = 0.20
 LEAK_TOKEN_RUN = 8   # 题面与 fix diff 最长公共 token 连续段阈值（SWE-benchify 防火墙同族检查）
+CONF_TAU = 0.67      # judge 自一致率下限（Simulated Annotators 置信；低于此即便共识也升人）
 
 def provider_env_named(model, provider):
     """按 provider 名(ali/deepseek)解析认证 env——二审用不同模型家族破自审偏差"""
@@ -232,19 +233,23 @@ def _judge_error(err, has_residual):
             d[k] = {'verdict': 'FAIL', 'evidence': 'judge 未出结论'}
     return d
 
-def arbitrate(r4, r4b, criteria, no_second=False):
-    """三态：both-PASS→共识绿；both-FAIL→共识废；split→分歧升人。任一审无结论=分歧(保守)。"""
+def arbitrate(r4, r4b, criteria, no_second=False, conf=({}, {}), conf_tau=0.67):
+    """三态：both-PASS→共识绿；both-FAIL→共识废；split→分歧升人。
+    置信守卫(arXiv 2605.29800 相关误差)：任一 judge 自一致率 < conf_tau 时，
+    'pass' 降级 need-human——共识/分歧都不可全信，不稳即交人。"""
     def verdict_of(r, k):
         v = r.get(k, {}).get('verdict', '')
         return v.upper() if v else 'NONE'
+    cp, cs = (conf if isinstance(conf, (tuple, list)) and len(conf) == 2 else ({}, {}))
     out = {}
     for k in criteria:
+        low_conf = any(c.get(k, 1.0) < conf_tau for c in (cp, cs))
         if no_second or r4b.get('skipped'):        # 无二审：退化为单审
-            out[k] = 'pass' if verdict_of(r4, k) == 'PASS' else 'need-human'
+            out[k] = 'pass' if (verdict_of(r4, k) == 'PASS' and not low_conf) else 'need-human'
             continue
         a, b = verdict_of(r4, k), verdict_of(r4b, k)
         if a == b == 'PASS':
-            out[k] = 'pass'
+            out[k] = 'need-human' if low_conf else 'pass'
         elif a == b == 'FAIL':
             out[k] = 'consensus-fail'
         elif 'NONE' in (a, b):
@@ -264,6 +269,8 @@ def main():
                     help='第二全审模型（异族破自审偏差，共识承重故用 pro）；deepseek 原生端点仅认 deepseek-flash/deepseek-v4-pro')
     ap.add_argument('--second-provider', default='deepseek')
     ap.add_argument('--no-second', action='store_true', help='关闭第二意见')
+    ap.add_argument('--judge-samples', type=int, default=1,
+                    help='每 judge 自一致采样次数；>1 启用置信守卫，抓"都自信但可能同错"')
     ap.add_argument('--repo', default=None, help='默认取 exam.yaml 的 repo 字段')
     ap.add_argument('--skip-mutants', action='store_true', help='离线快审（S1+S2+judge 不带变异证据）')
     a = ap.parse_args()
@@ -313,13 +320,27 @@ def main():
             except Exception as e:
                 return _judge_error(str(e), has_residual)
 
-        log('S4 并行双全审（主=ali/qwen，二=deepseek，各自完整判据）…')
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            fp, fs = ex.submit(_primary), ex.submit(_second)
-            r4, r4b = fp.result(), fs.result()
-        log('S4 双审完成')
+        log(f'S4 并行双全审 ×{a.judge_samples} 自一致采样…')
         criteria = ['leak', 'alignment', 'overconstraint'] + (['supplement', 'overtrim'] if has_residual else [])
-        arb = arbitrate(r4, r4b, criteria, no_second=a.no_second)
+
+        def _sc(fn):
+            """Simulated Annotators 精简版：同 judge 采 N 次，众数=判定，自一致率=置信"""
+            runs = [fn() for _ in range(a.judge_samples)]
+            conf = {}
+            for k in criteria:
+                vs = [r.get(k, {}).get('verdict', 'NONE').upper() for r in runs]
+                top = max(set(vs), key=vs.count)
+                conf[k] = vs.count(top) / len(vs)
+            return runs[0], conf
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fp = ex.submit(_sc, _primary)
+            fs = ex.submit(_sc, _second) if not a.no_second else None
+            r4, conf_p = fp.result()
+            r4b, conf_s = fs.result() if fs else ({'skipped': True}, {})
+        log('S4 双审完成')
+        arb = arbitrate(r4, r4b, criteria, no_second=a.no_second,
+                        conf=(conf_p, conf_s), conf_tau=CONF_TAU)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -337,6 +358,8 @@ def main():
         'auto-verdict': ('flagged' if flags else
                          'auto-pass-need-human-sign' if not a.no_second else 'single-judge-pass'),
         'flags': flags, 'arbitration': arb,
+        'judge-self-consistency': {'primary': conf_p, 'second': conf_s, 'samples': a.judge_samples, 'tau': CONF_TAU},
+        'effective-independence-warning': '双 judge≈弱共识非独立证明(arXiv 2605.29800:一致项错误率~9%);执行段(S2/S3)才是硬证据',
         's1-static': r1, 's2-flake': r2, 's3-mutants': r3, 's4-judge': r4,
         's4b-second-opinion': r4b,
         'models': {'judge': f'{a.judge_provider}/{a.judge_model}',

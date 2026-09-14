@@ -90,3 +90,27 @@ def test_ncut_accounting_discriminator():
 
     assert bars([2998, 2998], 6000, 3.2) == 2   # n 口：两根并不下
     assert bars([2996, 2996], 6000, 3.2) == 1   # 可并：判别对照
+
+
+def test_offcut_priority_consumed_before_whole_bar():
+    """[出卷方补题] AC4 前半「is_offcut 优先消耗」救回（双 judge 共识：可 API 层推导，
+    剔除 test_bfd 后零覆盖）。stock 列序把整根 6000 放前、余料 1830 放后；1800 件
+    (1800+kerf≤1830) 应优先耗余料 → 被选 scheme 的 stock_length==1830。
+    基线桩只取 stock[0]=6000 → stock_length 6000 → fail-to-pass 天然判别。
+    只断 POST /optimize 响应 schemes[].stock_length，不触内部符号。"""
+    client = make_client()
+    body = {
+        "client_request_id": "sup-offcut", "title": "t",
+        "options": {"time_limit_s_per_material": 10, "request_deadline_s": 120,
+                    "kerf": 3.2, "min_offcut_length": 500},
+        "materials": [{
+            "group": "g",
+            "stock": [{"length": 6000, "quantity": 50},
+                      {"length": 1830, "quantity": 1, "is_offcut": True}],
+            "parts": [{"length": 1800, "quantity": 1}],
+        }],
+    }
+    r = client.post("/optimize", json=body,
+                    headers={"Authorization": f"Bearer {GOOD_KEY}"}).json()["results"][0]
+    used_lengths = {s["stock_length"] for s in r["schemes"]}
+    assert 1830 in used_lengths, f"余料未被优先消耗: {r['schemes']}"
