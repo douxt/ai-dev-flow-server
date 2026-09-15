@@ -42,7 +42,8 @@
 ### 4.6 实弹端到端验证（2026-09-15 16:45，独立实例+真 Claude 面板）
 五步全通：iframe target 直现 → `#active-frame`.contentDocument 穿透 → `[aria-label="Message input"]` 锁定（勿用哈希 class） → focus+insertText 入框 → dispatchKeyEvent(Enter) 发出，对端 agent 回复验证。**焦点结论：OS 前台不需要；页内 focus 由脚本自设。使用规则=可后台不可最小化；面板销毁时 target 缺失可预检降级留字条。** 附带坑：WSL→powershell 重定向输出为 UTF-16/GBK 混合，需落文件中转解码；powershell 内嵌双引号脚本必死引号地狱，一律 -File 脚本。
 
-### 4.7 会话定位（用户切走面板怎么办，2026-09-15 补充）
+### 4.7 会话定位（**已定案：专属唤醒窗口**，2026-09-15 用户拍板）
+运行约定三条：①专窗会话命名 `E1-watch`，不干活/不切会话/可后台不可最小化；②注入文本自带工单（异常摘要+ALERT 路径+处置文档指针），值守会话零上下文可行动，唤醒后 powershell 提示音喊人；③注入前锚文本预检保留（防手滑，一次 evaluate 的保险不省）。五层链=systemd 哨兵→CDP 注入→值守会话→提示音/字条→人裁决，各层可独立降级无单点。下述路 B 降级为理论备胎。（原分析：）
 注入点=面板台上当前会话，用户切走后盲注入会污染无关任务。定案：**路 A 专属窗口**——`claude-vscode.window.open`（命令表实测存在）给 E1 单独开窗口+会话命名做锚，注入前 evaluate 预检正文含锚文本、注入后回读 transcript 确认落点，预检失败降级留字条。路 B=面板内 DOM 点击历史列表切回（命令表无"按 ID 直达会话"，仅 newConversation/reopenClosedSession；可行但脆，未实弹测，备而不用）。
 
 ## 5. 缺口裁决表
