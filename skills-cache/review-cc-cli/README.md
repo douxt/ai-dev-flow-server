@@ -62,7 +62,8 @@ profile 文件 `~/.claude/review-providers.json`（首次 install.sh 自动从�
 - **profile 文件不放密钥明文**，只放路径；密钥仅在子进程 env 展开瞬间存在，不进 prompt/transcript/日志
 - 顶层 `default` 键非 null 时，省略 `--provider` 也会启用该 profile —— **设置即全局改变默认评审端点，确认后再配**；模板默认 null（不改变旧行为）
 - 自然语言输入解析后强制回显 `已解析 provider/model/base_url/来源`；歧义必询问，不猜
-- **零配置兜底**：不要求 provider（裸调用 / `--parallel` / `--loop`）时 provider 体系完全透明，无 profile 文件也走旧行为（继承会话 env），不报错；一旦**显式要求** provider（含自然语言命中、`--hetero` 走 profile 链）而 profile/密钥缺失则硬失败给指引，**不静默回退**（防止"以为换了模型实际没换"）
+- **零配置兜底**：不要求 provider（裸调用 / `--parallel` / `--loop`）时 provider 体系完全透明，无 profile 文件也走旧行为（继承会话 env），不报错、预检亦不触发；一旦**显式要求** provider（含自然语言命中、`--hetero` 走 profile 链）而 profile/密钥缺失则硬失败给指引，**不静默回退**（防止"以为换了模型实际没换"）
+- **模型名时效**：上游端点模型名会漂移（2026-09 实测 deepseek 三连变）——预检①以一次秒级请求拦截整单白烧，通过日期记于 `last_verified`；端点 400 响应自带 supported 列表，确认后回写即可
 - ⚠️ 仅适用于个人独占机器：token 会进入子进程 env，同机进程可读 `/proc/<pid>/environ`
 
 ## 异构双层评审（--hetero）
@@ -71,10 +72,12 @@ profile 文件 `~/.claude/review-providers.json`（首次 install.sh 自动从�
 
 - 零参数可用：裸 `--hetero` = 当前网关最强模型带最便宜模型；配 profile `model`/`pack_model` 后即「pro 带 flash」
 - 默认链：lead = `--lead` > profile.model > opus 别名；pack = `--pack` > profile.pack_model > haiku 别名（provider 激活且缺 pack_model 时 pack:=lead 并警告，**绝不跨端点回退**）
-- **防模型泄漏**：命令模板五路 env 全覆盖（BASE_URL/TOKEN/ANTHROPIC_MODEL/三别名/SUBAGENT）；返回 JSON 的 `modelUsage` 键集合必须恰好 = {lead, pack}，混入第三方键 = 整单失败不采信
-- **防敷衍**：聚合 JSON 强制含 5 个来源键（4 维度 + lead_review），各模型 inputTokens>0 才作数
+- **防模型泄漏（双通道）**：五路 env 封别名解析路径（BASE_URL/TOKEN/ANTHROPIC_MODEL/三别名/SUBAGENT）+ `--setting-sources user` 封 settings 文件 env 段覆盖路径（实测优先级 settings.env > 进程 env）——缺一在配了项目 settings.env 的机器上必泄漏；返回 JSON 的 `modelUsage` 键集合必须恰好 = {lead, pack}（同质 ack 时 = {lead}），混入第三方键 = 整单失败不采信
+- ⚠️ `--setting-sources user` 副作用（双刃，ADR-003）：评审子进程同时**看不到**项目/本地层的 permissions、hooks、MCP 配置——评审为只读子任务属预期收紧，但若你的评审流程依赖项目层配置需知悉；该参数不切断 user 层 settings（其 env 段理论上仍可覆盖，由预检②哨兵侦测上报）
+- **启动预检**：provider/hetero 激活时先跑模型名 smoke（拦上游改名漂移，400 时回显端点 supported 列表并回写 `last_verified`）+ env 污染哨兵（回显 ≠ 注入值即报警），两次秒级小请求，不通过不启动正式评审
+- **防敷衍**：聚合 JSON 强制含 5 个来源键（4 维度 + lead_review），各模型 inputTokens>0 才作数；**兵失败禁代跑**（missing_dimensions 非空 → verdict 强制 BLOCKED），总 inputTokens 单/双层规模核对是代跑照妖镜
 - 权限事实（实测）：评审实例的子代理**不继承**主会话的文件守卫/防火墙钩子——防护为**指挥官与子代理 prompt 层的软约束**（拒发/拒做写执行、子代理只读句硬性植入、禁孙代理嵌套），**非钩子级硬拦截**，理论上可被高强度注入绕过——评审目标按不可信输入设计，但仍勿用于评审你完全不信的来源
-- 同质归一化：lead==pack 判定剥离 `[1m]` 后缀比较；同质继续时账本断言退化为单键 == {lead}
+- 同质归一化：lead==pack 判定剥离 `[1m]` 后缀比较；profile 带 `homogeneous_ack:{date,reason}` 时不重复警告仅回显标注（上游恢复后删字段即还原），同质继续时账本断言退化为单键 == {lead}
 - `--hetero` 与 `--parallel`/`--loop` 互斥；超时默认 900s，外层后台启动
 
 ## 参数速查

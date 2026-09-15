@@ -5,7 +5,9 @@
       "base_url": "https://api.deepseek.com/anthropic",
       "token_file": "~/.claude/secrets/deepseek-anthropic.key",
       "model": "deepseek-v4-pro",
-      "pack_model": "deepseek-v4-flash",
+      "pack_model": "deepseek-flash",
+      "last_verified": "2026-09-15",
+      "_note": "上游模型名会漂移（9 月内 v4-flash→v4.1-flash→flash 实测三连变，v4-pro 名曾被静默路由）——以预检① smoke 通过并刷新 last_verified 为准；上游撤档致 model==pack_model 归一化相等时，可加 homogeneous_ack:{date,reason} 免重复警告，恢复多档后删除即还原",
       "aliases": ["deepseek", "ds", "深度求索"]
     },
     "ali": {
