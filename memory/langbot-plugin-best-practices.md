@@ -307,3 +307,11 @@ execution:
 - **配置读取坑（实锤 cap=1 事故）**：`int(os.environ.get('X', '0') or config.get('k', 0) or 10)` —— 字符串 `'0'` 是 truthy，or 链被 env 默认值截断，config/兜底永不可达 → cap 恒 `int('0')=0` 再被 `max(1,·)` 变 1。env 默认值必须用 `''`。旧代码同款写法没炸只是因为"0=不限制"语义掩盖了它。
 - **lesson 库口径**：用户偏好/事实类变更走 LangBot LTM remember()，反思库只收**行为规则**型教训——批量裁决把"茉莉茶偏好"判 NONE 是正确的，不是漏学。
 - **未闭环挂账**：LTM 是第二学习通道且无四规则门；"断言被记录"≠"事实被确认"，主模型引用 LTM 谨慎条目（"…待明确"）时仍会丢 nuance（9/02 基线答错阿黄实锤）。候选对策：Q1 条款补一行主张/事实区分。
+
+### 31. MCP remote 会话超时后永久损坏，不自愈（2026-09-15）
+
+- **现象**：Meta Quest 群 bot 回复"检索通道报错"。langbot 日志首条 08:48 `MCP tool web_search_exa timed out after 30s`，此后全天多批次调用全部 `anyio.ClosedResourceError`（mcp/shared/session send_request）——一次超时把 session 的 anyio channel 打断后，LangBot MCP client 不会重建会话，之后每次调用必失败，直到重启 langbot。
+- **根因分层**：①触发源=exa 端点瞬时慢响应超 30s（NAS→mcp.exa.ai 网络本身通，curl 405 正常）；②放大器=我们的 `patch_mcp_timeout.py` 用 asyncio.timeout 包 call_tool（8/29 上的补丁），超时取消正是撕坏 session 的刀口；③缺口=LangBot 框架无 MCP 断线重连（与 plugin WS 断连同款框架缺陷家族）。
+- **解决**：按序重启 langbot（等 healthy）→ langbot-plugin，MCP 会话重建即恢复。重启后必查：plugin ECONNREFUSED=0、silent_init kb/vision/reflection=True。
+- **预防**：bot 报"工具/检索不可用"类反馈，先在 langbot 日志 grep `Error invoking MCP tool` 看首条签名——`timed out` 开头=会话已损坏（不是网络问题，curl 端点验证），唯一恢复手段是重启；`connection refused/DNS` 开头才查网络。中期方案：patch 升级为捕获 timeout/ClosedResourceError 后重建 session 再重试一次，摆脱"重启才能救"。
+
