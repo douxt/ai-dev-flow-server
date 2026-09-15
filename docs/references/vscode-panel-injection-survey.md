@@ -39,6 +39,9 @@
 - ⏳ 末项（Claude webview iframe 的焦点路由+Enter 生效）只能等你下次带调试参数重启 VSCode 后在真窗口验，属集成测试非可行性判定。
 - 探针实例已自动关闭清理，未触碰在用窗口。
 
+### 4.6 实弹端到端验证（2026-09-15 16:45，独立实例+真 Claude 面板）
+五步全通：iframe target 直现 → `#active-frame`.contentDocument 穿透 → `[aria-label="Message input"]` 锁定（勿用哈希 class） → focus+insertText 入框 → dispatchKeyEvent(Enter) 发出，对端 agent 回复验证。**焦点结论：OS 前台不需要；页内 focus 由脚本自设。使用规则=可后台不可最小化；面板销毁时 target 缺失可预检降级留字条。** 附带坑：WSL→powershell 重定向输出为 UTF-16/GBK 混合，需落文件中转解码；powershell 内嵌双引号脚本必死引号地狱，一律 -File 脚本。
+
 ## 5. 缺口裁决表
 | 缺口 | 状态 | 证据 |
 |---|---|---|
