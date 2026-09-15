@@ -33,6 +33,12 @@
 - Remote-WSL 拓扑提醒：UI renderer 在 **Windows 进程**里，B 的 CDP 口开在 Win 侧；WSL 要连 9222 需镜像网络或 netsh portproxy（既有经验 [[wsl2-lan-access-netsh-portproxy]]），或干脆把 CDP 客户端放 Win 侧跑。
 - 采购前必测（本地 10 分钟实验）：①带 `--remote-debugging-port=9222` 重启 code.exe，`curl localhost:9222/json/list` 看 Claude webview 是否成 target ②`Input.dispatchKeyEvent` 一串 'x'+Enter，看输入框是否收到并发送 ③若被 Electron 生产构建剥离，则 B 死、转 A+C 组合。
 
+### 4.5 实测结果（2026-09-15 16:30，探针实例）
+- ✅ **稳定版暴露 CDP**：VS Code 1.137.0 (Electron 42.10/Chrome 148) 带 `--remote-debugging-port` 起独立 user-data-dir 实例，`/json/version` 与 `/json/list` 正常，workbench renderer 即 type=page 可附着 target。**B 路线成立，无需走 wake-bridge 退路。**
+- ✅ 端口只绑 `127.0.0.1`（WSL 经网关 172.28.x 不可达，实测）→ **CDP 客户端放 Windows 侧跑**；PowerShell 5.1 自带 `System.Net.WebSockets.ClientWebSocket`，零新依赖；触发链=WSL 哨兵→`powershell.exe -File inject.ps1`→CDP 注入。
+- ⏳ 末项（Claude webview iframe 的焦点路由+Enter 生效）只能等你下次带调试参数重启 VSCode 后在真窗口验，属集成测试非可行性判定。
+- 探针实例已自动关闭清理，未触碰在用窗口。
+
 ## 5. 缺口裁决表
 | 缺口 | 状态 | 证据 |
 |---|---|---|
